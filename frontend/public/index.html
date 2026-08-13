@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>允诺云授权 · 授权查询</title>
+    <link rel="icon" href="/assets/yunnuo-mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css?v=5" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="允诺云授权首页">
+        <img class="brand-mark" src="/assets/yunnuo-mark.svg" alt="" width="40" height="40" />
+        <span>
+          <strong>允诺云授权</strong>
+          <small>License Center</small>
+        </span>
+      </a>
+      <nav>
+        <a href="/agent-console/">代理入口</a>
+        <a href="/admin-console/">管理入口</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="query-section" aria-labelledby="queryTitle">
+        <div class="query-backdrop" aria-hidden="true"></div>
+        <div class="query-inner">
+          <p class="eyebrow">授权验证中心</p>
+          <h1 id="queryTitle">授权查询</h1>
+          <p class="query-lead">验证授权状态、有效期与产品信息</p>
+          <form id="queryForm" class="query-form">
+            <label for="queryValue">授权号或卡密</label>
+            <div class="query-row">
+              <input
+                id="queryValue"
+                name="query"
+                placeholder="输入 lic_... 或完整卡密"
+                autocomplete="off"
+                spellcheck="false"
+                required
+                autofocus
+              />
+              <button type="submit">立即查询</button>
+            </div>
+          </form>
+          <p id="queryError" class="query-error" role="alert"></p>
+          <div class="trust-row" aria-label="查询特性">
+            <span>无需登录</span>
+            <span>实时状态</span>
+            <span>隐私保护</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="resultSection" class="result-section" hidden aria-live="polite">
+        <div class="result-inner">
+          <div class="result-head">
+            <div>
+              <span id="statusBadge" class="status">-</span>
+              <h2 id="productName">-</h2>
+              <code id="productCode">-</code>
+            </div>
+            <button id="clearBtn" class="secondary" type="button">重新查询</button>
+          </div>
+          <dl class="result-grid">
+            <div id="licenseNoItem">
+              <dt>授权号</dt>
+              <dd id="licenseNo">-</dd>
+            </div>
+            <div id="cardStatusItem">
+              <dt>卡密状态</dt>
+              <dd id="cardStatus">-</dd>
+            </div>
+            <div>
+              <dt>授权状态</dt>
+              <dd id="licenseStatus">-</dd>
+            </div>
+            <div>
+              <dt>授权规格</dt>
+              <dd id="duration">-</dd>
+            </div>
+            <div>
+              <dt>激活时间</dt>
+              <dd id="activatedAt">-</dd>
+            </div>
+            <div>
+              <dt>到期时间</dt>
+              <dd id="expiredAt">-</dd>
+            </div>
+            <div>
+              <dt>最近验证</dt>
+              <dd id="lastVerifyAt">-</dd>
+            </div>
+            <div>
+              <dt>服务器时间</dt>
+              <dd id="serverTime">-</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+    </main>
+
+    <footer><span>允诺云授权系统</span><span>查询结果以服务器记录为准</span></footer>
+    <script src="/app.js?v=4"></script>
+  </body>
+</html>

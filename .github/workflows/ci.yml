@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: backend/go.sum
+      - run: test -z "$(gofmt -l .)"
+      - run: go test ./...
+
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache-dependency-path: sdk/go/go.mod
+      - name: Test Go SDK
+        working-directory: sdk/go
+        run: test -z "$(gofmt -l .)" && go test ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test Node.js SDK
+        working-directory: sdk/node
+        run: npm test && npm run check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Test Java SDK
+        working-directory: sdk/java
+        run: mvn -B test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check browser JavaScript
+        run: |
+          node --check frontend/public/app.js
+          node --check frontend/admin/app.js
+          node --check frontend/agent/app.js
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test all-in-one image
+        run: ./docker/test-image.sh yunnuo-license:test

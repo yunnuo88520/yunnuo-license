@@ -1,0 +1,8 @@
+.git
+.DS_Store
+.env
+backend/.gocache
+backend/yn-license-dev.db*
+sdk
+docs
+frontend/**/*.map

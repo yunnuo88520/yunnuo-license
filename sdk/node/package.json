@@ -1,0 +1,36 @@
+{
+  "name": "@yunnuo/license-sdk",
+  "version": "0.1.0",
+  "description": "Official Node.js SDK for Yunnuo Cloud License",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/index.js && node --check src/client.js && node --check src/offline.js && node --check src/highwater.js"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/yunnuo88520/yunnuo-license/tree/main/sdk/node",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yunnuo88520/yunnuo-license.git",
+    "directory": "sdk/node"
+  },
+  "bugs": {
+    "url": "https://github.com/yunnuo88520/yunnuo-license/issues"
+  },
+  "private": true
+}

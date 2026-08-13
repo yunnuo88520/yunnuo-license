@@ -1,0 +1,38 @@
+name: Bug 报告
+description: 报告可复现的功能问题
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 安全漏洞请按照 SECURITY.md 私密报告，不要在此公开。
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 实际行为与预期行为分别是什么？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      placeholder: 请提供最小、完整的复现步骤。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 操作系统、架构、Docker 或运行时版本等。
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或截图
+      description: 请先移除卡密、Token、密钥、密码和客户数据。

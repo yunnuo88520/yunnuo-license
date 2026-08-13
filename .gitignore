@@ -1,0 +1,28 @@
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go
+backend/.gocache/
+sdk/go/.gocache/
+sdk/node/node_modules/
+sdk/node/*.tgz
+sdk/java/target/
+sdk/java/.m2/
+.m2/
+backend/yn-license-dev.db
+backend/yn-license-dev.db-*
+docker/test-bin/
+
+# Local env
+.env
+*.local
+.env.*
+!.env.example
+
+# Test and coverage output
+coverage/
+*.coverprofile
+*.log
