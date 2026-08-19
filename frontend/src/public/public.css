@@ -1,0 +1,223 @@
+.query-canvas {
+  min-height: 100vh;
+  background: #eaf0e9;
+  color: #111512;
+  overflow: hidden;
+}
+.query-nav {
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(20px, 5vw, 76px);
+  border-bottom: 1px solid rgba(18, 25, 20, 0.18);
+}
+.query-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-weight: 800;
+}
+.query-brand img {
+  width: 34px;
+}
+.query-nav > div {
+  display: flex;
+  gap: 24px;
+}
+.query-nav > div a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.query-stage {
+  position: relative;
+  min-height: calc(100vh - 76px);
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(330px, 0.85fr);
+  align-items: center;
+  padding: 8vh clamp(20px, 7vw, 110px);
+  background-image:
+    linear-gradient(rgba(17, 21, 18, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 21, 18, 0.055) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+.stage-index {
+  position: absolute;
+  top: 34px;
+  left: clamp(20px, 7vw, 110px);
+  font-size: 9px;
+  line-height: 1.8;
+  color: #768078;
+}
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--green);
+  font: 500 11px "DM Mono";
+}
+.query-copy h1 {
+  margin: 24px 0 30px;
+  font-size: 112px;
+  line-height: 0.82;
+  letter-spacing: 0;
+  font-weight: 900;
+}
+.query-copy h1 em {
+  color: transparent;
+  -webkit-text-stroke: 2px #111512;
+  font-style: normal;
+}
+.query-copy p {
+  max-width: 430px;
+  color: #5d665f;
+  font-size: 15px;
+}
+.query-form {
+  align-self: center;
+  padding: clamp(22px, 4vw, 48px);
+  border-left: 1px solid #aeb6af;
+}
+.query-form > label {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.query-input {
+  display: grid;
+  grid-template-columns: auto 1fr 54px;
+  align-items: center;
+  gap: 13px;
+  border-bottom: 2px solid #111512;
+}
+.query-input input {
+  min-width: 0;
+  height: 62px;
+  border: 0;
+  background: transparent;
+  font: 16px "DM Mono";
+  outline: 0;
+}
+.query-input button {
+  height: 54px;
+  border: 0;
+  background: #111512;
+  color: var(--acid);
+}
+.stage-rule {
+  position: absolute;
+  left: clamp(20px, 7vw, 110px);
+  right: clamp(20px, 7vw, 110px);
+  bottom: 28px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.stage-rule span {
+  height: 1px;
+  flex: 1;
+  background: #aab2ab;
+}
+.stage-rule small {
+  font-size: 9px;
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+.query-result {
+  padding: clamp(36px, 7vw, 100px) clamp(20px, 10vw, 150px);
+  background: #111512;
+  color: #f3f7f3;
+}
+.result-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  border-bottom: 1px solid #394039;
+  padding-bottom: 34px;
+}
+.result-title h2 {
+  margin: 20px 0 5px;
+  font-size: 42px;
+}
+.result-title code {
+  color: #87928a;
+}
+.query-result dl {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 0 0 30px;
+}
+.query-result dl div {
+  min-width: 0;
+  padding: 24px 18px;
+  border-right: 1px solid #394039;
+  border-bottom: 1px solid #394039;
+}
+.query-result dt {
+  color: #849087;
+  font-size: 11px;
+}
+.query-result dd {
+  margin: 9px 0 0;
+  overflow-wrap: anywhere;
+}
+.query-result .btn.secondary {
+  color: #fff;
+}
+.result-enter-active,
+.result-leave-active {
+  transition: 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.result-enter-from {
+  opacity: 0;
+  transform: translateY(80px);
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 800px) {
+  .query-nav > div a:last-child {
+    display: none;
+  }
+  .query-stage {
+    grid-template-columns: 1fr;
+    padding-top: 120px;
+  }
+  .query-copy h1 {
+    font-size: 70px;
+  }
+  .query-form {
+    padding: 35px 0;
+    border-left: 0;
+  }
+  .query-result dl {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 430px) {
+  .query-nav {
+    height: 64px;
+  }
+  .query-stage {
+    min-height: calc(100vh - 64px);
+    padding-top: 105px;
+  }
+  .query-copy h1 {
+    font-size: 56px;
+  }
+  .query-input {
+    grid-template-columns: auto 1fr 48px;
+  }
+  .query-result dl {
+    grid-template-columns: 1fr;
+  }
+  .result-title h2 {
+    font-size: 30px;
+  }
+}

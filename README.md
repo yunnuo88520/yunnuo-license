@@ -63,7 +63,16 @@ HTTPS 反向代理，并妥善备份 Docker 数据卷。完整参数与升级说
 
 ## 本地开发
 
-需要 Go 1.26。后端开发模式使用 SQLite，无需单独安装数据库：
+需要 Go 1.26 和 Node.js 22。后端开发模式使用 SQLite，无需单独安装数据库。
+首次启动前构建 Vue 前端：
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
+然后启动后端：
 
 ```bash
 cd backend
@@ -93,6 +102,7 @@ SDK 当前随源码提供，尚未发布到公共包仓库。各语言的初始�
 
 ```bash
 (cd backend && go test ./...)
+(cd frontend && npm ci && npm run check && npm run build)
 (cd sdk/go && go test ./...)
 (cd sdk/node && npm test && npm run check)
 (cd sdk/java && mvn -B test)

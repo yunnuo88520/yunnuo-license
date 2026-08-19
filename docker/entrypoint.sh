@@ -46,9 +46,9 @@ done
 export YN_ADDR="${YN_ADDR:-:8080}"
 export YN_DB_DRIVER=mysql
 export YN_DB="${YN_DB:-${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(127.0.0.1:3306)/${MYSQL_DATABASE}?charset=utf8mb4&collation=utf8mb4_unicode_ci&multiStatements=true&parseTime=false}"
-export YN_PUBLIC_STATIC_DIR="${YN_PUBLIC_STATIC_DIR:-/opt/yunnuo/frontend/public}"
-export YN_ADMIN_STATIC_DIR="${YN_ADMIN_STATIC_DIR:-/opt/yunnuo/frontend/admin}"
-export YN_AGENT_STATIC_DIR="${YN_AGENT_STATIC_DIR:-/opt/yunnuo/frontend/agent}"
+export YN_PUBLIC_STATIC_DIR="${YN_PUBLIC_STATIC_DIR:-/opt/yunnuo/frontend}"
+export YN_ADMIN_STATIC_DIR="${YN_ADMIN_STATIC_DIR:-/opt/yunnuo/frontend/admin-console}"
+export YN_AGENT_STATIC_DIR="${YN_AGENT_STATIC_DIR:-/opt/yunnuo/frontend/agent-console}"
 
 cd /opt/yunnuo/backend
 /usr/local/bin/yunnuo-server &
