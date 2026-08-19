@@ -47,11 +47,21 @@ function syncAgentPage() {
   for (const view of document.querySelectorAll(".page-view")) {
     view.classList.toggle("is-current", view.dataset.page === page);
   }
+  let currentLink = null;
   for (const link of document.querySelectorAll("[data-page-link]")) {
     const current = link.dataset.pageLink === page;
     link.classList.toggle("active", current);
-    if (current) link.setAttribute("aria-current", "page");
+    if (current) {
+      link.setAttribute("aria-current", "page");
+      currentLink = link;
+    }
     else link.removeAttribute("aria-current");
+  }
+  if (currentLink && window.matchMedia("(max-width: 720px)").matches) {
+    const nav = currentLink.closest(".nav");
+    window.requestAnimationFrame(() => {
+      nav.scrollLeft = currentLink.offsetLeft - (nav.clientWidth - currentLink.clientWidth) / 2;
+    });
   }
 }
 
