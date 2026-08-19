@@ -54,6 +54,8 @@ curl --fail --silent --show-error "$base/healthz" | grep -q '"status":"ok"'
 curl --fail --silent --show-error "$base/" | grep -q '允诺云授权'
 curl --fail --silent --show-error "$base/styles.css?v=5" | grep -q -- '--green'
 curl --fail --silent --show-error "$base/assets/yunnuo-mark.svg" | grep -q '<svg'
+curl --fail --silent --show-error "$base/assets/lucide.min.js?v=1" | grep -q 'createIcons'
+curl --fail --silent --show-error "$base/assets/ui.js?v=1" | grep -q 'setupSignalCanvas'
 curl --fail --silent --show-error "$base/admin-console/" | grep -q '管理端安全登录'
 
 published_ports="$(docker port "$container")"

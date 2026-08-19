@@ -3,9 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111412" />
     <title>允诺云授权系统</title>
     <link rel="icon" href="/assets/yunnuo-mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=15" />
+    <link rel="stylesheet" href="./styles.css?v=20" />
   </head>
   <body>
     <section id="loginScreen" class="login-screen" aria-labelledby="loginTitle">
@@ -47,16 +48,17 @@
         </div>
       </div>
       <nav class="nav" aria-label="管理台导航">
-        <a href="#overview" data-page-link="overview">概览</a>
-        <a href="#products" data-page-link="products">产品</a>
-        <a href="#agents" data-page-link="agents">代理</a>
-        <a href="#cards" data-page-link="cards">卡密</a>
-        <a href="#licenses" data-page-link="licenses">授权</a>
-        <a href="#tools" data-page-link="tools">联调工具</a>
-        <a href="#offline" data-page-link="offline">离线授权</a>
-        <a href="#audit" data-page-link="audit">审计</a>
-        <a href="#admins" data-page-link="admins">系统</a>
+        <a href="#overview" data-page-link="overview" data-icon="layout-dashboard">概览</a>
+        <a href="#products" data-page-link="products" data-icon="boxes">产品</a>
+        <a href="#agents" data-page-link="agents" data-icon="users-round">代理</a>
+        <a href="#cards" data-page-link="cards" data-icon="ticket-check">卡密</a>
+        <a href="#licenses" data-page-link="licenses" data-icon="badge-check">授权</a>
+        <a href="#tools" data-page-link="tools" data-icon="terminal">联调工具</a>
+        <a href="#offline" data-page-link="offline" data-icon="file-key-2">离线授权</a>
+        <a href="#audit" data-page-link="audit" data-icon="scroll-text">审计</a>
+        <a href="#admins" data-page-link="admins" data-icon="settings-2">系统</a>
       </nav>
+      <div class="sidebar-meta"><span></span><small>SECURE NODE / ONLINE</small></div>
     </aside>
 
     <main class="main">
@@ -67,8 +69,8 @@
         </div>
         <div class="toolbar">
           <span id="adminIdentity" class="admin-identity"></span>
-          <button id="refreshBtn" class="secondary" type="button">刷新</button>
-          <button id="logoutBtn" class="secondary" type="button">退出</button>
+          <button id="refreshBtn" class="icon-button secondary" type="button" data-icon="refresh-cw" aria-label="刷新" title="刷新"><span class="sr-only">刷新</span></button>
+          <button id="logoutBtn" class="icon-button secondary" type="button" data-icon="log-out" aria-label="退出" title="退出"><span class="sr-only">退出</span></button>
         </div>
       </header>
 
@@ -683,12 +685,14 @@
     <dialog id="keyRingDialog" class="key-dialog">
       <div class="dialog-head">
         <strong id="keyRingTitle">产品公钥</strong>
-        <button class="secondary" type="button" aria-label="关闭" title="关闭" onclick="closeKeyRing()">×</button>
+        <button class="icon-button secondary" type="button" data-icon="x" aria-label="关闭" title="关闭" onclick="closeKeyRing()"><span class="sr-only">关闭</span></button>
       </div>
       <div id="keyRingContent" class="key-list"></div>
     </dialog>
 
     <div id="toast" class="toast" role="status"></div>
-    <script src="./app.js?v=14"></script>
+    <script src="/assets/lucide.min.js?v=1"></script>
+    <script src="/assets/ui.js?v=1"></script>
+    <script src="./app.js?v=20"></script>
   </body>
 </html>

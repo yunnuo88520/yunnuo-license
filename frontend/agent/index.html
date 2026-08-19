@@ -3,9 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111412" />
     <title>允诺云授权 · 代理工作台</title>
     <link rel="icon" href="/assets/yunnuo-mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=5" />
+    <link rel="stylesheet" href="./styles.css?v=20" />
   </head>
   <body>
     <section id="loginScreen" class="login-screen" aria-labelledby="loginTitle">
@@ -51,12 +52,13 @@
         </div>
       </div>
       <nav class="nav" aria-label="代理工作台导航">
-        <a href="#overview" data-page-link="overview">业务概览</a>
-        <a href="#generate" data-page-link="generate">生成卡密</a>
-        <a href="#batches" data-page-link="batches">卡密批次</a>
-        <a href="#licenses" data-page-link="licenses">授权记录</a>
-        <a href="#ledgers" data-page-link="ledgers">额度流水</a>
+        <a href="#overview" data-page-link="overview" data-icon="layout-dashboard">业务概览</a>
+        <a href="#generate" data-page-link="generate" data-icon="sparkles">生成卡密</a>
+        <a href="#batches" data-page-link="batches" data-icon="ticket-check">卡密批次</a>
+        <a href="#licenses" data-page-link="licenses" data-icon="badge-check">授权记录</a>
+        <a href="#ledgers" data-page-link="ledgers" data-icon="list-restart">额度流水</a>
       </nav>
+      <div class="sidebar-meta"><span></span><small>PARTNER NODE / ONLINE</small></div>
     </aside>
 
     <main class="main">
@@ -67,8 +69,8 @@
         </div>
         <div class="toolbar">
           <span id="userIdentity" class="identity"></span>
-          <button id="refreshBtn" class="secondary" type="button">刷新</button>
-          <button id="logoutBtn" class="secondary" type="button">退出</button>
+          <button id="refreshBtn" class="icon-button secondary" type="button" data-icon="refresh-cw" aria-label="刷新" title="刷新"><span class="sr-only">刷新</span></button>
+          <button id="logoutBtn" class="icon-button secondary" type="button" data-icon="log-out" aria-label="退出" title="退出"><span class="sr-only">退出</span></button>
         </div>
       </header>
 
@@ -147,7 +149,6 @@
               <button id="copyCodesBtn" class="secondary" type="button" disabled>复制</button>
               <button id="downloadCodesBtn" class="secondary" type="button" disabled>下载</button>
             </div>
-          </div>
           <pre id="codeBox" class="code-box">生成或导出后显示明文卡密</pre>
         </div>
 
@@ -238,6 +239,8 @@
     </main>
 
     <div id="toast" class="toast" role="status"></div>
-    <script src="./app.js?v=4"></script>
+    <script src="/assets/lucide.min.js?v=1"></script>
+    <script src="/assets/ui.js?v=1"></script>
+    <script src="./app.js?v=20"></script>
   </body>
 </html>

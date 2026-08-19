@@ -58,6 +58,7 @@ jobs:
           node-version: '22'
       - name: Check browser JavaScript
         run: |
+          node --check frontend/public/assets/ui.js
           node --check frontend/public/app.js
           node --check frontend/admin/app.js
           node --check frontend/agent/app.js

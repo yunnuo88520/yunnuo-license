@@ -49,10 +49,13 @@ function renderResult(result) {
   $("#licenseNoItem").hidden = !result.license_no;
   $("#cardStatusItem").hidden = !result.card_status;
   $("#resultSection").hidden = false;
+  requestAnimationFrame(() => $("#resultSection").classList.add("result-visible"));
+  window.YNUI?.queueIconRefresh();
   $("#resultSection").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function clearResult() {
+  $("#resultSection").classList.remove("result-visible");
   $("#resultSection").hidden = true;
   $("#queryValue").value = "";
   $("#queryError").textContent = "";
