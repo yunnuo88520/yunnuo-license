@@ -37,13 +37,19 @@ var (
 )
 
 type API struct {
-	service          *service.Service
-	publicStaticDir  string
-	adminStaticDir   string
-	agentStaticDir   string
-	adminLoginLimit  *fixedWindowLimiter
-	agentLoginLimit  *fixedWindowLimiter
-	publicQueryLimit *fixedWindowLimiter
+	service           *service.Service
+	publicStaticDir   string
+	adminStaticDir    string
+	agentStaticDir    string
+	adminLoginLimit   *fixedWindowLimiter
+	agentLoginLimit   *fixedWindowLimiter
+	publicQueryLimit  *fixedWindowLimiter
+	trustProxyHeaders bool
+}
+
+func (api *API) WithTrustedProxyHeaders(enabled bool) *API {
+	api.trustProxyHeaders = enabled
+	return api
 }
 
 func New(svc *service.Service, publicStaticDir, adminStaticDir, agentStaticDir string) *API {
@@ -90,6 +96,12 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/offline-licenses", api.withAdmin(api.createOfflineLicense, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/offline-licenses/", api.withAdmin(api.offlineLicenseDetail, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/offline-licenses/", api.withAdmin(api.offlineLicenseDetail, adminWriteRoles...))
+	mux.HandleFunc("GET /admin/risk/summary", api.withAdmin(api.riskSummary, adminReadRoles...))
+	mux.HandleFunc("GET /admin/risk/blocks", api.withAdmin(api.listRiskBlocks, adminReadRoles...))
+	mux.HandleFunc("POST /admin/risk/blocks", api.withAdmin(api.createRiskBlock, adminWriteRoles...))
+	mux.HandleFunc("POST /admin/risk/blocks/{blockID}/disable", api.withAdmin(api.disableRiskBlock, adminWriteRoles...))
+	mux.HandleFunc("GET /admin/risk/alerts", api.withAdmin(api.listRiskAlerts, adminReadRoles...))
+	mux.HandleFunc("POST /admin/risk/alerts/{alertID}/resolve", api.withAdmin(api.resolveRiskAlert, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/audit-logs", api.withAdmin(api.listAuditLogs, adminReadRoles...))
 	mux.HandleFunc("POST /v1/licenses/activate", api.activate)
 	mux.HandleFunc("POST /v1/licenses/verify", api.verify)
@@ -663,7 +675,7 @@ func (api *API) activate(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &input) {
 		return
 	}
-	input.ClientIP = clientIP(r)
+	input.ClientIP = api.clientIP(r)
 	input.UserAgent = r.UserAgent()
 	result, err := api.service.Activate(r.Context(), input)
 	if err != nil {
@@ -678,7 +690,7 @@ func (api *API) verify(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &input) {
 		return
 	}
-	input.ClientIP = clientIP(r)
+	input.ClientIP = api.clientIP(r)
 	input.UserAgent = r.UserAgent()
 	result, err := api.service.Verify(r.Context(), input)
 	if err != nil {
@@ -693,7 +705,7 @@ func (api *API) heartbeat(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &input) {
 		return
 	}
-	input.ClientIP = clientIP(r)
+	input.ClientIP = api.clientIP(r)
 	input.UserAgent = r.UserAgent()
 	result, err := api.service.Heartbeat(r.Context(), input)
 	if err != nil {
@@ -708,6 +720,8 @@ func (api *API) renew(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &input) {
 		return
 	}
+	input.ClientIP = api.clientIP(r)
+	input.UserAgent = r.UserAgent()
 	result, err := api.service.Renew(r.Context(), input)
 	if err != nil {
 		writeError(w, r, err)
@@ -721,6 +735,8 @@ func (api *API) unbind(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &input) {
 		return
 	}
+	input.ClientIP = api.clientIP(r)
+	input.UserAgent = r.UserAgent()
 	result, err := api.service.Unbind(r.Context(), input)
 	if err != nil {
 		writeError(w, r, err)
@@ -1010,13 +1026,23 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func clientIP(r *http.Request) string {
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		return strings.TrimSpace(strings.Split(forwarded, ",")[0])
+func (api *API) clientIP(r *http.Request) string {
+	if api.trustProxyHeaders {
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			if ip := net.ParseIP(strings.TrimSpace(strings.Split(forwarded, ",")[0])); ip != nil {
+				return ip.String()
+			}
+		}
+		if realIP := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); realIP != nil {
+			return realIP.String()
+		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
 	}
 	return host
 }

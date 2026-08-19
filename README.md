@@ -18,6 +18,7 @@
 - 在线验证、心跳、解绑、吊销和公开授权查询
 - 在线缓存凭证与完全离线授权文件
 - 管理员角色权限与审计日志
+- IP/设备黑名单、异常激活检测与风控告警
 - 代理账号、产品策略、发卡额度和代理数据隔离
 - Go、Java、Node.js 客户端 SDK
 - 单 Docker 镜像部署，内置 MySQL，仅需开放 Web 端口
@@ -75,6 +76,7 @@ go run ./cmd/server
 
 API 接入示例见 [API Quickstart](docs/api/quickstart.md)，详细设计见
 [系统设计](docs/system-design-v1.md)。
+风控规则、告警阈值与数据处理方式见 [风控中心](docs/risk-control.md)。
 
 ## SDK
 

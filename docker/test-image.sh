@@ -30,6 +30,7 @@ docker run -d --name "$container" \
   -e YN_ADMIN_PASSWORD="$admin_password" \
   -e YN_CARD_PEPPER=docker-test-card-pepper \
   -e YN_DATA_KEY=docker-test-data-key \
+  -e YN_TRUST_PROXY_HEADERS=true \
   "$image" >/dev/null
 
 for attempt in $(seq 1 120); do
@@ -57,6 +58,7 @@ curl --fail --silent --show-error "$base/assets/yunnuo-mark.svg" | grep -q '<svg
 curl --fail --silent --show-error "$base/assets/lucide.min.js?v=1" | grep -q 'createIcons'
 curl --fail --silent --show-error "$base/assets/ui.js?v=1" | grep -q 'setupSignalCanvas'
 curl --fail --silent --show-error "$base/admin-console/" | grep -q '管理端安全登录'
+curl --fail --silent --show-error "$base/admin-console/" | grep -q '授权风控中心'
 
 published_ports="$(docker port "$container")"
 grep -q '^8080/tcp' <<<"$published_ports"
@@ -76,10 +78,26 @@ product_response="$(curl --fail --silent --show-error -X POST "$base/admin/produ
 product_id="$(json_get 'data["data"]["id"]' <<<"$product_response")"
 app_key="$(json_get 'data["data"]["app_key"]' <<<"$product_response")"
 
+risk_block_response="$(curl --fail --silent --show-error -X POST "$base/admin/risk/blocks" \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
+  -d "{\"product_id\":\"$product_id\",\"kind\":\"ip\",\"value\":\"203.0.113.77\",\"reason\":\"Docker E2E risk check\"}")"
+grep -Fq '203.0.113.*' <<<"$risk_block_response"
+curl --fail --silent --show-error "$base/admin/risk/summary" \
+  -H "Authorization: Bearer $admin_token" | grep -q '"active_blocks":1'
+
 batch_response="$(curl --fail --silent --show-error -X POST "$base/admin/card-batches" \
   -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
   -d "{\"product_id\":\"$product_id\",\"name\":\"Docker E2E\",\"quantity\":1,\"duration_days\":30}")"
 card_code="$(json_get 'data["data"]["codes"][0]' <<<"$batch_response")"
+
+blocked_response="$(curl --silent --show-error -X POST "$base/v1/licenses/activate" \
+  -H 'Content-Type: application/json' -H 'X-Forwarded-For: 203.0.113.77' \
+  -d "{\"app_key\":\"$app_key\",\"card_code\":\"$card_code\",\"bind_mode\":\"device\",\"bind_value\":\"docker-machine\"}" \
+  -w $'\n%{http_code}')"
+blocked_status="${blocked_response##*$'\n'}"
+blocked_body="${blocked_response%$'\n'*}"
+[[ "$blocked_status" == "403" ]]
+grep -q 'RISK_IP_BLOCKED' <<<"$blocked_body"
 
 activate_response="$(curl --fail --silent --show-error -X POST "$base/v1/licenses/activate" \
   -H 'Content-Type: application/json' \

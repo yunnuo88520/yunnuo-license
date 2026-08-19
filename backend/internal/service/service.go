@@ -777,6 +777,10 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 	if err != nil {
 		return LicenseResponse{}, err
 	}
+	if err := s.checkRiskAccess(ctx, product.ID, input.ClientIP, bindMode, bindValue); err != nil {
+		_ = s.auditClient(ctx, product.ID, "", "", "license.activate", "failed", errorCode(err), input.ClientIP, input.UserAgent)
+		return LicenseResponse{}, err
+	}
 	now := s.now()
 	codeHash := yncrypto.CardHash(s.cardPepper, input.CardCode)
 	var lic domain.License
@@ -859,10 +863,12 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 		return tx.CreateBinding(ctx, binding)
 	})
 	if err != nil {
-		_ = s.audit(ctx, "client", "", product.ID, "", "", "license.activate", "failed", errorCode(err))
+		_ = s.auditClient(ctx, product.ID, "", "", "license.activate", "failed", errorCode(err), input.ClientIP, input.UserAgent)
+		s.evaluateFailedActivationRisk(ctx, product.ID, input.ClientIP)
 		return LicenseResponse{}, err
 	}
-	_ = s.audit(ctx, "client", "", product.ID, lic.ID, "", "license.activate", "success", "")
+	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.activate", "success", "", input.ClientIP, input.UserAgent)
+	s.evaluateActivationRisk(ctx, product.ID, lic, binding, input.ClientIP, bindValue)
 	return s.licenseResponse(product, lic, binding, now)
 }
 
@@ -881,8 +887,12 @@ func (s *Service) Verify(ctx context.Context, input VerifyInput) (LicenseRespons
 	if err != nil {
 		return LicenseResponse{}, err
 	}
-	bindMode, _, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
+	bindMode, bindValue, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
 	if err != nil {
+		return LicenseResponse{}, err
+	}
+	if err := s.checkRiskAccess(ctx, product.ID, input.ClientIP, bindMode, bindValue); err != nil {
+		_ = s.auditClient(ctx, product.ID, "", "", "license.verify", "failed", errorCode(err), input.ClientIP, input.UserAgent)
 		return LicenseResponse{}, err
 	}
 	now := s.now()
@@ -916,10 +926,10 @@ func (s *Service) Verify(ctx context.Context, input VerifyInput) (LicenseRespons
 		return tx.UpdateLicenseVerify(ctx, lic.ID, now)
 	})
 	if err != nil {
-		_ = s.audit(ctx, "client", "", product.ID, "", "", "license.verify", "failed", errorCode(err))
+		_ = s.auditClient(ctx, product.ID, "", "", "license.verify", "failed", errorCode(err), input.ClientIP, input.UserAgent)
 		return LicenseResponse{}, err
 	}
-	_ = s.audit(ctx, "client", "", product.ID, lic.ID, "", "license.verify", "success", "")
+	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.verify", "success", "", input.ClientIP, input.UserAgent)
 	return s.licenseResponse(product, lic, binding, now)
 }
 
@@ -928,8 +938,12 @@ func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]
 	if err != nil {
 		return nil, err
 	}
-	bindMode, _, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
+	bindMode, bindValue, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.checkRiskAccess(ctx, product.ID, input.ClientIP, bindMode, bindValue); err != nil {
+		_ = s.auditClient(ctx, product.ID, "", "", "license.heartbeat", "failed", errorCode(err), input.ClientIP, input.UserAgent)
 		return nil, err
 	}
 	now := s.now()
@@ -954,8 +968,10 @@ func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]
 		return tx.UpdateHeartbeat(ctx, lic.ID, binding.ID, now, input.ClientIP)
 	})
 	if err != nil {
+		_ = s.auditClient(ctx, product.ID, "", "", "license.heartbeat", "failed", errorCode(err), input.ClientIP, input.UserAgent)
 		return nil, err
 	}
+	_ = s.auditClient(ctx, product.ID, "", "", "license.heartbeat", "success", "", input.ClientIP, input.UserAgent)
 	return map[string]any{"accepted": true, "server_time": now}, nil
 }
 
@@ -965,6 +981,8 @@ type RenewInput struct {
 	RenewCardCode string `json:"renew_card_code"`
 	BindMode      string `json:"bind_mode"`
 	BindValue     string `json:"bind_value"`
+	ClientIP      string `json:"-"`
+	UserAgent     string `json:"-"`
 }
 
 func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse, error) {
@@ -972,8 +990,12 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 	if err != nil {
 		return LicenseResponse{}, err
 	}
-	bindMode, _, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
+	bindMode, bindValue, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
 	if err != nil {
+		return LicenseResponse{}, err
+	}
+	if err := s.checkRiskAccess(ctx, product.ID, input.ClientIP, bindMode, bindValue); err != nil {
+		_ = s.auditClient(ctx, product.ID, "", "", "license.renew", "failed", errorCode(err), input.ClientIP, input.UserAgent)
 		return LicenseResponse{}, err
 	}
 	if !yncrypto.ValidateChecksum(product.Code, input.RenewCardCode) {
@@ -1032,9 +1054,10 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 		return nil
 	})
 	if err != nil {
+		_ = s.auditClient(ctx, product.ID, "", "", "license.renew", "failed", errorCode(err), input.ClientIP, input.UserAgent)
 		return LicenseResponse{}, err
 	}
-	_ = s.audit(ctx, "client", "", product.ID, lic.ID, "", "license.renew", "success", "")
+	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.renew", "success", "", input.ClientIP, input.UserAgent)
 	return s.licenseResponse(product, lic, binding, now)
 }
 
@@ -1044,6 +1067,8 @@ type UnbindInput struct {
 	BindMode  string `json:"bind_mode"`
 	BindValue string `json:"bind_value"`
 	Reason    string `json:"reason"`
+	ClientIP  string `json:"-"`
+	UserAgent string `json:"-"`
 }
 
 func (s *Service) Unbind(ctx context.Context, input UnbindInput) (map[string]any, error) {
@@ -1051,8 +1076,12 @@ func (s *Service) Unbind(ctx context.Context, input UnbindInput) (map[string]any
 	if err != nil {
 		return nil, err
 	}
-	bindMode, _, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
+	bindMode, bindValue, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.checkRiskAccess(ctx, product.ID, input.ClientIP, bindMode, bindValue); err != nil {
+		_ = s.auditClient(ctx, product.ID, "", "", "license.unbind", "failed", errorCode(err), input.ClientIP, input.UserAgent)
 		return nil, err
 	}
 	now := s.now()
@@ -1083,10 +1112,10 @@ func (s *Service) Unbind(ctx context.Context, input UnbindInput) (map[string]any
 		return tx.MarkBindingUnbound(ctx, binding.ID, now)
 	})
 	if err != nil {
-		_ = s.audit(ctx, "client", "", product.ID, "", "", "license.unbind", "failed", errorCode(err))
+		_ = s.auditClient(ctx, product.ID, "", "", "license.unbind", "failed", errorCode(err), input.ClientIP, input.UserAgent)
 		return nil, err
 	}
-	_ = s.audit(ctx, "client", "", product.ID, lic.ID, "", "license.unbind", "success", "")
+	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.unbind", "success", "", input.ClientIP, input.UserAgent)
 	return map[string]any{"unbound": true, "license_no": lic.LicenseNo, "server_time": now}, nil
 }
 

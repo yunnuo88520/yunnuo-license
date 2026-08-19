@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#111412" />
     <title>允诺云授权系统</title>
     <link rel="icon" href="/assets/yunnuo-mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20" />
+    <link rel="stylesheet" href="./styles.css?v=21" />
   </head>
   <body>
     <section id="loginScreen" class="login-screen" aria-labelledby="loginTitle">
@@ -53,6 +53,7 @@
         <a href="#agents" data-page-link="agents" data-icon="users-round">代理</a>
         <a href="#cards" data-page-link="cards" data-icon="ticket-check">卡密</a>
         <a href="#licenses" data-page-link="licenses" data-icon="badge-check">授权</a>
+        <a href="#risk" data-page-link="risk" data-icon="shield-alert">风控</a>
         <a href="#tools" data-page-link="tools" data-icon="terminal">联调工具</a>
         <a href="#offline" data-page-link="offline" data-icon="file-key-2">离线授权</a>
         <a href="#audit" data-page-link="audit" data-icon="scroll-text">审计</a>
@@ -568,6 +569,45 @@
           </div>
         </div>
 
+        <div class="panel wide page-view" id="risk" data-page="risk">
+          <div class="panel-head">
+            <div>
+              <h3>授权风控中心</h3>
+              <p class="panel-caption">黑名单请求会被直接拒绝，异常行为仅产生告警并等待人工处置。</p>
+            </div>
+            <button type="button" data-roles="super_admin,admin" data-action-trigger="risk-block-create" onclick="toggleActionPanel('risk-block-create')">新增封禁</button>
+          </div>
+          <div class="risk-summary" aria-label="风控概览">
+            <div><span>生效封禁</span><strong id="riskActiveBlocks">0</strong></div>
+            <div><span>待处理告警</span><strong id="riskOpenAlerts">0</strong></div>
+            <div><span>严重告警</span><strong id="riskCriticalAlerts">0</strong></div>
+            <div><span>近 24 小时</span><strong id="riskAlerts24h">0</strong></div>
+          </div>
+          <form id="riskBlockForm" class="form-grid action-form" data-action-panel="risk-block-create" data-roles="super_admin,admin">
+            <label>封禁类型<select name="kind"><option value="ip">IP 地址</option><option value="device">设备指纹</option></select></label>
+            <label>生效范围<select name="product_id" id="riskBlockProduct"></select></label>
+            <label>目标值<input name="value" maxlength="256" placeholder="IP 地址或完整设备指纹" required /></label>
+            <label>封禁原因<input name="reason" maxlength="500" placeholder="记录明确的处置依据" required /></label>
+            <div class="form-actions"><button type="submit">立即封禁</button></div>
+          </form>
+          <div class="panel-subhead risk-section-head"><div><strong>异常告警</strong><span>同类未处理事件会自动聚合计数</span></div></div>
+          <form id="riskAlertFilterForm" class="filter-bar risk-filters">
+            <label>状态<select name="status"><option value="open">待处理</option><option value="resolved">已解决</option><option value="">全部</option></select></label>
+            <label>级别<select name="severity"><option value="">全部级别</option><option value="critical">严重</option><option value="high">高风险</option><option value="medium">中风险</option></select></label>
+            <label>产品<select name="product_id" id="riskAlertProduct"></select></label>
+            <div class="form-actions"><button type="submit">筛选告警</button></div>
+          </form>
+          <div class="table-wrap risk-table-wrap"><table>
+            <thead><tr><th>级别</th><th>告警</th><th>产品</th><th>目标</th><th>详情</th><th>次数</th><th>最近发生</th><th>操作</th></tr></thead>
+            <tbody id="riskAlertsTable"></tbody>
+          </table></div>
+          <div class="panel-subhead risk-section-head"><div><strong>封禁清单</strong><span>目标值仅展示脱敏信息</span></div></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>范围</th><th>类型</th><th>目标</th><th>原因</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody id="riskBlocksTable"></tbody>
+          </table></div>
+        </div>
+
         <div class="panel wide page-view" id="audit" data-page="audit">
           <div class="panel-head">
             <h3>审计日志</h3>
@@ -693,6 +733,6 @@
     <div id="toast" class="toast" role="status"></div>
     <script src="/assets/lucide.min.js?v=1"></script>
     <script src="/assets/ui.js?v=1"></script>
-    <script src="./app.js?v=20"></script>
+    <script src="./app.js?v=21"></script>
   </body>
 </html>

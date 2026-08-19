@@ -1,0 +1,40 @@
+CREATE TABLE IF NOT EXISTS risk_blocks (
+  id VARCHAR(64) PRIMARY KEY,
+  product_id VARCHAR(64) NOT NULL DEFAULT '',
+  kind VARCHAR(16) NOT NULL,
+  value_hash VARCHAR(128) NOT NULL,
+  value_masked VARCHAR(160) NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  created_by VARCHAR(64) NULL,
+  created_at VARCHAR(40) NOT NULL,
+  updated_at VARCHAR(40) NOT NULL,
+  UNIQUE KEY uq_risk_blocks_scope (kind, product_id, value_hash),
+  KEY idx_risk_blocks_lookup (kind, value_hash, status, product_id),
+  KEY idx_risk_blocks_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS risk_alerts (
+  id VARCHAR(64) PRIMARY KEY,
+  product_id VARCHAR(64) NOT NULL,
+  license_id VARCHAR(64) NULL,
+  binding_id VARCHAR(64) NULL,
+  alert_type VARCHAR(40) NOT NULL,
+  severity VARCHAR(16) NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  subject_kind VARCHAR(16) NOT NULL,
+  subject_hash VARCHAR(128) NOT NULL,
+  subject_masked VARCHAR(160) NOT NULL,
+  open_marker VARCHAR(8) NULL,
+  detail VARCHAR(1000) NOT NULL,
+  occurrence_count INT NOT NULL DEFAULT 1,
+  first_seen_at VARCHAR(40) NOT NULL,
+  last_seen_at VARCHAR(40) NOT NULL,
+  resolved_at VARCHAR(40) NULL,
+  resolved_by VARCHAR(64) NULL,
+  created_at VARCHAR(40) NOT NULL,
+  updated_at VARCHAR(40) NOT NULL,
+  KEY idx_risk_alerts_status (status, severity, last_seen_at),
+  KEY idx_risk_alerts_subject (product_id, alert_type, subject_hash, status),
+  UNIQUE KEY uq_risk_alerts_open (product_id, alert_type, subject_hash, open_marker)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

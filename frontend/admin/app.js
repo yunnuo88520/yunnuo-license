@@ -7,6 +7,9 @@ const state = {
   offlineLicenses: [],
   adminUsers: [],
   auditLogs: [],
+  riskSummary: {},
+  riskBlocks: [],
+  riskAlerts: [],
   batchCards: [],
   selectedBatchId: "",
   adminToken: sessionStorage.getItem("yn.admin_token") || "",
@@ -37,6 +40,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#adminUserForm").addEventListener("submit", onCreateAdminUser);
   $("#passwordForm").addEventListener("submit", onChangeAdminPassword);
   $("#auditFilterForm").addEventListener("submit", onAuditFilter);
+  $("#riskBlockForm").addEventListener("submit", onCreateRiskBlock);
+  $("#riskAlertFilterForm").addEventListener("submit", onRiskAlertFilter);
   $("#exportBatchBtn").addEventListener("click", exportSelectedBatch);
   $("#licenseFilterForm").addEventListener("submit", onLicenseFilter);
   $("#licensePrevBtn").addEventListener("click", () => changeLicensePage(-1));
@@ -55,6 +60,7 @@ const adminPages = {
   agents: "代理管理",
   cards: "卡密批次",
   licenses: "授权管理",
+  risk: "风控中心",
   tools: "联调工具",
   offline: "离线授权",
   audit: "审计日志",
@@ -107,11 +113,21 @@ function syncAdminPage() {
   for (const view of document.querySelectorAll(".page-view")) {
     view.classList.toggle("is-current", view.dataset.page === page);
   }
+  let currentLink = null;
   for (const link of document.querySelectorAll("[data-page-link]")) {
     const current = link.dataset.pageLink === page;
     link.classList.toggle("active", current);
-    if (current) link.setAttribute("aria-current", "page");
+    if (current) {
+      link.setAttribute("aria-current", "page");
+      currentLink = link;
+    }
     else link.removeAttribute("aria-current");
+  }
+  if (currentLink && window.matchMedia("(max-width: 760px)").matches) {
+    const nav = currentLink.closest(".nav");
+    window.requestAnimationFrame(() => {
+      nav.scrollLeft = currentLink.offsetLeft - (nav.clientWidth - currentLink.clientWidth) / 2;
+    });
   }
   for (const panel of document.querySelectorAll(".page-view:not(.is-current) [data-action-panel]")) {
     panel.classList.remove("open");
@@ -222,7 +238,7 @@ async function refreshAll() {
   try {
     const health = await api("/healthz");
     $("#healthText").textContent = `服务正常 · ${health.status}`;
-    const [products, agents, batches, licensePage, offlineLicenses, adminUsers, auditLogs] = await Promise.all([
+    const [products, agents, batches, licensePage, offlineLicenses, adminUsers, auditLogs, riskSummary, riskBlocks, riskAlerts] = await Promise.all([
       api("/admin/products"),
       api("/admin/agents"),
       api("/admin/card-batches"),
@@ -230,6 +246,9 @@ async function refreshAll() {
       api("/admin/offline-licenses"),
       hasAdminRole("super_admin") ? api("/admin/users") : Promise.resolve([]),
       api(auditURL()),
+      api("/admin/risk/summary"),
+      api("/admin/risk/blocks"),
+      api(riskAlertsURL()),
     ]);
     state.products = products || [];
     state.agents = agents || [];
@@ -239,6 +258,9 @@ async function refreshAll() {
     state.offlineLicenses = offlineLicenses || [];
     state.adminUsers = adminUsers || [];
     state.auditLogs = auditLogs || [];
+    state.riskSummary = riskSummary || {};
+    state.riskBlocks = riskBlocks || [];
+    state.riskAlerts = riskAlerts || [];
     if (!state.selectedProductId && state.products.length > 0) {
       rememberProduct(state.products[0]);
     }
@@ -262,6 +284,7 @@ function render() {
   renderOfflineLicenses();
   renderAdminUsers();
   renderAuditLogs();
+  renderRiskControl();
   renderBatchCards();
 }
 
@@ -305,6 +328,15 @@ function renderProductOptions() {
     select.value = state.selectedAgentId || state.agents[0]?.id || "";
   }
   renderLicenseFilterOptions(options, agentOptions);
+  renderRiskProductOptions(options);
+}
+
+function renderRiskProductOptions(productOptions) {
+  for (const select of [$("#riskBlockProduct"), $("#riskAlertProduct")]) {
+    const current = select.value;
+    select.innerHTML = `<option value="">${select.id === "riskBlockProduct" ? "全局" : "全部产品"}</option>${productOptions}`;
+    select.value = current;
+  }
 }
 
 function renderLicenseFilterOptions(productOptions, agentOptions) {
@@ -520,6 +552,69 @@ function renderAuditLogs() {
     : `<tr><td colspan="8" class="empty-cell">暂无审计记录</td></tr>`;
 }
 
+function renderRiskControl() {
+  const summary = state.riskSummary || {};
+  $("#riskActiveBlocks").textContent = summary.active_blocks || 0;
+  $("#riskOpenAlerts").textContent = summary.open_alerts || 0;
+  $("#riskCriticalAlerts").textContent = summary.critical_alerts || 0;
+  $("#riskAlerts24h").textContent = summary.alerts_24h || 0;
+  const productName = new Map(state.products.map((product) => [product.id, product.name]));
+  const canManage = hasAdminRole("super_admin", "admin");
+  $("#riskAlertsTable").innerHTML = state.riskAlerts.length
+    ? state.riskAlerts.map((alert) => `
+      <tr>
+        <td><span class="risk-severity ${esc(alert.severity)}">${esc(riskSeverityLabel(alert.severity))}</span></td>
+        <td>${esc(riskAlertTypeLabel(alert.alert_type))}</td>
+        <td>${esc(productName.get(alert.product_id) || shortID(alert.product_id))}</td>
+        <td><code>${esc(alert.subject_masked)}</code></td>
+        <td>${esc(alert.detail)}</td>
+        <td>${esc(alert.occurrence_count)}</td>
+        <td>${formatTime(alert.last_seen_at)}</td>
+        <td>${canManage && alert.status === "open" ? `<button class="secondary" data-icon="check-check" type="button" onclick="resolveRiskAlert('${escAttr(alert.id)}')">解决</button>` : `<span class="status ${esc(alert.status)}">${esc(riskAlertStatusLabel(alert.status))}</span>`}</td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="8" class="empty-cell">暂无符合条件的风控告警</td></tr>`;
+  $("#riskBlocksTable").innerHTML = state.riskBlocks.length
+    ? state.riskBlocks.map((block) => `
+      <tr>
+        <td>${block.product_id ? esc(productName.get(block.product_id) || shortID(block.product_id)) : "全局"}</td>
+        <td>${esc(riskBlockKindLabel(block.kind))}</td>
+        <td><code>${esc(block.value_masked)}</code></td>
+        <td>${esc(block.reason)}</td>
+        <td><span class="status ${esc(block.status)}">${esc(riskBlockStatusLabel(block.status))}</span></td>
+        <td>${formatTime(block.created_at)}</td>
+        <td>${canManage && block.status === "active" ? `<button class="danger" data-icon="shield-off" type="button" onclick="disableRiskBlock('${escAttr(block.id)}')">解除</button>` : "-"}</td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="7" class="empty-cell">暂无封禁记录</td></tr>`;
+}
+
+function riskSeverityLabel(value) {
+  return { critical: "严重", high: "高风险", medium: "中风险", low: "低风险" }[value] || value;
+}
+
+function riskAlertTypeLabel(value) {
+  return {
+    blocked_ip: "黑名单 IP 访问",
+    blocked_device: "黑名单设备访问",
+    device_multi_license: "设备关联多授权",
+    ip_activation_burst: "IP 高频激活",
+    activation_failure_burst: "连续激活失败",
+  }[value] || value;
+}
+
+function riskAlertStatusLabel(value) {
+  return { open: "待处理", resolved: "已解决" }[value] || value;
+}
+
+function riskBlockKindLabel(value) {
+  return { ip: "IP 地址", device: "设备指纹" }[value] || value;
+}
+
+function riskBlockStatusLabel(value) {
+  return { active: "生效中", disabled: "已解除" }[value] || value;
+}
+
 function licenseURL() {
   const params = new URLSearchParams();
   const form = $("#licenseFilterForm");
@@ -580,6 +675,75 @@ async function onAuditFilter(event) {
   } catch (error) {
     toast(error.message);
   }
+}
+
+function riskAlertsURL() {
+  const params = new URLSearchParams({ limit: "100" });
+  const form = $("#riskAlertFilterForm");
+  if (form) {
+    const input = formJSON(form);
+    for (const key of ["status", "severity", "product_id"]) {
+      if (input[key]) params.set(key, input[key]);
+    }
+  }
+  return `/admin/risk/alerts?${params.toString()}`;
+}
+
+async function onRiskAlertFilter(event) {
+  event.preventDefault();
+  try {
+    state.riskAlerts = (await api(riskAlertsURL())) || [];
+    renderRiskControl();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function onCreateRiskBlock(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  try {
+    await api("/admin/risk/blocks", { method: "POST", body: JSON.stringify(formJSON(form)) });
+    form.reset();
+    toggleActionPanel("risk-block-create", false);
+    toast("封禁规则已生效");
+    await refreshRiskControl();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function disableRiskBlock(id) {
+  if (!window.confirm("确定解除这条封禁吗？解除后该目标可以再次访问授权接口。")) return;
+  try {
+    await api(`/admin/risk/blocks/${encodeURIComponent(id)}/disable`, { method: "POST" });
+    toast("封禁已解除");
+    await refreshRiskControl();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function resolveRiskAlert(id) {
+  try {
+    await api(`/admin/risk/alerts/${encodeURIComponent(id)}/resolve`, { method: "POST" });
+    toast("告警已标记为解决");
+    await refreshRiskControl();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function refreshRiskControl() {
+  const [summary, blocks, alerts] = await Promise.all([
+    api("/admin/risk/summary"),
+    api("/admin/risk/blocks"),
+    api(riskAlertsURL()),
+  ]);
+  state.riskSummary = summary || {};
+  state.riskBlocks = blocks || [];
+  state.riskAlerts = alerts || [];
+  renderRiskControl();
 }
 
 async function onCreateAdminUser(event) {

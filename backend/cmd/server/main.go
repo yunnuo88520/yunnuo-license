@@ -50,7 +50,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(svc, cfg.PublicStaticDir, cfg.AdminStaticDir, cfg.AgentStaticDir).Handler(),
+		Handler:           httpapi.New(svc, cfg.PublicStaticDir, cfg.AdminStaticDir, cfg.AgentStaticDir).WithTrustedProxyHeaders(cfg.TrustProxyHeaders).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

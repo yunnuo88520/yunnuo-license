@@ -73,4 +73,8 @@ var (
 	ErrAdminUserDisabled      = forbidden("ADMIN_USER_DISABLED", "admin user disabled")
 	ErrPermissionDenied       = forbidden("PERMISSION_DENIED", "permission denied")
 	ErrRateLimited            = tooManyRequests("RATE_LIMITED", "too many requests")
+	ErrRiskBlockedIP          = forbidden("RISK_IP_BLOCKED", "this IP address is blocked")
+	ErrRiskBlockedDevice      = forbidden("RISK_DEVICE_BLOCKED", "this device is blocked")
+	ErrRiskBlockNotFound      = notFound("RISK_BLOCK_NOT_FOUND", "risk block not found")
+	ErrRiskAlertNotFound      = notFound("RISK_ALERT_NOT_FOUND", "risk alert not found")
 )

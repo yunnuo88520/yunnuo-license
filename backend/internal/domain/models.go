@@ -182,6 +182,56 @@ type Binding struct {
 	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
+const (
+	RiskBlockIP        = "ip"
+	RiskBlockDevice    = "device"
+	RiskStatusActive   = "active"
+	RiskStatusDisabled = "disabled"
+	RiskAlertOpen      = "open"
+	RiskAlertResolved  = "resolved"
+)
+
+type RiskBlock struct {
+	ID          string    `json:"id"`
+	ProductID   string    `json:"product_id,omitempty"`
+	Kind        string    `json:"kind"`
+	ValueHash   string    `json:"-"`
+	ValueMasked string    `json:"value_masked"`
+	Reason      string    `json:"reason"`
+	Status      string    `json:"status"`
+	CreatedBy   string    `json:"created_by,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type RiskAlert struct {
+	ID              string     `json:"id"`
+	ProductID       string     `json:"product_id"`
+	LicenseID       string     `json:"license_id,omitempty"`
+	BindingID       string     `json:"binding_id,omitempty"`
+	AlertType       string     `json:"alert_type"`
+	Severity        string     `json:"severity"`
+	Status          string     `json:"status"`
+	SubjectKind     string     `json:"subject_kind"`
+	SubjectHash     string     `json:"-"`
+	SubjectMasked   string     `json:"subject_masked"`
+	Detail          string     `json:"detail"`
+	OccurrenceCount int        `json:"occurrence_count"`
+	FirstSeenAt     time.Time  `json:"first_seen_at"`
+	LastSeenAt      time.Time  `json:"last_seen_at"`
+	ResolvedAt      *time.Time `json:"resolved_at,omitempty"`
+	ResolvedBy      string     `json:"resolved_by,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+type RiskSummary struct {
+	ActiveBlocks   int `json:"active_blocks"`
+	OpenAlerts     int `json:"open_alerts"`
+	CriticalAlerts int `json:"critical_alerts"`
+	Alerts24Hours  int `json:"alerts_24h"`
+}
+
 type AuditLog struct {
 	ID        string    `json:"id"`
 	ActorType string    `json:"actor_type"`
