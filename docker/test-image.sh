@@ -28,6 +28,7 @@ docker run -d --name "$container" \
   -e MYSQL_PASSWORD=docker-test-db-password \
   -e MYSQL_ROOT_PASSWORD=docker-test-root-password \
   -e YN_ADMIN_PASSWORD="$admin_password" \
+  -e YN_ADMIN_USERNAME=admin \
   -e YN_CARD_PEPPER=docker-test-card-pepper \
   -e YN_DATA_KEY=docker-test-data-key \
   -e YN_TRUST_PROXY_HEADERS=true \
@@ -52,6 +53,7 @@ done
 
 base="http://127.0.0.1:${port}"
 curl --fail --silent --show-error "$base/healthz" | grep -q '"status":"ok"'
+curl --fail --silent --show-error "$base/v1/site/settings" | grep -q '"site_name":"允诺云授权"'
 curl --fail --silent --show-error "$base/" | grep -q '允诺云授权'
 curl --fail --silent --show-error "$base/assets/yunnuo-mark.svg" | grep -q '<svg'
 curl --fail --silent --show-error "$base/" | grep -q '/assets/public-'
@@ -69,6 +71,11 @@ login_payload="$(printf '{"username":"admin","password":"%s"}' "$admin_password"
 login_response="$(curl --fail --silent --show-error -X POST "$base/admin/login" \
   -H 'Content-Type: application/json' -d "$login_payload")"
 admin_token="$(json_get 'data["data"]["access_token"]' <<<"$login_response")"
+curl --fail --silent --show-error "$base/admin/system/version" \
+  -H "Authorization: Bearer $admin_token" | grep -q '"current_version":"0.2.0"'
+curl --fail --silent --show-error -X POST "$base/admin/site-settings" \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
+  -d '{"site_name":"Docker 授权中心","browser_title":"Docker License","logo_data_url":"","favicon_data_url":""}' | grep -q 'Docker 授权中心'
 
 product_response="$(curl --fail --silent --show-error -X POST "$base/admin/products" \
   -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
@@ -104,6 +111,26 @@ license_no="$(json_get 'data["data"]["license_no"]' <<<"$activate_response")"
 
 curl --fail --silent --show-error -X POST "$base/v1/licenses/query" \
   -H 'Content-Type: application/json' -d "{\"license_no\":\"$license_no\"}" | grep -q "$license_no"
+
+account_product_response="$(curl --fail --silent --show-error -X POST "$base/admin/products" \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
+  -d '{"name":"账号查询测试产品","code":"ACC","bind_mode":"account","max_bind_count":1,"bind_conflict_strategy":"reject"}')"
+account_product_id="$(json_get 'data["data"]["id"]' <<<"$account_product_response")"
+account_app_key="$(json_get 'data["data"]["app_key"]' <<<"$account_product_response")"
+account_batch_response="$(curl --fail --silent --show-error -X POST "$base/admin/card-batches" \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
+  -d "{\"product_id\":\"$account_product_id\",\"name\":\"Account Lookup E2E\",\"quantity\":1,\"duration_days\":30}")"
+account_card_code="$(json_get 'data["data"]["codes"][0]' <<<"$account_batch_response")"
+curl --fail --silent --show-error -X POST "$base/v1/licenses/activate" \
+  -H 'Content-Type: application/json' \
+  -d "{\"app_key\":\"$account_app_key\",\"card_code\":\"$account_card_code\",\"bind_mode\":\"account\",\"bind_value\":\"13812348000\"}" >/dev/null
+account_query_response="$(curl --fail --silent --show-error -X POST "$base/v1/licenses/query" \
+  -H 'Content-Type: application/json' -d '{"query":"13812348000","query_type":"account"}')"
+grep -Fq '138****8000' <<<"$account_query_response"
+if grep -Fq '13812348000' <<<"$account_query_response"; then
+  echo "public account query leaked the raw binding value" >&2
+  exit 1
+fi
 
 docker restart "$container" >/dev/null
 for attempt in $(seq 1 120); do

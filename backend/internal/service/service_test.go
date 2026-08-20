@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -235,6 +236,167 @@ func TestPublicLicenseQuerySupportsCardAndLicenseNumber(t *testing.T) {
 
 	_, err = svc.QueryPublicLicense(ctx, PublicLicenseQueryInput{LicenseNo: "lic_missing"})
 	assertCode(t, err, "AUTHORIZATION_NOT_FOUND")
+}
+
+func TestPublicLicenseQuerySupportsBindingIdentifiersAndMasksValues(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	tests := []struct {
+		name       string
+		code       string
+		mode       string
+		activate   string
+		query      string
+		queryType  string
+		wantMasked string
+	}{
+		{name: "domain", code: "DOM", mode: domain.BindDomain, activate: "https://Portal.Example.com/path", query: "portal.example.com", queryType: "domain", wantMasked: "p****l.example.com"},
+		{name: "ip", code: "IPS", mode: domain.BindIP, activate: "203.0.113.42", query: "203.0.113.42", queryType: "ip", wantMasked: "203.0.113.*"},
+		{name: "phone account", code: "PHN", mode: domain.BindAccount, activate: "13812348000", query: "13812348000", queryType: "account", wantMasked: "138****8000"},
+		{name: "qq account", code: "QQA", mode: domain.BindAccount, activate: "123456789", query: "123456789", queryType: "account", wantMasked: "123****89"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			product, err := svc.CreateProduct(ctx, CreateProductInput{
+				Name: tc.name, Code: tc.code, BindMode: tc.mode, MaxBindCount: 1,
+				BindConflictStrategy: domain.ConflictReject,
+			})
+			if err != nil {
+				t.Fatalf("create product: %v", err)
+			}
+			card := createTestCard(t, ctx, svc, product.ID, 30)
+			activated, err := svc.Activate(ctx, ActivateInput{
+				AppKey: product.AppKey, CardCode: card, BindMode: tc.mode, BindValue: tc.activate,
+			})
+			if err != nil {
+				t.Fatalf("activate: %v", err)
+			}
+
+			result, err := svc.QueryPublicLicense(ctx, PublicLicenseQueryInput{Query: tc.query, QueryType: tc.queryType})
+			if err != nil {
+				t.Fatalf("query binding: %v", err)
+			}
+			if result.QueryMasked != tc.wantMasked || result.MatchCount != 1 || len(result.Results) != 1 {
+				t.Fatalf("unexpected binding result: %#v", result)
+			}
+			if result.Results[0].LicenseNo != activated.LicenseNo || result.Results[0].ProductName != product.Name {
+				t.Fatalf("unexpected authorization match: %#v", result.Results[0])
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatalf("marshal result: %v", err)
+			}
+			if strings.Contains(string(encoded), tc.query) {
+				t.Fatalf("public result leaked binding value: %s", encoded)
+			}
+
+			if tc.mode == domain.BindAccount && tc.query == "13812348000" {
+				if _, err := svc.Unbind(ctx, UnbindInput{
+					AppKey: product.AppKey, LicenseNo: activated.LicenseNo, BindMode: tc.mode, BindValue: tc.activate,
+				}); err != nil {
+					t.Fatalf("unbind: %v", err)
+				}
+				_, err = svc.QueryPublicLicense(ctx, PublicLicenseQueryInput{Query: tc.query, QueryType: tc.queryType})
+				assertCode(t, err, "AUTHORIZATION_NOT_FOUND")
+			}
+		})
+	}
+
+	_, err := svc.QueryPublicLicense(ctx, PublicLicenseQueryInput{Query: ".example.com", QueryType: "domain"})
+	assertCode(t, err, "INVALID_REQUEST")
+}
+
+func TestInitializeCreatesFirstAdminOnSelectedDatabase(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	setupDB := filepath.Join(t.TempDir(), "initialized.db") + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+	status, err := svc.SetupStatus(ctx)
+	if err != nil || status.Initialized {
+		t.Fatalf("unexpected setup status: %#v err=%v", status, err)
+	}
+	if err := svc.Initialize(ctx, SetupInput{
+		DatabaseDriver: "sqlite",
+		DatabaseDSN:    setupDB,
+		AdminUsername:  "first-admin",
+		AdminPassword:  "strong-password",
+		AdminName:      "First Admin",
+	}, filepath.Join("..", "..", "migrations"), nil); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	status, err = svc.SetupStatus(ctx)
+	if err != nil || !status.Initialized || status.DatabaseDriver != "sqlite" {
+		t.Fatalf("unexpected initialized status: %#v err=%v", status, err)
+	}
+	if _, err := svc.AdminLogin(ctx, AdminLoginInput{Username: "first-admin", Password: "strong-password"}); err != nil {
+		t.Fatalf("login with initialized admin: %v", err)
+	}
+}
+
+func TestInitializeRollsBackAdminWhenConfigPersistenceFails(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	targetPath := filepath.Join(t.TempDir(), "rollback.db")
+	dsn := "file:" + filepath.ToSlash(targetPath) + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+	wantErr := errors.New("config is read-only")
+	err := svc.Initialize(ctx, SetupInput{
+		DatabaseDriver: "sqlite", DatabaseDSN: dsn,
+		AdminUsername: "first-admin", AdminPassword: "strong-password", AdminName: "First Admin",
+	}, filepath.Join("..", "..", "migrations"), func(_, _ string) error { return wantErr })
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected persistence error, got %v", err)
+	}
+	status, err := svc.SetupStatus(ctx)
+	if err != nil || status.Initialized {
+		t.Fatalf("active database changed after failed persistence: status=%#v err=%v", status, err)
+	}
+	target, err := store.Open(ctx, "sqlite", dsn)
+	if err != nil {
+		t.Fatalf("reopen target: %v", err)
+	}
+	defer target.Close()
+	count, err := target.CountAdminUsers(ctx)
+	if err != nil || count != 0 {
+		t.Fatalf("bootstrap admin was not rolled back: count=%d err=%v", count, err)
+	}
+}
+
+func TestConcurrentInitializeOnlyPublishesOneDatabase(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	inputs := []SetupInput{
+		{DatabaseDriver: "sqlite", DatabaseDSN: "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "first.db")) + "?_pragma=foreign_keys(1)", AdminUsername: "first-admin", AdminPassword: "strong-password"},
+		{DatabaseDriver: "sqlite", DatabaseDSN: "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "second.db")) + "?_pragma=foreign_keys(1)", AdminUsername: "second-admin", AdminPassword: "strong-password"},
+	}
+	start := make(chan struct{})
+	results := make(chan error, len(inputs))
+	var wg sync.WaitGroup
+	for _, input := range inputs {
+		input := input
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results <- svc.Initialize(ctx, input, filepath.Join("..", "..", "migrations"), func(_, _ string) error { return nil })
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	successes, denied := 0, 0
+	for err := range results {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrPermissionDenied):
+			denied++
+		default:
+			t.Fatalf("unexpected initialize result: %v", err)
+		}
+	}
+	if successes != 1 || denied != 1 {
+		t.Fatalf("expected one success and one denial, got success=%d denied=%d", successes, denied)
+	}
 }
 
 func TestProductLifecycleCardVoidAndBatchExport(t *testing.T) {
@@ -716,15 +878,16 @@ func newTestService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := st.Close(); err != nil {
-			t.Fatalf("close store: %v", err)
-		}
-	})
 	if err := st.Migrate(ctx, filepath.Join("..", "..", "migrations")); err != nil {
+		_ = st.Close()
 		t.Fatalf("migrate: %v", err)
 	}
 	svc := New(st, []byte("test-card-pepper"), []byte("0123456789abcdef0123456789abcdef"))
+	t.Cleanup(func() {
+		if err := svc.Close(); err != nil {
+			t.Fatalf("close service: %v", err)
+		}
+	})
 	base := time.Date(2026, 7, 18, 9, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return base }
 	return svc

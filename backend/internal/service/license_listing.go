@@ -44,7 +44,7 @@ func (s *Service) ListLicensesPage(ctx context.Context, filter LicenseListFilter
 		filter.PageSize = 100
 	}
 	now := s.now()
-	items, total, err := s.store.ListLicensesPage(ctx, filter.Status, filter.ProductID, filter.AgentID, filter.Query,
+	items, total, err := s.currentStore().ListLicensesPage(ctx, filter.Status, filter.ProductID, filter.AgentID, filter.Query,
 		filter.PageSize, (filter.Page-1)*filter.PageSize, now)
 	if err != nil {
 		return LicensePage{}, err

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   Activity,
   BadgeCheck,
@@ -9,12 +9,17 @@ import {
   ChevronRight,
   Download,
   FileKey2,
+  GitCommit,
+  History,
+  ImageUp,
   KeyRound,
   LayoutDashboard,
   LoaderCircle,
   LogOut,
   Plus,
+  PackageCheck,
   RefreshCw,
+  RotateCcw,
   ScrollText,
   Settings2,
   ShieldAlert,
@@ -28,12 +33,24 @@ import { formatTime, roleLabel, shortId } from "../shared/format";
 import { toast } from "../shared/useToast";
 import AppToast from "../shared/components/AppToast.vue";
 import StatusBadge from "../shared/components/StatusBadge.vue";
+import {
+  applyBranding,
+  branding,
+  loadBranding,
+  logoSource,
+} from "../shared/branding";
 const a = useAdmin();
 const page = ref(location.hash.slice(1) || "overview"),
   action = ref("");
 const login = reactive({ username: "", password: "" });
 const result = ref("{}");
 const codes = ref<string[]>([]);
+const siteForm = reactive({
+  site_name: "允诺云授权",
+  browser_title: "允诺云授权",
+  logo_data_url: "",
+  favicon_data_url: "",
+});
 const nav = [
   { id: "overview", label: "业务概览", icon: LayoutDashboard },
   { id: "products", label: "产品", icon: Boxes },
@@ -189,7 +206,52 @@ async function changePage(d: number) {
   a.data.licensePage.page += d;
   await a.refresh();
 }
+watch(
+  () => a.data.siteSettings,
+  (settings) => {
+    if (!settings) return;
+    siteForm.site_name = settings.site_name;
+    siteForm.browser_title = settings.browser_title;
+    siteForm.logo_data_url = settings.logo_data_url || "";
+    siteForm.favicon_data_url = settings.favicon_data_url || "";
+  },
+  { immediate: true },
+);
+async function readBrandAsset(
+  event: Event,
+  field: "logo_data_url" | "favicon_data_url",
+) {
+  const input = event.currentTarget as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  if (file.size > 512 * 1024) return toast("图片不能超过 512 KB");
+  if (!["image/png", "image/jpeg", "image/webp", "image/x-icon", "image/vnd.microsoft.icon"].includes(file.type))
+    return toast("仅支持 PNG、JPEG、WebP 或 ICO 图片");
+  siteForm[field] = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+async function saveSiteSettings() {
+  const settings = await a.mutate(
+    "/admin/site-settings",
+    {
+      site_name: siteForm.site_name,
+      browser_title: siteForm.browser_title,
+      logo_data_url: siteForm.logo_data_url,
+      favicon_data_url: siteForm.favicon_data_url,
+    },
+    "站点设置已保存",
+    false,
+  );
+  a.data.siteSettings = settings;
+  applyBranding(settings, "管理控制台");
+}
 onMounted(async () => {
+  loadBranding("管理控制台").catch(() => undefined);
   addEventListener(
     "hashchange",
     () => (page.value = location.hash.slice(1) || "overview"),
@@ -216,8 +278,8 @@ onMounted(async () => {
     <section class="login-panel">
       <div class="login-box">
         <div class="brand">
-          <img src="/assets/yunnuo-mark.svg" alt="" />
-          <div><strong>允诺云授权</strong><span>ADMIN CONSOLE</span></div>
+          <img :src="logoSource" alt="" />
+          <div><strong>{{ branding.site_name }}</strong><span>ADMIN CONSOLE</span></div>
         </div>
         <h2>管理控制台</h2>
         <p>使用管理员账号进入安全控制域。</p>
@@ -249,7 +311,7 @@ onMounted(async () => {
   <div v-else class="console">
     <aside class="sidebar">
       <div class="brand">
-        <img src="/assets/yunnuo-mark.svg" alt="" />
+        <img :src="logoSource" alt="" />
         <div><strong>管理控制台</strong><span>YUNNUO CLOUD</span></div>
       </div>
       <nav class="nav">
@@ -258,11 +320,17 @@ onMounted(async () => {
           :key="n.id"
           href="#"
           :class="{ active: page === n.id }"
+          :aria-label="n.label"
+          :title="n.label"
           @click.prevent="go(n.id)"
           ><component :is="n.icon" :size="18" /><span>{{ n.label }}</span></a
         >
       </nav>
-      <div class="sidebar-foot">SECURE NODE / ONLINE</div>
+      <div class="sidebar-foot">
+        SECURE NODE / ONLINE<br />V{{
+          a.data.system?.current_version || "0.2.0"
+        }}
+      </div>
     </aside>
     <main class="console-main">
       <header class="topbar">
@@ -895,17 +963,18 @@ onMounted(async () => {
                 v-if="a.isManager.value"
                 class="btn secondary small"
                 @click="
-                  a.mutate(
-                    '/admin/licenses/unbind',
-                    {
-                      license_no: a.selected.license,
-                      binding_id: b.id,
-                      reason: 'admin',
-                    },
-                    '绑定已解绑',
-                    false,
-                  )
-                  .then(() => a.showBindings(a.selected.license))
+                  a
+                    .mutate(
+                      '/admin/licenses/unbind',
+                      {
+                        license_no: a.selected.license,
+                        binding_id: b.id,
+                        reason: 'admin',
+                      },
+                      '绑定已解绑',
+                      false,
+                    )
+                    .then(() => a.showBindings(a.selected.license))
                 "
               >
                 解绑
@@ -1248,6 +1317,79 @@ onMounted(async () => {
               <Plus :size="14" />创建管理员
             </button>
           </div>
+          <form class="branding-settings" @submit.prevent="saveSiteSettings">
+            <div class="branding-copy">
+              <span class="eyebrow"><ImageUp :size="15" /> SITE IDENTITY</span>
+              <h4>站点品牌</h4>
+              <p>统一应用于授权查询、管理控制台和代理工作台。</p>
+            </div>
+            <div class="branding-fields">
+              <label class="field">网站名称<input v-model="siteForm.site_name" maxlength="80" :disabled="!a.isManager.value" required /></label>
+              <label class="field">浏览器标题<input v-model="siteForm.browser_title" maxlength="80" :disabled="!a.isManager.value" required /></label>
+              <div class="asset-field">
+                <span>网站 Logo</span>
+                <div class="asset-preview"><img :src="siteForm.logo_data_url || '/assets/yunnuo-mark.svg'" alt="Logo 预览" /></div>
+                <label v-if="a.isManager.value" class="btn secondary small"><ImageUp :size="14" />上传图片<input type="file" accept="image/png,image/jpeg,image/webp,image/x-icon" @change="readBrandAsset($event, 'logo_data_url')" /></label>
+                <button v-if="a.isManager.value && siteForm.logo_data_url" class="icon-btn" type="button" title="恢复默认 Logo" @click="siteForm.logo_data_url = ''"><RotateCcw :size="16" /></button>
+              </div>
+              <div class="asset-field">
+                <span>网站图标</span>
+                <div class="asset-preview favicon"><img :src="siteForm.favicon_data_url || '/assets/yunnuo-mark.svg'" alt="网站图标预览" /></div>
+                <label v-if="a.isManager.value" class="btn secondary small"><ImageUp :size="14" />上传图片<input type="file" accept="image/png,image/jpeg,image/webp,image/x-icon" @change="readBrandAsset($event, 'favicon_data_url')" /></label>
+                <button v-if="a.isManager.value && siteForm.favicon_data_url" class="icon-btn" type="button" title="恢复默认图标" @click="siteForm.favicon_data_url = ''"><RotateCcw :size="16" /></button>
+              </div>
+              <div v-if="a.isManager.value" class="form-actions"><button class="btn">保存站点设置</button></div>
+            </div>
+          </form>
+          <section class="version-console">
+            <div class="version-hero">
+              <span><PackageCheck :size="18" /> 当前运行版本</span>
+              <strong>v{{ a.data.system?.current_version || "0.2.0" }}</strong>
+              <div>
+                <code>{{ a.data.system?.channel || "stable" }}</code>
+                <span
+                  ><GitCommit :size="13" />{{
+                    shortId(a.data.system?.commit)
+                  }}</span
+                >
+              </div>
+            </div>
+            <div class="upgrade-state">
+              <History :size="19" />
+              <div>
+                <strong>在线升级</strong>
+                <p>
+                  升级服务尚未启用。后续版本将支持签名升级包、升级前检查和失败回滚。
+                </p>
+              </div>
+              <StatusBadge
+                :status="
+                  a.data.system?.capabilities?.online_upgrade
+                    ? 'active'
+                    : 'disabled'
+                "
+              />
+            </div>
+            <div class="release-timeline">
+              <article
+                v-for="release in a.data.system?.releases || []"
+                :key="release.version"
+              >
+                <div>
+                  <strong>v{{ release.version }}</strong
+                  ><time>{{ release.date }}</time>
+                </div>
+                <section>
+                  <h4>{{ release.title }}</h4>
+                  <ul>
+                    <li v-for="item in release.highlights" :key="item">
+                      {{ item }}
+                    </li>
+                  </ul>
+                </section>
+              </article>
+            </div>
+          </section>
           <form
             v-if="action === 'admin'"
             class="form-grid"

@@ -81,6 +81,14 @@ type Product struct {
 	UpdatedAt            time.Time `json:"updated_at"`
 }
 
+type SiteSettings struct {
+	SiteName       string    `json:"site_name"`
+	BrowserTitle   string    `json:"browser_title"`
+	LogoDataURL    string    `json:"logo_data_url,omitempty"`
+	FaviconDataURL string    `json:"favicon_data_url,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 type ProductKey struct {
 	ProductID    string    `json:"product_id"`
 	KeyVersion   int       `json:"key_version"`

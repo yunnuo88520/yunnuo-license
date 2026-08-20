@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yunnuo88520/yunnuo-license/backend/internal/buildinfo"
+	"github.com/yunnuo88520/yunnuo-license/backend/internal/config"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/service"
 )
@@ -37,14 +39,18 @@ var (
 )
 
 type API struct {
-	service           *service.Service
-	publicStaticDir   string
-	adminStaticDir    string
-	agentStaticDir    string
-	adminLoginLimit   *fixedWindowLimiter
-	agentLoginLimit   *fixedWindowLimiter
-	publicQueryLimit  *fixedWindowLimiter
-	trustProxyHeaders bool
+	service            *service.Service
+	publicStaticDir    string
+	adminStaticDir     string
+	agentStaticDir     string
+	adminLoginLimit    *fixedWindowLimiter
+	agentLoginLimit    *fixedWindowLimiter
+	publicQueryLimit   *fixedWindowLimiter
+	setupLimit         *fixedWindowLimiter
+	trustProxyHeaders  bool
+	migrationDir       string
+	databaseConfigFile string
+	sqliteSetupDSN     string
 }
 
 func (api *API) WithTrustedProxyHeaders(enabled bool) *API {
@@ -61,12 +67,26 @@ func New(svc *service.Service, publicStaticDir, adminStaticDir, agentStaticDir s
 		adminLoginLimit:  newFixedWindowLimiter(20, 5*time.Minute),
 		agentLoginLimit:  newFixedWindowLimiter(30, 5*time.Minute),
 		publicQueryLimit: newFixedWindowLimiter(60, time.Minute),
+		setupLimit:       newFixedWindowLimiter(10, time.Hour),
+		migrationDir:     "migrations",
+		sqliteSetupDSN:   envOr("YN_SQLITE_SETUP_DSN", "file:yn-license.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"),
 	}
+}
+
+func (api *API) WithSetupConfig(migrationDir, databaseConfigFile string) *API {
+	api.migrationDir = migrationDir
+	api.databaseConfigFile = databaseConfigFile
+	return api
 }
 
 func (api *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", api.health)
+	mux.HandleFunc("GET /v1/setup/status", api.setupStatus)
+	mux.HandleFunc("POST /v1/setup/initialize", withRateLimit(api.setupLimit, api.setupInitialize))
+	mux.HandleFunc("GET /v1/site/settings", api.siteSettings)
+	mux.HandleFunc("GET /admin/system/version", api.withAdmin(api.systemVersion, adminReadRoles...))
+	mux.HandleFunc("POST /admin/site-settings", api.withAdmin(api.updateSiteSettings, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/login", withRateLimit(api.adminLoginLimit, api.adminLogin))
 	mux.HandleFunc("GET /admin/profile", api.withAdmin(api.adminProfile, adminReadRoles...))
 	mux.HandleFunc("POST /admin/password", api.withAdmin(api.changeAdminPassword, adminReadRoles...))
@@ -173,7 +193,67 @@ func serveStaticApp(w http.ResponseWriter, r *http.Request, staticDir, requestPa
 }
 
 func (api *API) health(w http.ResponseWriter, r *http.Request) {
-	writeOK(w, r, map[string]any{"status": "ok"})
+	writeOK(w, r, map[string]any{"status": "ok", "version": buildinfo.Version})
+}
+
+func (api *API) setupStatus(w http.ResponseWriter, r *http.Request) {
+	status, err := api.service.SetupStatus(r.Context())
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	status.SuggestedSQLiteDSN = api.sqliteSetupDSN
+	writeOK(w, r, status)
+}
+
+func envOr(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func (api *API) setupInitialize(w http.ResponseWriter, r *http.Request) {
+	var input service.SetupInput
+	if !decode(w, r, &input) {
+		return
+	}
+	persist := func(driver, dsn string) error {
+		return config.SaveDatabaseConfig(api.databaseConfigFile, config.DatabaseConfig{Driver: driver, DSN: dsn})
+	}
+	if err := api.service.Initialize(r.Context(), input, api.migrationDir, persist); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, map[string]any{"initialized": true})
+}
+
+func (api *API) systemVersion(w http.ResponseWriter, r *http.Request) {
+	writeOK(w, r, buildinfo.Current())
+}
+
+func (api *API) siteSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := api.service.SiteSettings(r.Context())
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeOK(w, r, settings)
+}
+
+func (api *API) updateSiteSettings(w http.ResponseWriter, r *http.Request) {
+	var input service.UpdateSiteSettingsInput
+	if !decode(w, r, &input) {
+		return
+	}
+	input.ActorID = adminSessionFrom(r.Context()).UserID
+	settings, err := api.service.UpdateSiteSettings(r.Context(), input)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, settings)
 }
 
 func (api *API) publicLicenseQuery(w http.ResponseWriter, r *http.Request) {

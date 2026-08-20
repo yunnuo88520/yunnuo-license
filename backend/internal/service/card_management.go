@@ -14,7 +14,7 @@ func (s *Service) ChangeProductStatus(ctx context.Context, productID, status, ac
 	if productID == "" || (status != domain.ProductActive && status != domain.ProductDisabled) {
 		return domain.Product{}, ErrInvalidRequest
 	}
-	product, err := s.store.GetProduct(ctx, productID)
+	product, err := s.currentStore().GetProduct(ctx, productID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return domain.Product{}, ErrProductNotFound
@@ -22,7 +22,7 @@ func (s *Service) ChangeProductStatus(ctx context.Context, productID, status, ac
 		return domain.Product{}, err
 	}
 	now := s.now()
-	if err := s.store.UpdateProductStatus(ctx, productID, status, now); err != nil {
+	if err := s.currentStore().UpdateProductStatus(ctx, productID, status, now); err != nil {
 		return domain.Product{}, err
 	}
 	product.Status = status
@@ -41,14 +41,14 @@ func (s *Service) ExportCardBatch(ctx context.Context, batchID, actorID string) 
 	if batchID == "" {
 		return CardBatchExportResult{}, ErrInvalidRequest
 	}
-	batch, err := s.store.GetCardBatch(ctx, batchID)
+	batch, err := s.currentStore().GetCardBatch(ctx, batchID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return CardBatchExportResult{}, ErrCardBatchNotFound
 		}
 		return CardBatchExportResult{}, err
 	}
-	cards, err := s.store.ListCardsByBatch(ctx, batchID)
+	cards, err := s.currentStore().ListCardsByBatch(ctx, batchID)
 	if err != nil {
 		return CardBatchExportResult{}, err
 	}
@@ -61,7 +61,7 @@ func (s *Service) ExportCardBatch(ctx context.Context, batchID, actorID string) 
 		codes = append(codes, code)
 	}
 	now := s.now()
-	if err := s.store.IncrementCardBatchExportCount(ctx, batchID, now); err != nil {
+	if err := s.currentStore().IncrementCardBatchExportCount(ctx, batchID, now); err != nil {
 		return CardBatchExportResult{}, err
 	}
 	batch.ExportCount++
@@ -79,7 +79,7 @@ func (s *Service) VoidCard(ctx context.Context, cardID, reason, actorID string) 
 	if reason == "" {
 		reason = "admin_void"
 	}
-	card, err := s.store.GetCard(ctx, cardID)
+	card, err := s.currentStore().GetCard(ctx, cardID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return domain.Card{}, ErrCardNotFound
@@ -94,7 +94,7 @@ func (s *Service) VoidCard(ctx context.Context, cardID, reason, actorID string) 
 		return domain.Card{}, ErrCardCannotVoid
 	}
 	now := s.now()
-	if err := s.store.UpdateCardVoided(ctx, cardID, reason, now); err != nil {
+	if err := s.currentStore().UpdateCardVoided(ctx, cardID, reason, now); err != nil {
 		if store.IsNotFound(err) {
 			return domain.Card{}, ErrCardCannotVoid
 		}

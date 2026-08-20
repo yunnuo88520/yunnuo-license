@@ -25,7 +25,7 @@ type CreateAdminUserInput struct {
 }
 
 func (s *Service) EnsureBootstrapAdmin(ctx context.Context, username, password, displayName string) (domain.AdminUser, bool, error) {
-	count, err := s.store.CountAdminUsers(ctx)
+	count, err := s.currentStore().CountAdminUsers(ctx)
 	if err != nil {
 		return domain.AdminUser{}, false, err
 	}
@@ -67,7 +67,7 @@ func (s *Service) CreateAdminUser(ctx context.Context, input CreateAdminUserInpu
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
-	if err := s.store.CreateAdminUser(ctx, user); err != nil {
+	if err := s.currentStore().CreateAdminUser(ctx, user); err != nil {
 		return domain.AdminUser{}, err
 	}
 	_ = s.audit(ctx, "admin", "", "", "", "", "admin_user.create", "success", "")
@@ -75,7 +75,7 @@ func (s *Service) CreateAdminUser(ctx context.Context, input CreateAdminUserInpu
 }
 
 func (s *Service) ListAdminUsers(ctx context.Context) ([]domain.AdminUser, error) {
-	return s.store.ListAdminUsers(ctx)
+	return s.currentStore().ListAdminUsers(ctx)
 }
 
 type AdminLoginInput struct {
@@ -111,7 +111,7 @@ func (s *Service) AdminLogin(ctx context.Context, input AdminLoginInput) (AdminL
 	if input.Username == "" || strings.TrimSpace(input.Password) == "" {
 		return AdminLoginResponse{}, ErrInvalidCredentials
 	}
-	user, err := s.store.GetAdminUserByUsername(ctx, input.Username)
+	user, err := s.currentStore().GetAdminUserByUsername(ctx, input.Username)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return AdminLoginResponse{}, ErrInvalidCredentials
@@ -137,7 +137,7 @@ func (s *Service) AdminLogin(ctx context.Context, input AdminLoginInput) (AdminL
 	if err != nil {
 		return AdminLoginResponse{}, err
 	}
-	if err := s.store.UpdateAdminUserLastLogin(ctx, user.ID, now); err != nil {
+	if err := s.currentStore().UpdateAdminUserLastLogin(ctx, user.ID, now); err != nil {
 		return AdminLoginResponse{}, err
 	}
 	user.LastLoginAt = &now
@@ -160,7 +160,7 @@ func (s *Service) AuthenticateAdminToken(ctx context.Context, token string) (Adm
 	if payload.Type != "admin_session" || payload.UserID == "" || now.Unix() >= payload.ExpiresAt {
 		return AdminSession{}, ErrInvalidAdminToken
 	}
-	user, err := s.store.GetAdminUserByID(ctx, payload.UserID)
+	user, err := s.currentStore().GetAdminUserByID(ctx, payload.UserID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return AdminSession{}, ErrInvalidAdminToken
@@ -191,7 +191,7 @@ func (s *Service) ChangeAdminPassword(ctx context.Context, userID string, input 
 	if userID == "" || strings.TrimSpace(input.CurrentPassword) == "" || len(strings.TrimSpace(input.NewPassword)) < 8 {
 		return ErrInvalidRequest
 	}
-	user, err := s.store.GetAdminUserByID(ctx, userID)
+	user, err := s.currentStore().GetAdminUserByID(ctx, userID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return ErrInvalidAdminToken
@@ -206,7 +206,7 @@ func (s *Service) ChangeAdminPassword(ctx context.Context, userID string, input 
 	if err != nil {
 		return err
 	}
-	if err := s.store.UpdateAdminUserPassword(ctx, user.ID, passwordHash, s.now()); err != nil {
+	if err := s.currentStore().UpdateAdminUserPassword(ctx, user.ID, passwordHash, s.now()); err != nil {
 		return err
 	}
 	_ = s.audit(ctx, "admin", user.ID, "", "", "", "admin.password.change", "success", "")

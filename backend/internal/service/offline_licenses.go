@@ -58,7 +58,7 @@ func (s *Service) CreateOfflineLicense(ctx context.Context, input CreateOfflineL
 	if !input.IsPermanent && (input.DurationDays <= 0 || input.DurationDays > 36500) {
 		return domain.OfflineLicense{}, ErrInvalidRequest
 	}
-	product, err := s.store.GetProduct(ctx, input.ProductID)
+	product, err := s.currentStore().GetProduct(ctx, input.ProductID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return domain.OfflineLicense{}, ErrProductNotFound
@@ -119,7 +119,7 @@ func (s *Service) CreateOfflineLicense(ctx context.Context, input CreateOfflineL
 	if err != nil {
 		return domain.OfflineLicense{}, err
 	}
-	if err := s.store.CreateOfflineLicense(ctx, license); err != nil {
+	if err := s.currentStore().CreateOfflineLicense(ctx, license); err != nil {
 		return domain.OfflineLicense{}, err
 	}
 	_ = s.audit(ctx, "admin", actorID, product.ID, license.ID, "", "offline_license.create", "success", "")
@@ -127,7 +127,7 @@ func (s *Service) CreateOfflineLicense(ctx context.Context, input CreateOfflineL
 }
 
 func (s *Service) ListOfflineLicenses(ctx context.Context) ([]domain.OfflineLicense, error) {
-	licenses, err := s.store.ListOfflineLicenses(ctx)
+	licenses, err := s.currentStore().ListOfflineLicenses(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (s *Service) ListOfflineLicenses(ctx context.Context) ([]domain.OfflineLice
 }
 
 func (s *Service) DownloadOfflineLicense(ctx context.Context, id, actorID string) (OfflineLicenseDownload, error) {
-	license, err := s.store.GetOfflineLicense(ctx, strings.TrimSpace(id))
+	license, err := s.currentStore().GetOfflineLicense(ctx, strings.TrimSpace(id))
 	if err != nil {
 		if store.IsNotFound(err) {
 			return OfflineLicenseDownload{}, ErrOfflineLicenseNotFound
@@ -173,7 +173,7 @@ func (s *Service) RevokeOfflineLicense(ctx context.Context, id, reason, actorID 
 	if id == "" || reason == "" || len(reason) > 200 {
 		return domain.OfflineLicense{}, ErrInvalidRequest
 	}
-	license, err := s.store.GetOfflineLicense(ctx, id)
+	license, err := s.currentStore().GetOfflineLicense(ctx, id)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return domain.OfflineLicense{}, ErrOfflineLicenseNotFound
@@ -184,7 +184,7 @@ func (s *Service) RevokeOfflineLicense(ctx context.Context, id, reason, actorID 
 		return domain.OfflineLicense{}, ErrOfflineLicenseRevoked
 	}
 	now := s.now()
-	if err := s.store.RevokeOfflineLicense(ctx, id, reason, now); err != nil {
+	if err := s.currentStore().RevokeOfflineLicense(ctx, id, reason, now); err != nil {
 		return domain.OfflineLicense{}, err
 	}
 	license.Status = domain.LicenseRevoked

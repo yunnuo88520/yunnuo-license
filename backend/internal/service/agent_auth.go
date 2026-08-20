@@ -50,7 +50,7 @@ func (s *Service) CreateAgentUser(ctx context.Context, input CreateAgentUserInpu
 	if !validAgentRole(input.Role) {
 		return domain.AgentUser{}, ErrInvalidRequest
 	}
-	agent, err := s.store.GetAgent(ctx, input.AgentID)
+	agent, err := s.currentStore().GetAgent(ctx, input.AgentID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return domain.AgentUser{}, ErrAgentNotFound
@@ -78,7 +78,7 @@ func (s *Service) CreateAgentUser(ctx context.Context, input CreateAgentUserInpu
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	if err := s.store.CreateAgentUser(ctx, user); err != nil {
+	if err := s.currentStore().CreateAgentUser(ctx, user); err != nil {
 		return domain.AgentUser{}, err
 	}
 	_ = s.audit(ctx, "admin", "", "", "", "", "agent_user.create", "success", "")
@@ -89,7 +89,7 @@ func (s *Service) ListAgentUsers(ctx context.Context, agentID string) ([]domain.
 	if strings.TrimSpace(agentID) == "" {
 		return nil, ErrInvalidRequest
 	}
-	return s.store.ListAgentUsers(ctx, agentID)
+	return s.currentStore().ListAgentUsers(ctx, agentID)
 }
 
 type AgentLoginInput struct {
@@ -145,7 +145,7 @@ func (s *Service) AgentLogin(ctx context.Context, input AgentLoginInput) (AgentL
 	if err := ensureAgentActive(agent); err != nil {
 		return AgentLoginResponse{}, err
 	}
-	user, err := s.store.GetAgentUserByUsername(ctx, agent.ID, input.Username)
+	user, err := s.currentStore().GetAgentUserByUsername(ctx, agent.ID, input.Username)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return AgentLoginResponse{}, ErrInvalidCredentials
@@ -173,7 +173,7 @@ func (s *Service) AgentLogin(ctx context.Context, input AgentLoginInput) (AgentL
 	if err != nil {
 		return AgentLoginResponse{}, err
 	}
-	if err := s.store.UpdateAgentUserLastLogin(ctx, user.ID, now); err != nil {
+	if err := s.currentStore().UpdateAgentUserLastLogin(ctx, user.ID, now); err != nil {
 		return AgentLoginResponse{}, err
 	}
 	user.LastLoginAt = &now
@@ -197,7 +197,7 @@ func (s *Service) AuthenticateAgentToken(ctx context.Context, token string) (Age
 	if payload.Type != "agent_session" || payload.AgentID == "" || payload.UserID == "" || now.Unix() >= payload.ExpiresAt {
 		return AgentSession{}, ErrInvalidAgentToken
 	}
-	agent, err := s.store.GetAgent(ctx, payload.AgentID)
+	agent, err := s.currentStore().GetAgent(ctx, payload.AgentID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return AgentSession{}, ErrInvalidAgentToken
@@ -207,7 +207,7 @@ func (s *Service) AuthenticateAgentToken(ctx context.Context, token string) (Age
 	if err := ensureAgentActive(agent); err != nil {
 		return AgentSession{}, err
 	}
-	loginCode, err := s.store.GetAgentLoginCode(ctx, agent.ID)
+	loginCode, err := s.currentStore().GetAgentLoginCode(ctx, agent.ID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return AgentSession{}, ErrInvalidAgentToken
@@ -215,7 +215,7 @@ func (s *Service) AuthenticateAgentToken(ctx context.Context, token string) (Age
 		return AgentSession{}, err
 	}
 	agent.LoginCode = loginCode
-	user, err := s.store.GetAgentUserByID(ctx, payload.UserID)
+	user, err := s.currentStore().GetAgentUserByID(ctx, payload.UserID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return AgentSession{}, ErrInvalidAgentToken
@@ -240,7 +240,7 @@ func (s *Service) AuthenticateAgentToken(ctx context.Context, token string) (Age
 
 func (s *Service) agentForLogin(ctx context.Context, agentID, loginCode, agentNo string) (domain.Agent, error) {
 	if loginCode != "" {
-		agent, err := s.store.GetAgentByLoginCode(ctx, loginCode)
+		agent, err := s.currentStore().GetAgentByLoginCode(ctx, loginCode)
 		if err != nil {
 			if store.IsNotFound(err) {
 				return domain.Agent{}, ErrInvalidCredentials
@@ -250,7 +250,7 @@ func (s *Service) agentForLogin(ctx context.Context, agentID, loginCode, agentNo
 		return agent, nil
 	}
 	if agentID != "" {
-		agent, err := s.store.GetAgent(ctx, agentID)
+		agent, err := s.currentStore().GetAgent(ctx, agentID)
 		if err != nil {
 			if store.IsNotFound(err) {
 				return domain.Agent{}, ErrInvalidCredentials
@@ -259,7 +259,7 @@ func (s *Service) agentForLogin(ctx context.Context, agentID, loginCode, agentNo
 		}
 		return s.withAgentLoginCode(ctx, agent)
 	}
-	agent, err := s.store.GetAgentByNo(ctx, agentNo)
+	agent, err := s.currentStore().GetAgentByNo(ctx, agentNo)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return domain.Agent{}, ErrInvalidCredentials
@@ -270,7 +270,7 @@ func (s *Service) agentForLogin(ctx context.Context, agentID, loginCode, agentNo
 }
 
 func (s *Service) withAgentLoginCode(ctx context.Context, agent domain.Agent) (domain.Agent, error) {
-	loginCode, err := s.store.GetAgentLoginCode(ctx, agent.ID)
+	loginCode, err := s.currentStore().GetAgentLoginCode(ctx, agent.ID)
 	if err != nil {
 		return domain.Agent{}, err
 	}

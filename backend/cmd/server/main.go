@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/yunnuo88520/yunnuo-license/backend/internal/buildinfo"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/config"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/httpapi"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/service"
@@ -27,35 +28,36 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer st.Close()
-
 	migrationDir := filepath.Join("migrations")
 	if err := st.Migrate(ctx, migrationDir); err != nil {
+		_ = st.Close()
 		log.Fatal(err)
 	}
 
 	svc := service.New(st, cfg.CardPepper, cfg.DataKey)
+	defer svc.Close()
 	if err := svc.EnsureAgentLoginCodes(ctx); err != nil {
 		log.Fatal(err)
 	}
-	admin, created, err := svc.EnsureBootstrapAdmin(ctx, cfg.AdminUsername, cfg.AdminPassword, cfg.AdminName)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if created {
-		log.Printf("bootstrap admin created: %s", admin.Username)
-		if cfg.AdminPassword == "admin123" {
-			log.Printf("warning: bootstrap admin uses the development password; change it after login or set YN_ADMIN_PASSWORD before first start")
+	if cfg.AdminExplicit {
+		admin, created, err := svc.EnsureBootstrapAdmin(ctx, cfg.AdminUsername, cfg.AdminPassword, cfg.AdminName)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if created {
+			log.Printf("bootstrap admin created: %s", admin.Username)
 		}
 	}
 	server := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           httpapi.New(svc, cfg.PublicStaticDir, cfg.AdminStaticDir, cfg.AgentStaticDir).WithTrustedProxyHeaders(cfg.TrustProxyHeaders).Handler(),
+		Addr: cfg.Addr,
+		Handler: httpapi.New(svc, cfg.PublicStaticDir, cfg.AdminStaticDir, cfg.AgentStaticDir).
+			WithTrustedProxyHeaders(cfg.TrustProxyHeaders).
+			WithSetupConfig(migrationDir, cfg.DatabaseConfigFile).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go func() {
-		log.Printf("yn-license backend listening on %s", cfg.Addr)
+		log.Printf("yn-license %s listening on %s", buildinfo.Version, cfg.Addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}

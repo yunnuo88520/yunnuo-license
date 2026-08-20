@@ -4,7 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net"
+	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	yncrypto "github.com/yunnuo88520/yunnuo-license/backend/internal/crypto"
@@ -13,19 +17,54 @@ import (
 )
 
 type Service struct {
-	store      *store.Store
+	store      atomic.Pointer[store.Store]
+	setupMu    sync.Mutex
+	retiredMu  sync.Mutex
+	retired    []*store.Store
 	cardPepper []byte
 	dataKey    []byte
 	now        func() time.Time
 }
 
+func (s *Service) currentStore() *store.Store {
+	return s.store.Load()
+}
+
+func (s *Service) replaceStore(st *store.Store) {
+	old := s.store.Swap(st)
+	if old == nil || old == st {
+		return
+	}
+	s.retiredMu.Lock()
+	s.retired = append(s.retired, old)
+	s.retiredMu.Unlock()
+}
+
+// Close is called after the HTTP server has stopped, so no request can still
+// be using a store retained during first-run initialization.
+func (s *Service) Close() error {
+	current := s.store.Swap(nil)
+	s.retiredMu.Lock()
+	stores := append(s.retired, current)
+	s.retired = nil
+	s.retiredMu.Unlock()
+	var closeErr error
+	for _, st := range stores {
+		if st != nil {
+			closeErr = errors.Join(closeErr, st.Close())
+		}
+	}
+	return closeErr
+}
+
 func New(st *store.Store, cardPepper, dataKey []byte) *Service {
-	return &Service{
-		store:      st,
+	s := &Service{
 		cardPepper: cardPepper,
 		dataKey:    dataKey,
 		now:        func() time.Time { return time.Now().UTC() },
 	}
+	s.store.Store(st)
+	return s
 }
 
 type CreateProductInput struct {
@@ -89,7 +128,7 @@ func (s *Service) CreateProduct(ctx context.Context, input CreateProductInput) (
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
-	if err := s.store.CreateProduct(ctx, product); err != nil {
+	if err := s.currentStore().CreateProduct(ctx, product); err != nil {
 		return domain.Product{}, err
 	}
 	_ = s.audit(ctx, "admin", "", product.ID, "", "", "product.create", "success", "")
@@ -97,7 +136,7 @@ func (s *Service) CreateProduct(ctx context.Context, input CreateProductInput) (
 }
 
 func (s *Service) ListProducts(ctx context.Context) ([]domain.Product, error) {
-	return s.store.ListProducts(ctx)
+	return s.currentStore().ListProducts(ctx)
 }
 
 type ProductKeyRing struct {
@@ -109,14 +148,14 @@ type ProductKeyRing struct {
 }
 
 func (s *Service) ProductKeys(ctx context.Context, productID string) (ProductKeyRing, error) {
-	product, err := s.store.GetProduct(ctx, strings.TrimSpace(productID))
+	product, err := s.currentStore().GetProduct(ctx, strings.TrimSpace(productID))
 	if err != nil {
 		if store.IsNotFound(err) {
 			return ProductKeyRing{}, ErrProductNotFound
 		}
 		return ProductKeyRing{}, err
 	}
-	keys, err := s.store.ListProductKeys(ctx, product.ID)
+	keys, err := s.currentStore().ListProductKeys(ctx, product.ID)
 	if err != nil {
 		return ProductKeyRing{}, err
 	}
@@ -124,7 +163,7 @@ func (s *Service) ProductKeys(ctx context.Context, productID string) (ProductKey
 }
 
 func (s *Service) ProductKeysByAppKey(ctx context.Context, appKey string) (ProductKeyRing, error) {
-	product, err := s.store.GetProductByAppKey(ctx, strings.TrimSpace(appKey))
+	product, err := s.currentStore().GetProductByAppKey(ctx, strings.TrimSpace(appKey))
 	if err != nil {
 		if store.IsNotFound(err) {
 			return ProductKeyRing{}, ErrProductNotFound
@@ -142,7 +181,7 @@ func (s *Service) ProductKeysByAppKey(ctx context.Context, appKey string) (Produ
 }
 
 func (s *Service) RotateProductKey(ctx context.Context, productID, actorID string) (ProductKeyRing, error) {
-	product, err := s.store.GetProduct(ctx, strings.TrimSpace(productID))
+	product, err := s.currentStore().GetProduct(ctx, strings.TrimSpace(productID))
 	if err != nil {
 		if store.IsNotFound(err) {
 			return ProductKeyRing{}, ErrProductNotFound
@@ -157,7 +196,7 @@ func (s *Service) RotateProductKey(ctx context.Context, productID, actorID strin
 	if err != nil {
 		return ProductKeyRing{}, err
 	}
-	version, err := s.store.RotateProductKey(ctx, product.ID, publicPEM, privateEncrypted, actorID, s.now())
+	version, err := s.currentStore().RotateProductKey(ctx, product.ID, publicPEM, privateEncrypted, actorID, s.now())
 	if err != nil {
 		return ProductKeyRing{}, err
 	}
@@ -190,7 +229,7 @@ func (s *Service) CreateCardBatch(ctx context.Context, input CreateCardBatchInpu
 	if !input.IsPermanent && input.DurationDays <= 0 {
 		return CreateCardBatchResult{}, ErrInvalidRequest
 	}
-	product, err := s.store.GetProduct(ctx, input.ProductID)
+	product, err := s.currentStore().GetProduct(ctx, input.ProductID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return CreateCardBatchResult{}, ErrInvalidRequest
@@ -204,7 +243,7 @@ func (s *Service) CreateCardBatch(ctx context.Context, input CreateCardBatchInpu
 	if err != nil {
 		return CreateCardBatchResult{}, err
 	}
-	if err := s.store.CreateCardBatch(ctx, batch, cards); err != nil {
+	if err := s.currentStore().CreateCardBatch(ctx, batch, cards); err != nil {
 		return CreateCardBatchResult{}, err
 	}
 	_ = s.audit(ctx, "admin", "", product.ID, "", "", "card_batch.create", "success", "")
@@ -212,11 +251,11 @@ func (s *Service) CreateCardBatch(ctx context.Context, input CreateCardBatchInpu
 }
 
 func (s *Service) ListCardBatches(ctx context.Context) ([]domain.CardBatch, error) {
-	return s.store.ListCardBatches(ctx)
+	return s.currentStore().ListCardBatches(ctx)
 }
 
 func (s *Service) ListCardsByBatch(ctx context.Context, batchID string) ([]domain.Card, error) {
-	return s.store.ListCardsByBatch(ctx, batchID)
+	return s.currentStore().ListCardsByBatch(ctx, batchID)
 }
 
 type CreateAgentInput struct {
@@ -252,7 +291,7 @@ func (s *Service) CreateAgent(ctx context.Context, input CreateAgentInput) (doma
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
-	if err := s.store.CreateAgentWithLoginCode(ctx, agent); err != nil {
+	if err := s.currentStore().CreateAgentWithLoginCode(ctx, agent); err != nil {
 		return domain.Agent{}, err
 	}
 	_ = s.audit(ctx, "admin", "", "", "", "", "agent.create", "success", "")
@@ -260,11 +299,11 @@ func (s *Service) CreateAgent(ctx context.Context, input CreateAgentInput) (doma
 }
 
 func (s *Service) ListAgents(ctx context.Context) ([]domain.Agent, error) {
-	return s.store.ListAgents(ctx)
+	return s.currentStore().ListAgents(ctx)
 }
 
 func (s *Service) EnsureAgentLoginCodes(ctx context.Context) error {
-	agents, err := s.store.ListAgents(ctx)
+	agents, err := s.currentStore().ListAgents(ctx)
 	if err != nil {
 		return err
 	}
@@ -276,7 +315,7 @@ func (s *Service) EnsureAgentLoginCodes(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := s.store.CreateAgentLoginCode(ctx, agent.ID, loginCode, s.now()); err != nil {
+		if err := s.currentStore().CreateAgentLoginCode(ctx, agent.ID, loginCode, s.now()); err != nil {
 			return err
 		}
 	}
@@ -289,7 +328,7 @@ func (s *Service) newAgentLoginCode(ctx context.Context) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if _, err := s.store.GetAgentByLoginCode(ctx, loginCode); store.IsNotFound(err) {
+		if _, err := s.currentStore().GetAgentByLoginCode(ctx, loginCode); store.IsNotFound(err) {
 			return loginCode, nil
 		} else if err != nil {
 			return "", err
@@ -312,13 +351,13 @@ func (s *Service) UpsertAgentProductPolicy(ctx context.Context, input AgentProdu
 	if input.AgentID == "" || input.ProductID == "" {
 		return domain.AgentProductPolicy{}, ErrInvalidRequest
 	}
-	if _, err := s.store.GetAgent(ctx, input.AgentID); err != nil {
+	if _, err := s.currentStore().GetAgent(ctx, input.AgentID); err != nil {
 		if store.IsNotFound(err) {
 			return domain.AgentProductPolicy{}, ErrAgentNotFound
 		}
 		return domain.AgentProductPolicy{}, err
 	}
-	if _, err := s.store.GetProduct(ctx, input.ProductID); err != nil {
+	if _, err := s.currentStore().GetProduct(ctx, input.ProductID); err != nil {
 		if store.IsNotFound(err) {
 			return domain.AgentProductPolicy{}, ErrInvalidRequest
 		}
@@ -343,7 +382,7 @@ func (s *Service) UpsertAgentProductPolicy(ctx context.Context, input AgentProdu
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
-	if err := s.store.UpsertAgentProductPolicy(ctx, policy); err != nil {
+	if err := s.currentStore().UpsertAgentProductPolicy(ctx, policy); err != nil {
 		return domain.AgentProductPolicy{}, err
 	}
 	_ = s.audit(ctx, "admin", "", input.ProductID, "", "", "agent_policy.upsert", "success", "")
@@ -354,7 +393,7 @@ func (s *Service) ListAgentProductPolicies(ctx context.Context, agentID string) 
 	if agentID == "" {
 		return nil, ErrInvalidRequest
 	}
-	return s.store.ListAgentProductPolicies(ctx, agentID)
+	return s.currentStore().ListAgentProductPolicies(ctx, agentID)
 }
 
 type AgentQuotaInput struct {
@@ -375,7 +414,7 @@ func (s *Service) GrantAgentQuota(ctx context.Context, input AgentQuotaInput) (d
 	}
 	now := s.now()
 	var ledger domain.AgentQuotaLedger
-	err := s.store.WithTx(ctx, func(tx *store.Tx) error {
+	err := s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		agent, err := tx.GetAgent(ctx, input.AgentID)
 		if err != nil {
 			if store.IsNotFound(err) {
@@ -416,14 +455,14 @@ func (s *Service) ListAgentQuotaLedgers(ctx context.Context, agentID string) ([]
 	if agentID == "" {
 		return nil, ErrInvalidRequest
 	}
-	return s.store.ListAgentQuotaLedgers(ctx, agentID)
+	return s.currentStore().ListAgentQuotaLedgers(ctx, agentID)
 }
 
 func (s *Service) ListAgentQuotaSummaries(ctx context.Context, agentID string) ([]domain.AgentQuotaSummary, error) {
 	if agentID == "" {
 		return nil, ErrInvalidRequest
 	}
-	return s.store.ListAgentQuotaSummaries(ctx, agentID)
+	return s.currentStore().ListAgentQuotaSummaries(ctx, agentID)
 }
 
 type AgentProductView struct {
@@ -438,13 +477,13 @@ func (s *Service) ListAgentProducts(ctx context.Context, agentID string) ([]Agen
 	if strings.TrimSpace(agentID) == "" {
 		return nil, ErrInvalidRequest
 	}
-	policies, err := s.store.ListAgentProductPolicies(ctx, agentID)
+	policies, err := s.currentStore().ListAgentProductPolicies(ctx, agentID)
 	if err != nil {
 		return nil, err
 	}
 	products := make([]AgentProductView, 0, len(policies))
 	for _, policy := range policies {
-		product, err := s.store.GetProduct(ctx, policy.ProductID)
+		product, err := s.currentStore().GetProduct(ctx, policy.ProductID)
 		if err != nil {
 			if store.IsNotFound(err) {
 				continue
@@ -478,7 +517,7 @@ func (s *Service) AgentCreateCardBatch(ctx context.Context, input AgentCreateCar
 	if !input.IsPermanent && input.DurationDays <= 0 {
 		return CreateCardBatchResult{}, ErrInvalidRequest
 	}
-	product, err := s.store.GetProduct(ctx, input.ProductID)
+	product, err := s.currentStore().GetProduct(ctx, input.ProductID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return CreateCardBatchResult{}, ErrInvalidRequest
@@ -493,7 +532,7 @@ func (s *Service) AgentCreateCardBatch(ctx context.Context, input AgentCreateCar
 		return CreateCardBatchResult{}, err
 	}
 	now := s.now()
-	err = s.store.WithTx(ctx, func(tx *store.Tx) error {
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		agent, err := tx.GetAgent(ctx, input.AgentID)
 		if err != nil {
 			if store.IsNotFound(err) {
@@ -558,20 +597,20 @@ func (s *Service) ListAgentCardBatches(ctx context.Context, agentID string) ([]d
 	if strings.TrimSpace(agentID) == "" {
 		return nil, ErrInvalidRequest
 	}
-	return s.store.ListCardBatchesByAgent(ctx, agentID)
+	return s.currentStore().ListCardBatchesByAgent(ctx, agentID)
 }
 
 func (s *Service) ListAgentCardsByBatch(ctx context.Context, agentID, batchID string) ([]domain.Card, error) {
 	if strings.TrimSpace(agentID) == "" || strings.TrimSpace(batchID) == "" {
 		return nil, ErrInvalidRequest
 	}
-	if _, err := s.store.GetCardBatchForAgent(ctx, batchID, agentID); err != nil {
+	if _, err := s.currentStore().GetCardBatchForAgent(ctx, batchID, agentID); err != nil {
 		if store.IsNotFound(err) {
 			return nil, ErrAgentBatchNotFound
 		}
 		return nil, err
 	}
-	return s.store.ListCardsByBatchForAgent(ctx, batchID, agentID)
+	return s.currentStore().ListCardsByBatchForAgent(ctx, batchID, agentID)
 }
 
 type AgentCardExportResult struct {
@@ -583,14 +622,14 @@ func (s *Service) ExportAgentCardBatch(ctx context.Context, agentID, userID, bat
 	if strings.TrimSpace(agentID) == "" || strings.TrimSpace(batchID) == "" {
 		return AgentCardExportResult{}, ErrInvalidRequest
 	}
-	batch, err := s.store.GetCardBatchForAgent(ctx, batchID, agentID)
+	batch, err := s.currentStore().GetCardBatchForAgent(ctx, batchID, agentID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return AgentCardExportResult{}, ErrAgentBatchNotFound
 		}
 		return AgentCardExportResult{}, err
 	}
-	policy, err := s.store.GetAgentProductPolicy(ctx, agentID, batch.ProductID)
+	policy, err := s.currentStore().GetAgentProductPolicy(ctx, agentID, batch.ProductID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return AgentCardExportResult{}, ErrAgentExportDenied
@@ -600,7 +639,7 @@ func (s *Service) ExportAgentCardBatch(ctx context.Context, agentID, userID, bat
 	if policy.Status != domain.AgentPolicyActive || !policy.CanExportPlainCode {
 		return AgentCardExportResult{}, ErrAgentExportDenied
 	}
-	cards, err := s.store.ListCardsByBatchForAgent(ctx, batchID, agentID)
+	cards, err := s.currentStore().ListCardsByBatchForAgent(ctx, batchID, agentID)
 	if err != nil {
 		return AgentCardExportResult{}, err
 	}
@@ -613,7 +652,7 @@ func (s *Service) ExportAgentCardBatch(ctx context.Context, agentID, userID, bat
 		codes = append(codes, code)
 	}
 	now := s.now()
-	if err := s.store.IncrementCardBatchExportCount(ctx, batchID, now); err != nil {
+	if err := s.currentStore().IncrementCardBatchExportCount(ctx, batchID, now); err != nil {
 		return AgentCardExportResult{}, err
 	}
 	batch.ExportCount++
@@ -626,52 +665,97 @@ func (s *Service) ListAgentLicenses(ctx context.Context, agentID string) ([]doma
 	if strings.TrimSpace(agentID) == "" {
 		return nil, ErrInvalidRequest
 	}
-	return s.store.ListLicensesByAgent(ctx, agentID)
+	return s.currentStore().ListLicensesByAgent(ctx, agentID)
 }
 
 func (s *Service) ListLicenses(ctx context.Context) ([]domain.License, error) {
-	return s.store.ListLicenses(ctx)
+	return s.currentStore().ListLicenses(ctx)
 }
 
 func (s *Service) ListLicenseBindings(ctx context.Context, licenseNo string) ([]domain.Binding, error) {
-	lic, err := s.store.GetLicenseByNo(ctx, licenseNo)
+	lic, err := s.currentStore().GetLicenseByNo(ctx, licenseNo)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return nil, ErrLicenseNotFound
 		}
 		return nil, err
 	}
-	return s.store.GetBindings(ctx, lic.ID)
+	return s.currentStore().GetBindings(ctx, lic.ID)
 }
 
 type PublicLicenseQueryInput struct {
 	LicenseNo string `json:"license_no"`
 	CardCode  string `json:"card_code"`
+	Query     string `json:"query"`
+	QueryType string `json:"query_type"`
 }
 
-type PublicLicenseQueryResult struct {
-	QueryType     string     `json:"query_type"`
+type PublicLicenseQueryMatch struct {
 	ProductName   string     `json:"product_name"`
 	ProductCode   string     `json:"product_code"`
-	CardStatus    string     `json:"card_status,omitempty"`
-	LicenseNo     string     `json:"license_no,omitempty"`
-	LicenseStatus string     `json:"license_status,omitempty"`
-	DurationDays  int        `json:"duration_days"`
+	LicenseNo     string     `json:"license_no"`
+	LicenseStatus string     `json:"license_status"`
 	IsPermanent   bool       `json:"is_permanent"`
 	ActivatedAt   *time.Time `json:"activated_at,omitempty"`
 	ExpiredAt     *time.Time `json:"expired_at,omitempty"`
 	LastVerifyAt  *time.Time `json:"last_verify_at,omitempty"`
-	ServerTime    time.Time  `json:"server_time"`
+}
+
+type PublicLicenseQueryResult struct {
+	QueryType     string                    `json:"query_type"`
+	QueryMasked   string                    `json:"query_masked,omitempty"`
+	MatchCount    int                       `json:"match_count,omitempty"`
+	Results       []PublicLicenseQueryMatch `json:"results,omitempty"`
+	ProductName   string                    `json:"product_name"`
+	ProductCode   string                    `json:"product_code"`
+	CardStatus    string                    `json:"card_status,omitempty"`
+	LicenseNo     string                    `json:"license_no,omitempty"`
+	LicenseStatus string                    `json:"license_status,omitempty"`
+	DurationDays  int                       `json:"duration_days"`
+	IsPermanent   bool                      `json:"is_permanent"`
+	ActivatedAt   *time.Time                `json:"activated_at,omitempty"`
+	ExpiredAt     *time.Time                `json:"expired_at,omitempty"`
+	LastVerifyAt  *time.Time                `json:"last_verify_at,omitempty"`
+	ServerTime    time.Time                 `json:"server_time"`
 }
 
 func (s *Service) QueryPublicLicense(ctx context.Context, input PublicLicenseQueryInput) (PublicLicenseQueryResult, error) {
 	input.LicenseNo = strings.TrimSpace(input.LicenseNo)
 	input.CardCode = strings.TrimSpace(input.CardCode)
-	if (input.LicenseNo == "") == (input.CardCode == "") {
+	input.Query = strings.TrimSpace(input.Query)
+	input.QueryType = strings.ToLower(strings.TrimSpace(input.QueryType))
+
+	legacyFields := 0
+	if input.LicenseNo != "" {
+		legacyFields++
+	}
+	if input.CardCode != "" {
+		legacyFields++
+	}
+	if input.Query != "" {
+		legacyFields++
+	}
+	if legacyFields != 1 {
 		return PublicLicenseQueryResult{}, ErrInvalidRequest
 	}
+	if input.Query != "" {
+		queryType := input.QueryType
+		if queryType == "" || queryType == "auto" {
+			queryType = detectPublicQueryType(input.Query)
+		}
+		switch queryType {
+		case "license":
+			input.LicenseNo = input.Query
+		case "card":
+			input.CardCode = input.Query
+		case domain.BindDomain, domain.BindIP, domain.BindAccount:
+			return s.queryPublicBindings(ctx, queryType, input.Query)
+		default:
+			return PublicLicenseQueryResult{}, ErrInvalidRequest
+		}
+	}
 	if input.LicenseNo != "" {
-		license, err := s.store.GetLicenseByNo(ctx, input.LicenseNo)
+		license, err := s.currentStore().GetLicenseByNo(ctx, input.LicenseNo)
 		if err != nil {
 			if store.IsNotFound(err) {
 				return PublicLicenseQueryResult{}, ErrAuthorizationNotFound
@@ -681,7 +765,7 @@ func (s *Service) QueryPublicLicense(ctx context.Context, input PublicLicenseQue
 		return s.publicLicenseResult(ctx, "license", domain.Card{}, license)
 	}
 
-	card, err := s.store.GetCardByHash(ctx, yncrypto.CardHash(s.cardPepper, input.CardCode))
+	card, err := s.currentStore().GetCardByHash(ctx, yncrypto.CardHash(s.cardPepper, input.CardCode))
 	if err != nil {
 		if store.IsNotFound(err) {
 			return PublicLicenseQueryResult{}, ErrAuthorizationNotFound
@@ -689,7 +773,7 @@ func (s *Service) QueryPublicLicense(ctx context.Context, input PublicLicenseQue
 		return PublicLicenseQueryResult{}, err
 	}
 	if card.ActivatedLicenseID == "" {
-		product, err := s.store.GetProduct(ctx, card.ProductID)
+		product, err := s.currentStore().GetProduct(ctx, card.ProductID)
 		if err != nil {
 			return PublicLicenseQueryResult{}, err
 		}
@@ -703,7 +787,7 @@ func (s *Service) QueryPublicLicense(ctx context.Context, input PublicLicenseQue
 			ServerTime:   s.now(),
 		}, nil
 	}
-	license, err := s.store.GetLicenseByID(ctx, card.ActivatedLicenseID)
+	license, err := s.currentStore().GetLicenseByID(ctx, card.ActivatedLicenseID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return PublicLicenseQueryResult{}, ErrAuthorizationNotFound
@@ -713,8 +797,65 @@ func (s *Service) QueryPublicLicense(ctx context.Context, input PublicLicenseQue
 	return s.publicLicenseResult(ctx, "card", card, license)
 }
 
+func (s *Service) queryPublicBindings(ctx context.Context, queryType, query string) (PublicLicenseQueryResult, error) {
+	value, err := normalizeBindingValue(queryType, query)
+	if err != nil {
+		return PublicLicenseQueryResult{}, ErrInvalidRequest
+	}
+	bindings, err := s.currentStore().FindActiveBindingsByHash(ctx, queryType, yncrypto.BindHash(s.cardPepper, queryType, value), 10)
+	if err != nil {
+		return PublicLicenseQueryResult{}, err
+	}
+	if len(bindings) == 0 {
+		return PublicLicenseQueryResult{}, ErrAuthorizationNotFound
+	}
+	matches := make([]PublicLicenseQueryMatch, 0, len(bindings))
+	for _, binding := range bindings {
+		license, err := s.currentStore().GetLicenseByID(ctx, binding.LicenseID)
+		if err != nil {
+			if store.IsNotFound(err) {
+				continue
+			}
+			return PublicLicenseQueryResult{}, err
+		}
+		match, err := s.publicLicenseMatch(ctx, license)
+		if err != nil {
+			return PublicLicenseQueryResult{}, err
+		}
+		matches = append(matches, match)
+	}
+	if len(matches) == 0 {
+		return PublicLicenseQueryResult{}, ErrAuthorizationNotFound
+	}
+	return PublicLicenseQueryResult{
+		QueryType:   queryType,
+		QueryMasked: maskPublicQuery(queryType, value),
+		MatchCount:  len(matches),
+		Results:     matches,
+		ServerTime:  s.now(),
+	}, nil
+}
+
+func (s *Service) publicLicenseMatch(ctx context.Context, license domain.License) (PublicLicenseQueryMatch, error) {
+	product, err := s.currentStore().GetProduct(ctx, license.ProductID)
+	if err != nil {
+		return PublicLicenseQueryMatch{}, err
+	}
+	now := s.now()
+	status := license.Status
+	if status == domain.LicenseActive && license.ExpiredAt != nil && !now.Before(*license.ExpiredAt) {
+		status = domain.LicenseExpired
+	}
+	activatedAt := license.ActivatedAt
+	return PublicLicenseQueryMatch{
+		ProductName: product.Name, ProductCode: product.Code, LicenseNo: license.LicenseNo,
+		LicenseStatus: status, IsPermanent: license.ExpiredAt == nil, ActivatedAt: &activatedAt,
+		ExpiredAt: license.ExpiredAt, LastVerifyAt: license.LastVerifyAt,
+	}, nil
+}
+
 func (s *Service) publicLicenseResult(ctx context.Context, queryType string, card domain.Card, license domain.License) (PublicLicenseQueryResult, error) {
-	product, err := s.store.GetProduct(ctx, license.ProductID)
+	product, err := s.currentStore().GetProduct(ctx, license.ProductID)
 	if err != nil {
 		return PublicLicenseQueryResult{}, err
 	}
@@ -785,7 +926,7 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 	codeHash := yncrypto.CardHash(s.cardPepper, input.CardCode)
 	var lic domain.License
 	var binding domain.Binding
-	err = s.store.WithTx(ctx, func(tx *store.Tx) error {
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		card, err := tx.GetCardByHash(ctx, codeHash)
 		if err != nil {
 			if store.IsNotFound(err) {
@@ -898,7 +1039,7 @@ func (s *Service) Verify(ctx context.Context, input VerifyInput) (LicenseRespons
 	now := s.now()
 	var lic domain.License
 	var binding domain.Binding
-	err = s.store.WithTx(ctx, func(tx *store.Tx) error {
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		var err error
 		lic, err = tx.GetLicenseByNo(ctx, input.LicenseNo)
 		if err != nil {
@@ -947,7 +1088,7 @@ func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]
 		return nil, err
 	}
 	now := s.now()
-	err = s.store.WithTx(ctx, func(tx *store.Tx) error {
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		lic, err := tx.GetLicenseByNo(ctx, input.LicenseNo)
 		if err != nil {
 			if store.IsNotFound(err) {
@@ -1005,7 +1146,7 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 	codeHash := yncrypto.CardHash(s.cardPepper, input.RenewCardCode)
 	var lic domain.License
 	var binding domain.Binding
-	err = s.store.WithTx(ctx, func(tx *store.Tx) error {
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		var err error
 		lic, err = tx.GetLicenseByNo(ctx, input.LicenseNo)
 		if err != nil {
@@ -1087,7 +1228,7 @@ func (s *Service) Unbind(ctx context.Context, input UnbindInput) (map[string]any
 	now := s.now()
 	var lic domain.License
 	var binding domain.Binding
-	err = s.store.WithTx(ctx, func(tx *store.Tx) error {
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		var err error
 		lic, err = tx.GetLicenseByNo(ctx, input.LicenseNo)
 		if err != nil {
@@ -1138,7 +1279,7 @@ func (s *Service) AdminUnbind(ctx context.Context, input AdminUnbindInput) (map[
 	}
 	now := s.now()
 	var lic domain.License
-	err := s.store.WithTx(ctx, func(tx *store.Tx) error {
+	err := s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		var err error
 		lic, err = tx.GetLicenseByNo(ctx, input.LicenseNo)
 		if err != nil {
@@ -1175,7 +1316,7 @@ func (s *Service) RevokeLicense(ctx context.Context, input RevokeLicenseInput) (
 	}
 	now := s.now()
 	var lic domain.License
-	err := s.store.WithTx(ctx, func(tx *store.Tx) error {
+	err := s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		var err error
 		lic, err = tx.GetLicenseByNo(ctx, input.LicenseNo)
 		if err != nil {
@@ -1202,7 +1343,7 @@ func (s *Service) RevokeLicense(ctx context.Context, input RevokeLicenseInput) (
 }
 
 func (s *Service) productByAppKey(ctx context.Context, appKey string) (domain.Product, error) {
-	product, err := s.store.GetProductByAppKey(ctx, appKey)
+	product, err := s.currentStore().GetProductByAppKey(ctx, appKey)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return domain.Product{}, ErrInvalidAppKey
@@ -1233,7 +1374,130 @@ func (s *Service) normalizeBinding(product domain.Product, inputMode, inputValue
 	if mode != product.BindMode {
 		return "", "", "", ErrBindingMismatch
 	}
+	value, err := normalizeBindingValue(mode, value)
+	if err != nil {
+		return "", "", "", ErrBindingRequired
+	}
 	return mode, value, yncrypto.BindHash(s.cardPepper, mode, value), nil
+}
+
+func normalizeBindingValue(mode, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", ErrBindingRequired
+	}
+	switch mode {
+	case domain.BindIP:
+		ip := net.ParseIP(value)
+		if ip == nil {
+			return "", ErrBindingRequired
+		}
+		return ip.String(), nil
+	case domain.BindDomain:
+		host := strings.ToLower(value)
+		if strings.Contains(host, "://") {
+			parsed, err := url.Parse(host)
+			if err != nil {
+				return "", ErrBindingRequired
+			}
+			host = parsed.Hostname()
+		} else {
+			host = strings.Split(host, "/")[0]
+			host = strings.Split(host, ":")[0]
+		}
+		host = strings.TrimSuffix(host, ".")
+		if !isValidDomain(host) {
+			return "", ErrBindingRequired
+		}
+		return host, nil
+	case domain.BindAccount:
+		return strings.ToLower(value), nil
+	default:
+		return value, nil
+	}
+}
+
+func detectPublicQueryType(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(strings.ToLower(trimmed), "lic_") {
+		return "license"
+	}
+	if net.ParseIP(trimmed) != nil {
+		return domain.BindIP
+	}
+	if strings.Contains(trimmed, ".") && !strings.ContainsAny(trimmed, " @") {
+		return domain.BindDomain
+	}
+	if strings.Count(trimmed, "-") >= 2 {
+		return "card"
+	}
+	return domain.BindAccount
+}
+
+func maskPublicQuery(queryType, value string) string {
+	switch queryType {
+	case domain.BindIP:
+		if ip := net.ParseIP(value); ip != nil {
+			if v4 := ip.To4(); v4 != nil {
+				return v4.String()[:strings.LastIndex(v4.String(), ".")+1] + "*"
+			}
+			parts := strings.Split(ip.String(), ":")
+			if len(parts) > 2 {
+				return strings.Join(parts[:2], ":") + "::*"
+			}
+		}
+	case domain.BindDomain:
+		parts := strings.Split(value, ".")
+		return maskText(parts[0]) + "." + strings.Join(parts[1:], ".")
+	case domain.BindAccount:
+		if at := strings.IndexByte(value, '@'); at > 0 {
+			return maskText(value[:at]) + value[at:]
+		}
+		if len(value) == 11 && isASCIIDigits(value) {
+			return value[:3] + "****" + value[7:]
+		}
+	}
+	return maskText(value)
+}
+
+func maskText(value string) string {
+	runes := []rune(value)
+	if len(runes) == 0 {
+		return "*"
+	}
+	if len(runes) <= 2 {
+		return string(runes[:1]) + "*"
+	}
+	if len(runes) <= 6 {
+		return string(runes[:1]) + strings.Repeat("*", len(runes)-2) + string(runes[len(runes)-1:])
+	}
+	return string(runes[:3]) + strings.Repeat("*", min(4, len(runes)-5)) + string(runes[len(runes)-2:])
+}
+
+func isValidDomain(value string) bool {
+	if len(value) > 253 || net.ParseIP(value) != nil || !strings.Contains(value, ".") {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, char := range label {
+			if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isASCIIDigits(value string) bool {
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return value != ""
 }
 
 func (s *Service) ensureUsable(product domain.Product, lic domain.License, now time.Time) error {
@@ -1423,7 +1687,7 @@ func validateAgentPolicy(policy domain.AgentProductPolicy, quantity, durationDay
 }
 
 func (s *Service) audit(ctx context.Context, actorType, actorID, productID, licenseID, cardID, action, result, code string) error {
-	return s.store.InsertAudit(ctx, domain.AuditLog{
+	return s.currentStore().InsertAudit(ctx, domain.AuditLog{
 		ID:        yncrypto.NewID("audit"),
 		ActorType: actorType,
 		ActorID:   actorID,
@@ -1438,7 +1702,7 @@ func (s *Service) audit(ctx context.Context, actorType, actorID, productID, lice
 }
 
 func (s *Service) auditAgent(ctx context.Context, actorID, agentID, productID, action, result, code string) error {
-	return s.store.InsertAudit(ctx, domain.AuditLog{
+	return s.currentStore().InsertAudit(ctx, domain.AuditLog{
 		ID:        yncrypto.NewID("audit"),
 		ActorType: "agent",
 		ActorID:   actorID,
@@ -1452,7 +1716,7 @@ func (s *Service) auditAgent(ctx context.Context, actorID, agentID, productID, a
 }
 
 func (s *Service) auditAdminAgent(ctx context.Context, actorID, agentID, action, result, code string) error {
-	return s.store.InsertAudit(ctx, domain.AuditLog{
+	return s.currentStore().InsertAudit(ctx, domain.AuditLog{
 		ID:        yncrypto.NewID("audit"),
 		ActorType: "admin",
 		ActorID:   actorID,

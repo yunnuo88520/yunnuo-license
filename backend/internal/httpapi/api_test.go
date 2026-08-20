@@ -45,6 +45,100 @@ func TestStaticAppServesAssetsAndRejectsMissingFiles(t *testing.T) {
 	}
 }
 
+func TestSystemVersionRequiresAdminAndIsStructured(t *testing.T) {
+	ctx := context.Background()
+	svc := newHTTPTestService(t)
+	if _, _, err := svc.EnsureBootstrapAdmin(ctx, "root", "secret123", "Root Admin"); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(svc, "", "", "").Handler()
+	performJSONStatus(t, handler, http.MethodGet, "/admin/system/version", "", nil, http.StatusUnauthorized)
+	token := loginAdmin(t, handler, "root", "secret123")
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/admin/system/version", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected version endpoint to return 200, got %d", response.Code)
+	}
+	var body struct {
+		Data struct {
+			SchemaVersion  int    `json:"schema_version"`
+			CurrentVersion string `json:"current_version"`
+			Releases       []any  `json:"releases"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.SchemaVersion != 1 || body.Data.CurrentVersion == "" || len(body.Data.Releases) == 0 {
+		t.Fatalf("unexpected version response: %#v", body.Data)
+	}
+}
+
+func TestSiteSettingsArePublicAndAdminManaged(t *testing.T) {
+	ctx := context.Background()
+	svc := newHTTPTestService(t)
+	if _, _, err := svc.EnsureBootstrapAdmin(ctx, "root", "secret123", "Root Admin"); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(svc, "", "", "").Handler()
+	publicBody := performJSON(t, handler, http.MethodGet, "/v1/site/settings", "", nil)
+	var defaults domain.SiteSettings
+	decodeData(t, publicBody, &defaults)
+	if defaults.SiteName != "允诺云授权" {
+		t.Fatalf("unexpected default settings: %#v", defaults)
+	}
+
+	token := loginAdmin(t, handler, "root", "secret123")
+	updatedBody := performJSON(t, handler, http.MethodPost, "/admin/site-settings", token, map[string]any{
+		"site_name": "客户授权中心", "browser_title": "客户软件授权",
+		"logo_data_url": "data:image/png;base64,YWJj", "favicon_data_url": "",
+	})
+	var updated domain.SiteSettings
+	decodeData(t, updatedBody, &updated)
+	if updated.SiteName != "客户授权中心" || updated.BrowserTitle != "客户软件授权" {
+		t.Fatalf("settings were not updated: %#v", updated)
+	}
+	publicBody = performJSON(t, handler, http.MethodGet, "/v1/site/settings", "", nil)
+	decodeData(t, publicBody, &updated)
+	if updated.LogoDataURL != "data:image/png;base64,YWJj" {
+		t.Fatalf("public settings did not reflect update: %#v", updated)
+	}
+	performJSONStatus(t, handler, http.MethodPost, "/admin/site-settings", token, map[string]any{
+		"site_name": "Bad", "browser_title": "Bad", "logo_data_url": "data:text/html;base64,YWJj",
+	}, http.StatusBadRequest)
+}
+
+func TestFirstRunSetupInitializesDatabaseAndPersistsSelection(t *testing.T) {
+	svc := newHTTPTestService(t)
+	configPath := filepath.Join(t.TempDir(), "database.json")
+	targetPath := filepath.Join(t.TempDir(), "initialized.db")
+	dsn := "file:" + filepath.ToSlash(targetPath) + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+	handler := New(svc, "", "", "").WithSetupConfig(filepath.Join("..", "..", "migrations"), configPath).Handler()
+
+	statusBody := performJSON(t, handler, http.MethodGet, "/v1/setup/status", "", nil)
+	var before service.SetupStatus
+	decodeData(t, statusBody, &before)
+	if before.Initialized {
+		t.Fatal("fresh database unexpectedly initialized")
+	}
+	performJSON(t, handler, http.MethodPost, "/v1/setup/initialize", "", map[string]any{
+		"database_driver": "sqlite", "database_dsn": dsn,
+		"admin_username": "first-admin", "admin_password": "strong-password", "admin_name": "First Admin",
+	})
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("database config was not persisted: %v", err)
+	}
+	if _, err := svc.AdminLogin(context.Background(), service.AdminLoginInput{Username: "first-admin", Password: "strong-password"}); err != nil {
+		t.Fatalf("initialized admin cannot log in: %v", err)
+	}
+	performJSONStatus(t, handler, http.MethodPost, "/v1/setup/initialize", "", map[string]any{
+		"database_driver": "sqlite", "database_dsn": dsn,
+		"admin_username": "other-admin", "admin_password": "strong-password",
+	}, http.StatusForbidden)
+}
+
 func TestAgentBearerTokenCanGenerateCards(t *testing.T) {
 	ctx := context.Background()
 	svc := newHTTPTestService(t)
@@ -325,6 +419,33 @@ func TestPublicLicenseQueryDoesNotRequireAuthentication(t *testing.T) {
 	if result.ProductName != product.Name || result.CardStatus != domain.CardUnused {
 		t.Fatalf("unexpected public query result: %#v", result)
 	}
+
+	accountProduct, err := svc.CreateProduct(ctx, service.CreateProductInput{
+		Name: "Account Query Product", Code: "ACC", BindMode: domain.BindAccount,
+		MaxBindCount: 1, BindConflictStrategy: domain.ConflictReject,
+	})
+	if err != nil {
+		t.Fatalf("create account product: %v", err)
+	}
+	accountBatch, err := svc.CreateCardBatch(ctx, service.CreateCardBatchInput{
+		ProductID: accountProduct.ID, Name: "account query", Quantity: 1, DurationDays: 30,
+	})
+	if err != nil {
+		t.Fatalf("create account card: %v", err)
+	}
+	if _, err := svc.Activate(ctx, service.ActivateInput{
+		AppKey: accountProduct.AppKey, CardCode: accountBatch.Codes[0], BindMode: domain.BindAccount, BindValue: "13812348000",
+	}); err != nil {
+		t.Fatalf("activate account license: %v", err)
+	}
+	bindingBody := performJSON(t, handler, http.MethodPost, "/v1/licenses/query", "", map[string]any{
+		"query": "13812348000", "query_type": "account",
+	})
+	var bindingResult service.PublicLicenseQueryResult
+	decodeData(t, bindingBody, &bindingResult)
+	if bindingResult.MatchCount != 1 || bindingResult.QueryMasked != "138****8000" || len(bindingResult.Results) != 1 {
+		t.Fatalf("unexpected account query result: %#v", bindingResult)
+	}
 }
 
 func TestProductKeyRingIsPublicAndRotationRequiresSuperAdmin(t *testing.T) {
@@ -436,15 +557,17 @@ func newHTTPTestService(t *testing.T) *service.Service {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := st.Close(); err != nil {
-			t.Fatalf("close store: %v", err)
-		}
-	})
 	if err := st.Migrate(ctx, filepath.Join("..", "..", "migrations")); err != nil {
+		_ = st.Close()
 		t.Fatalf("migrate: %v", err)
 	}
-	return service.New(st, []byte("test-card-pepper"), []byte("0123456789abcdef0123456789abcdef"))
+	svc := service.New(st, []byte("test-card-pepper"), []byte("0123456789abcdef0123456789abcdef"))
+	t.Cleanup(func() {
+		if err := svc.Close(); err != nil {
+			t.Fatalf("close service: %v", err)
+		}
+	})
+	return svc
 }
 
 func performJSON(t *testing.T, handler http.Handler, method, path, token string, body any) []byte {

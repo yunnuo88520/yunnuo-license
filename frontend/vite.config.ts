@@ -16,8 +16,12 @@ export default defineConfig({
     rollupOptions: {
       input: {
         public: fileURLToPath(new URL("./index.html", import.meta.url)),
-        admin: fileURLToPath(new URL("./admin-console/index.html", import.meta.url)),
-        agent: fileURLToPath(new URL("./agent-console/index.html", import.meta.url)),
+        admin: fileURLToPath(
+          new URL("./admin-console/index.html", import.meta.url),
+        ),
+        agent: fileURLToPath(
+          new URL("./agent-console/index.html", import.meta.url),
+        ),
       },
     },
   },

@@ -51,6 +51,8 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) Driver() string { return s.driver }
+
 func (s *Store) CountAdminUsers(ctx context.Context) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_users`).Scan(&count)
@@ -67,6 +69,11 @@ func (s *Store) CreateAdminUser(ctx context.Context, user domain.AdminUser) erro
 		user.Role, user.Status, user.SessionVersion, nullTime(user.LastLoginAt),
 		ts(user.CreatedAt), ts(user.UpdatedAt),
 	)
+	return err
+}
+
+func (s *Store) DeleteAdminUser(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM admin_users WHERE id = ?`, userID)
 	return err
 }
 
@@ -105,6 +112,25 @@ func (s *Store) UpdateAdminUserPassword(ctx context.Context, userID, passwordHas
 		UPDATE admin_users
 		SET password_hash = ?, session_version = session_version + 1, updated_at = ?
 		WHERE id = ?`, passwordHash, ts(now), userID)
+	return err
+}
+
+func (s *Store) GetSiteSettings(ctx context.Context) (domain.SiteSettings, error) {
+	var settings domain.SiteSettings
+	var updatedAt string
+	err := s.db.QueryRowContext(ctx, `SELECT site_name, browser_title, logo_data_url, favicon_data_url, updated_at FROM site_settings WHERE id = 1`).Scan(
+		&settings.SiteName, &settings.BrowserTitle, &settings.LogoDataURL, &settings.FaviconDataURL, &updatedAt,
+	)
+	if err != nil {
+		return domain.SiteSettings{}, err
+	}
+	settings.UpdatedAt = parseTS(updatedAt)
+	return settings, nil
+}
+
+func (s *Store) UpdateSiteSettings(ctx context.Context, settings domain.SiteSettings) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE site_settings SET site_name = ?, browser_title = ?, logo_data_url = ?, favicon_data_url = ?, updated_at = ? WHERE id = 1`,
+		settings.SiteName, settings.BrowserTitle, settings.LogoDataURL, settings.FaviconDataURL, ts(settings.UpdatedAt))
 	return err
 }
 
@@ -510,6 +536,27 @@ func (s *Store) GetBindings(ctx context.Context, licenseID string) ([]domain.Bin
 	}
 	defer rows.Close()
 	var bindings []domain.Binding
+	for rows.Next() {
+		binding, err := scanBinding(rows)
+		if err != nil {
+			return nil, err
+		}
+		bindings = append(bindings, binding)
+	}
+	return bindings, rows.Err()
+}
+
+func (s *Store) FindActiveBindingsByHash(ctx context.Context, bindMode, bindHash string, limit int) ([]domain.Binding, error) {
+	if limit <= 0 || limit > 10 {
+		limit = 10
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT `+bindingColumns+` FROM license_bindings WHERE bind_mode = ? AND bind_value_hash = ? AND status = ? ORDER BY activated_at DESC LIMIT ?`,
+		bindMode, bindHash, domain.BindingActive, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	bindings := make([]domain.Binding, 0, limit)
 	for rows.Next() {
 		binding, err := scanBinding(rows)
 		if err != nil {

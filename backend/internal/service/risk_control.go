@@ -43,7 +43,7 @@ func (s *Service) CreateRiskBlock(ctx context.Context, input CreateRiskBlockInpu
 		return domain.RiskBlock{}, ErrInvalidRequest
 	}
 	if input.ProductID != "" {
-		if _, err := s.store.GetProduct(ctx, input.ProductID); err != nil {
+		if _, err := s.currentStore().GetProduct(ctx, input.ProductID); err != nil {
 			if store.IsNotFound(err) {
 				return domain.RiskBlock{}, ErrProductNotFound
 			}
@@ -63,11 +63,11 @@ func (s *Service) CreateRiskBlock(ctx context.Context, input CreateRiskBlockInpu
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	if err := s.store.CreateRiskBlock(ctx, block); err != nil {
+	if err := s.currentStore().CreateRiskBlock(ctx, block); err != nil {
 		return domain.RiskBlock{}, err
 	}
 	_ = s.audit(ctx, "admin", input.ActorID, input.ProductID, "", "", "risk_block.create", "success", "")
-	persisted, err := s.store.FindActiveRiskBlock(ctx, input.ProductID, kind, block.ValueHash)
+	persisted, err := s.currentStore().FindActiveRiskBlock(ctx, input.ProductID, kind, block.ValueHash)
 	if err != nil {
 		return domain.RiskBlock{}, err
 	}
@@ -81,14 +81,14 @@ func (s *Service) ListRiskBlocks(ctx context.Context, filter RiskBlockFilter) ([
 	if filter.Status != "" && filter.Status != domain.RiskStatusActive && filter.Status != domain.RiskStatusDisabled {
 		return nil, ErrInvalidRequest
 	}
-	return s.store.ListRiskBlocks(ctx, filter.Kind, filter.Status, filter.ProductID)
+	return s.currentStore().ListRiskBlocks(ctx, filter.Kind, filter.Status, filter.ProductID)
 }
 
 func (s *Service) DisableRiskBlock(ctx context.Context, id, actorID string) error {
 	if strings.TrimSpace(id) == "" {
 		return ErrInvalidRequest
 	}
-	if err := s.store.DisableRiskBlock(ctx, id, s.now()); err != nil {
+	if err := s.currentStore().DisableRiskBlock(ctx, id, s.now()); err != nil {
 		if store.IsNotFound(err) {
 			return ErrRiskBlockNotFound
 		}
@@ -105,14 +105,14 @@ func (s *Service) ListRiskAlerts(ctx context.Context, filter RiskAlertFilter) ([
 	if filter.Limit > 500 {
 		filter.Limit = 500
 	}
-	return s.store.ListRiskAlerts(ctx, filter.Status, filter.Severity, filter.AlertType, filter.ProductID, filter.Limit)
+	return s.currentStore().ListRiskAlerts(ctx, filter.Status, filter.Severity, filter.AlertType, filter.ProductID, filter.Limit)
 }
 
 func (s *Service) ResolveRiskAlert(ctx context.Context, id, actorID string) error {
 	if strings.TrimSpace(id) == "" {
 		return ErrInvalidRequest
 	}
-	if err := s.store.ResolveRiskAlert(ctx, id, actorID, s.now()); err != nil {
+	if err := s.currentStore().ResolveRiskAlert(ctx, id, actorID, s.now()); err != nil {
 		if store.IsNotFound(err) {
 			return ErrRiskAlertNotFound
 		}
@@ -123,12 +123,12 @@ func (s *Service) ResolveRiskAlert(ctx context.Context, id, actorID string) erro
 }
 
 func (s *Service) RiskSummary(ctx context.Context) (domain.RiskSummary, error) {
-	return s.store.RiskSummary(ctx, s.now().Add(-24*time.Hour))
+	return s.currentStore().RiskSummary(ctx, s.now().Add(-24*time.Hour))
 }
 
 func (s *Service) checkRiskAccess(ctx context.Context, productID, clientIP, bindMode, bindValue string) error {
 	if ip, err := normalizeRiskValue(domain.RiskBlockIP, clientIP); err == nil {
-		if _, err := s.store.FindActiveRiskBlock(ctx, productID, domain.RiskBlockIP, s.riskHash(domain.RiskBlockIP, ip)); err == nil {
+		if _, err := s.currentStore().FindActiveRiskBlock(ctx, productID, domain.RiskBlockIP, s.riskHash(domain.RiskBlockIP, ip)); err == nil {
 			s.recordRiskAlert(ctx, productID, "", "", "blocked_ip", "critical", domain.RiskBlockIP, ip, "黑名单 IP 尝试访问授权接口")
 			return ErrRiskBlockedIP
 		} else if !store.IsNotFound(err) {
@@ -140,7 +140,7 @@ func (s *Service) checkRiskAccess(ctx context.Context, productID, clientIP, bind
 		if err != nil {
 			return ErrInvalidRequest
 		}
-		if _, err := s.store.FindActiveRiskBlock(ctx, productID, domain.RiskBlockDevice, s.riskHash(domain.RiskBlockDevice, device)); err == nil {
+		if _, err := s.currentStore().FindActiveRiskBlock(ctx, productID, domain.RiskBlockDevice, s.riskHash(domain.RiskBlockDevice, device)); err == nil {
 			s.recordRiskAlert(ctx, productID, "", "", "blocked_device", "critical", domain.RiskBlockDevice, device, "黑名单设备尝试访问授权接口")
 			return ErrRiskBlockedDevice
 		} else if !store.IsNotFound(err) {
@@ -152,14 +152,14 @@ func (s *Service) checkRiskAccess(ctx context.Context, productID, clientIP, bind
 
 func (s *Service) evaluateActivationRisk(ctx context.Context, productID string, lic domain.License, binding domain.Binding, clientIP, bindValue string) {
 	if binding.BindMode == domain.BindDevice {
-		count, err := s.store.CountBindingsByHash(ctx, productID, binding.BindValueHash)
+		count, err := s.currentStore().CountBindingsByHash(ctx, productID, binding.BindValueHash)
 		if err == nil && count >= 3 {
 			s.recordRiskAlert(ctx, productID, lic.ID, binding.ID, "device_multi_license", "high", domain.RiskBlockDevice, bindValue,
 				fmt.Sprintf("同一设备已关联 %d 个授权", count))
 		}
 	}
 	if ip, err := normalizeRiskValue(domain.RiskBlockIP, clientIP); err == nil {
-		count, countErr := s.store.CountRecentClientEventsByIP(ctx, productID, "license.activate", "success", clientIP, s.now().Add(-10*time.Minute))
+		count, countErr := s.currentStore().CountRecentClientEventsByIP(ctx, productID, "license.activate", "success", clientIP, s.now().Add(-10*time.Minute))
 		if countErr == nil && count >= 10 {
 			s.recordRiskAlert(ctx, productID, lic.ID, binding.ID, "ip_activation_burst", "high", domain.RiskBlockIP, ip,
 				fmt.Sprintf("同一 IP 在 10 分钟内完成 %d 次激活", count))
@@ -172,7 +172,7 @@ func (s *Service) evaluateFailedActivationRisk(ctx context.Context, productID, c
 	if err != nil {
 		return
 	}
-	count, err := s.store.CountRecentClientEventsByIP(ctx, productID, "license.activate", "failed", clientIP, s.now().Add(-10*time.Minute))
+	count, err := s.currentStore().CountRecentClientEventsByIP(ctx, productID, "license.activate", "failed", clientIP, s.now().Add(-10*time.Minute))
 	if err == nil && count >= 5 {
 		s.recordRiskAlert(ctx, productID, "", "", "activation_failure_burst", "medium", domain.RiskBlockIP, ip,
 			fmt.Sprintf("同一 IP 在 10 分钟内连续激活失败 %d 次", count))
@@ -185,7 +185,7 @@ func (s *Service) recordRiskAlert(ctx context.Context, productID, licenseID, bin
 		return
 	}
 	now := s.now()
-	_, _ = s.store.UpsertRiskAlert(ctx, domain.RiskAlert{
+	_, _ = s.currentStore().UpsertRiskAlert(ctx, domain.RiskAlert{
 		ID:              yncrypto.NewID("ralert"),
 		ProductID:       productID,
 		LicenseID:       licenseID,
@@ -206,7 +206,7 @@ func (s *Service) recordRiskAlert(ctx context.Context, productID, licenseID, bin
 }
 
 func (s *Service) auditClient(ctx context.Context, productID, licenseID, cardID, action, result, code, clientIP, userAgent string) error {
-	return s.store.InsertAudit(ctx, domain.AuditLog{
+	return s.currentStore().InsertAudit(ctx, domain.AuditLog{
 		ID:        yncrypto.NewID("audit"),
 		ActorType: "client",
 		ProductID: productID,

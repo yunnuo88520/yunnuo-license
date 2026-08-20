@@ -1,6 +1,7 @@
 import { computed, reactive, ref } from "vue";
 import { ApiError, request } from "../shared/api";
 import { toast } from "../shared/useToast";
+import { applyBranding } from "../shared/branding";
 
 export function useAdmin() {
   const token = ref(sessionStorage.getItem("yn.admin_token") || "");
@@ -24,6 +25,8 @@ export function useAdmin() {
     agentUsers: [],
     agentQuotas: [],
     keys: null,
+    system: null,
+    siteSettings: null,
   });
   const selected = reactive({
     product: localStorage.getItem("yn.product_id") || "",
@@ -103,6 +106,8 @@ export function useAdmin() {
         riskSummary,
         riskBlocks,
         riskAlerts,
+        system,
+        siteSettings,
       ] = await Promise.all([
         api("/admin/products"),
         api("/admin/agents"),
@@ -114,22 +119,30 @@ export function useAdmin() {
         api("/admin/risk/summary"),
         api("/admin/risk/blocks"),
         api(`/admin/risk/alerts?${params({ ...filters.risk, limit: 100 })}`),
+        api("/admin/system/version"),
+        api("/v1/site/settings"),
       ]);
+      const arrays = {
+        products: products || [],
+        agents: agents || [],
+        batches: batches || [],
+        offline: offline || [],
+        users: users || [],
+        audit: audit || [],
+        riskBlocks: riskBlocks || [],
+        riskAlerts: riskAlerts || [],
+      };
       Object.assign(data, {
-        products,
-        agents,
-        batches,
-        licensePage,
-        licenses: licensePage.items || [],
-        offline,
-        users,
-        audit,
+        ...arrays,
+        licensePage: licensePage || { items: [], total: 0, page: 1, page_size: 20 },
+        licenses: licensePage?.items || [],
         riskSummary,
-        riskBlocks,
-        riskAlerts,
+        system,
+        siteSettings,
       });
-      if (!selected.product && products[0]) selected.product = products[0].id;
-      if (!selected.agent && agents[0]) selected.agent = agents[0].id;
+      applyBranding(siteSettings, "管理控制台");
+      if (!selected.product && arrays.products[0]) selected.product = arrays.products[0].id;
+      if (!selected.agent && arrays.agents[0]) selected.agent = arrays.agents[0].id;
     } catch (e) {
       toast(e);
     } finally {

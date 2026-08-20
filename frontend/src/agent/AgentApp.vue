@@ -18,6 +18,7 @@ import { formatTime, roleLabel } from "../shared/format";
 import AppToast from "../shared/components/AppToast.vue";
 import StatusBadge from "../shared/components/StatusBadge.vue";
 import { toast } from "../shared/useToast";
+import { branding, loadBranding, logoSource } from "../shared/branding";
 
 const token = ref(sessionStorage.getItem("yn.agent_token") || "");
 const profile = ref<any>();
@@ -193,6 +194,7 @@ function download() {
   );
 }
 onMounted(async () => {
+  loadBranding("代理工作台").catch(() => undefined);
   addEventListener(
     "hashchange",
     () => (page.value = location.hash.slice(1) || "overview"),
@@ -219,8 +221,8 @@ onMounted(async () => {
     <section class="login-panel">
       <div class="login-box">
         <div class="brand">
-          <img src="/assets/yunnuo-mark.svg" alt="" />
-          <div><strong>允诺云授权</strong><span>PARTNER CONSOLE</span></div>
+          <img :src="logoSource" alt="" />
+          <div><strong>{{ branding.site_name }}</strong><span>PARTNER CONSOLE</span></div>
         </div>
         <h2>代理工作台</h2>
         <p>登录代码会在此设备上自动记忆。</p>
@@ -257,7 +259,7 @@ onMounted(async () => {
   <div v-else class="console">
     <aside class="sidebar">
       <div class="brand">
-        <img src="/assets/yunnuo-mark.svg" alt="" />
+        <img :src="logoSource" alt="" />
         <div>
           <strong>代理工作台</strong
           ><span>{{ profile.agent_name || profile.agent_no }}</span>
@@ -276,7 +278,9 @@ onMounted(async () => {
           }}</span></a
         >
       </nav>
-      <div class="sidebar-foot">PARTNER NODE / ONLINE</div>
+      <div class="sidebar-foot">
+        PARTNER NODE / ONLINE
+      </div>
     </aside>
     <main class="console-main">
       <header class="topbar">

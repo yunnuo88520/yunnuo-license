@@ -13,7 +13,7 @@ func (s *Service) ChangeAgentStatus(ctx context.Context, agentID, status, actorI
 	if agentID == "" || !validAgentStatus(status) {
 		return domain.Agent{}, ErrInvalidRequest
 	}
-	agent, err := s.store.GetAgent(ctx, agentID)
+	agent, err := s.currentStore().GetAgent(ctx, agentID)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return domain.Agent{}, ErrAgentNotFound
@@ -27,13 +27,13 @@ func (s *Service) ChangeAgentStatus(ctx context.Context, agentID, status, actorI
 	} else {
 		disabledAt = nil
 	}
-	if err := s.store.UpdateAgentStatus(ctx, agentID, status, disabledAt, now); err != nil {
+	if err := s.currentStore().UpdateAgentStatus(ctx, agentID, status, disabledAt, now); err != nil {
 		return domain.Agent{}, err
 	}
 	agent.Status = status
 	agent.DisabledAt = disabledAt
 	agent.UpdatedAt = now
-	loginCode, err := s.store.GetAgentLoginCode(ctx, agentID)
+	loginCode, err := s.currentStore().GetAgentLoginCode(ctx, agentID)
 	if err != nil && !store.IsNotFound(err) {
 		return domain.Agent{}, err
 	}
@@ -48,7 +48,7 @@ func (s *Service) ChangeAgentUserStatus(ctx context.Context, agentID, userID, st
 	if agentID == "" || userID == "" || (status != domain.AgentUserActive && status != domain.AgentUserDisabled) {
 		return domain.AgentUser{}, ErrInvalidRequest
 	}
-	user, err := s.store.GetAgentUserByID(ctx, userID)
+	user, err := s.currentStore().GetAgentUserByID(ctx, userID)
 	if err != nil || user.AgentID != agentID {
 		if err == nil || store.IsNotFound(err) {
 			return domain.AgentUser{}, ErrAgentUserNotFound
@@ -56,7 +56,7 @@ func (s *Service) ChangeAgentUserStatus(ctx context.Context, agentID, userID, st
 		return domain.AgentUser{}, err
 	}
 	now := s.now()
-	if err := s.store.UpdateAgentUserStatus(ctx, agentID, userID, status, now); err != nil {
+	if err := s.currentStore().UpdateAgentUserStatus(ctx, agentID, userID, status, now); err != nil {
 		if store.IsNotFound(err) {
 			return domain.AgentUser{}, ErrAgentUserNotFound
 		}
@@ -91,7 +91,7 @@ func (s *Service) ListAuditLogs(ctx context.Context, filter AuditLogFilter) ([]d
 	if filter.Limit > 200 {
 		filter.Limit = 200
 	}
-	return s.store.ListAuditLogs(ctx, filter.ActorType, filter.Result, filter.Action, filter.Limit)
+	return s.currentStore().ListAuditLogs(ctx, filter.ActorType, filter.Result, filter.Action, filter.Limit)
 }
 
 func validAgentStatus(status string) bool {

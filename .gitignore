@@ -16,6 +16,12 @@ sdk/java/.m2/
 .m2/
 backend/yn-license-dev.db
 backend/yn-license-dev.db-*
+backend/yn-license.db
+backend/yn-license.db-*
+backend/yn-license-config.json
+/yn-license.db
+/yn-license.db-*
+/yn-license-config.json
 docker/test-bin/
 
 # Local env
