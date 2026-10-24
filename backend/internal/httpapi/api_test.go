@@ -191,6 +191,14 @@ func TestAgentBearerTokenCanGenerateCards(t *testing.T) {
 		t.Fatalf("grant quota: %v", err)
 	}
 
+	pkg, err := svc.CreatePackage(ctx, domain.CardPackage{ProductID: product.ID, Name: "Monthly quota", DurationDays: 30, UseQuota: true}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.GrantPackages(ctx, service.GrantPackagesInput{AgentID: agent.ID, PackageID: pkg.ID, Enabled: true, MaxBatchQuantity: 10, CanExport: true}, "admin"); err != nil {
+		t.Fatal(err)
+	}
+
 	handler := New(svc, "", "", "").Handler()
 	loginBody := map[string]any{
 		"login_code": agent.LoginCode,
@@ -206,8 +214,9 @@ func TestAgentBearerTokenCanGenerateCards(t *testing.T) {
 	performJSONStatus(t, handler, http.MethodGet, "/admin/products", login.AccessToken, nil, http.StatusUnauthorized)
 
 	batchBody := map[string]any{
-		"product_id":    product.ID,
-		"name":          "token batch",
+		"product_id": product.ID,
+		"name":       "token batch",
+		"package_id": pkg.ID, "request_id": "http-issue-001", "expected_unit_cost": 0,
 		"quantity":      2,
 		"duration_days": 30,
 	}

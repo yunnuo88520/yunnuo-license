@@ -38,6 +38,7 @@ import LicensePolicy from "../shared/components/LicensePolicy.vue";
 import CustomersPanel from "./CustomersPanel.vue";
 import BindingPolicy from "./BindingPolicy.vue";
 import OperationLogs from "./OperationLogs.vue";
+import CommercePanel from "./CommercePanel.vue";
 import {
   applyBranding,
   branding,
@@ -61,6 +62,7 @@ const nav = [
   { id: "products", label: "产品", icon: Boxes },
   { id: "releases", label: "产品升级", icon: PackageCheck },
   { id: "agents", label: "代理", icon: UserRoundCog },
+  { id: "commerce", label: "套餐与结算", icon: TicketCheck },
   { id: "customers", label: "用户", icon: UserRoundCog },
   { id: "cards", label: "卡密", icon: TicketCheck },
   { id: "licenses", label: "授权", icon: BadgeCheck },
@@ -545,6 +547,7 @@ onMounted(async () => {
             </table>
           </div>
         </section>
+        <CommercePanel v-if="page === 'commerce'" :api="a.api" :products="a.data.products" :agents="a.data.agents" :can-write="a.isManager.value" />
         <CustomersPanel v-if="page === 'customers'" :api="a.api" :can-write="a.isManager.value" />
         <section v-if="page === 'releases'" class="panel">
           <h2>产品版本与升级包</h2>
@@ -570,7 +573,6 @@ onMounted(async () => {
                   { k: 'user', t: '账号' },
                   { k: 'policy', t: '授权规则' },
                   { k: 'quota', t: '发放额度' },
-                  { k: 'agentBatch', t: '代生成' },
                 ]"
                 class="btn secondary small"
                 @click="action = action === x.k ? '' : x.k"

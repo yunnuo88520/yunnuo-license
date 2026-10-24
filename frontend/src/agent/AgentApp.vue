@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   BadgeCheck,
   ChartNoAxesCombined,
@@ -32,18 +32,31 @@ const products = ref<any[]>([]),
   licenses = ref<any[]>([]),
   cards = ref<any[]>([]),
   codes = ref<string[]>([]);
+const packages = ref<any[]>([]),
+  account = ref<any>(),
+  moneyLedgers = ref<any[]>([]),
+  issuing = ref(false);
+const money = (n: number) => `¥${(n / 100).toFixed(2)}`;
 const login = reactive({
   login_code: localStorage.getItem("yn.agent_login_code") || "",
   username: "",
   password: "",
 });
 const batch = reactive({
-  product_id: "",
+  package_id: "",
   name: "代理发卡",
   quantity: 1,
-  duration_days: 30,
-  is_permanent: false,
+  request_id: crypto.randomUUID(),
 });
+const currentPackage = computed(() =>
+  packages.value.find((q) => q.package.id === batch.package_id),
+);
+watch(
+  () => [batch.package_id, batch.name, batch.quantity],
+  () => {
+    batch.request_id = crypto.randomUUID();
+  },
+);
 const pages = [
   { id: "overview", label: "业务概览", icon: ChartNoAxesCombined },
   { id: "generate", label: "生成卡密", icon: Sparkles, manage: true },
@@ -53,9 +66,6 @@ const pages = [
 ];
 const canManage = computed(() =>
   ["agent_owner", "agent_manager"].includes(profile.value?.role),
-);
-const currentProduct = computed(() =>
-  products.value.find((p) => p.id === batch.product_id),
 );
 const metrics = computed(() => [
   quotas.value.reduce((n, q) => n + Math.max(0, q.balance), 0),
@@ -108,31 +118,31 @@ function logout(message = "") {
 async function refresh() {
   loading.value = true;
   try {
-    const [p, q, l, b, li] = await Promise.all([
+    const [p, q, l, b, li, pk, ac, ml] = await Promise.all([
       api<any[]>("/agent/products"),
       api<any[]>("/agent/quotas"),
       api<any[]>("/agent/quota-ledgers"),
       api<any[]>("/agent/card-batches"),
       api<any[]>("/agent/licenses"),
+      api<any[]>("/agent/packages"),
+      api<any>("/agent/account"),
+      api<any[]>("/agent/money-ledgers"),
     ]);
     products.value = p || [];
     quotas.value = q || [];
     ledgers.value = l || [];
     batches.value = b || [];
     licenses.value = li || [];
-    if (!batch.product_id) batch.product_id = products.value[0]?.id || "";
-    syncPolicy();
+    packages.value = pk || [];
+    account.value = ac;
+    moneyLedgers.value = ml || [];
+    if (!packages.value.some((q) => q.package.id === batch.package_id))
+      batch.package_id = packages.value[0]?.package.id || "";
   } catch (e) {
     toast(e);
   } finally {
     loading.value = false;
   }
-}
-function syncPolicy() {
-  const policy = currentProduct.value?.policy;
-  batch.duration_days = policy?.allowed_duration_days?.[0] || 30;
-  batch.is_permanent = false;
-  batch.quantity = Math.min(batch.quantity, policy?.max_batch_quantity || 1);
 }
 function navigate(id: string) {
   if (id === "generate" && !canManage.value) return;
@@ -140,17 +150,25 @@ function navigate(id: string) {
   location.hash = id;
 }
 async function generate() {
+  if (issuing.value || !currentPackage.value) return;
+  issuing.value = true;
   try {
     const data = await api<any>("/agent/card-batches", {
       method: "POST",
-      body: JSON.stringify(batch),
+      body: JSON.stringify({
+        ...batch,
+        expected_unit_cost: currentPackage.value.unit_cost,
+      }),
     });
     codes.value = data.codes || [];
-    toast("卡密已生成，请及时保存明文");
+    batch.request_id = crypto.randomUUID();
+    toast("卡密已生成，成本已结算");
     await refresh();
     await showCards(data.batch.id);
   } catch (e) {
     toast(e);
+  } finally {
+    issuing.value = false;
   }
 }
 async function showCards(id: string) {
@@ -222,7 +240,10 @@ onMounted(async () => {
       <div class="login-box">
         <div class="brand">
           <img :src="logoSource" alt="" />
-          <div><strong>{{ branding.site_name }}</strong><span>PARTNER CONSOLE</span></div>
+          <div>
+            <strong>{{ branding.site_name }}</strong
+            ><span>PARTNER CONSOLE</span>
+          </div>
         </div>
         <h2>代理工作台</h2>
         <p>登录代码会在此设备上自动记忆。</p>
@@ -278,9 +299,7 @@ onMounted(async () => {
           }}</span></a
         >
       </nav>
-      <div class="sidebar-foot">
-        PARTNER NODE / ONLINE
-      </div>
+      <div class="sidebar-foot">PARTNER NODE / ONLINE</div>
     </aside>
     <main class="console-main">
       <header class="topbar">
@@ -368,53 +387,55 @@ onMounted(async () => {
           <section class="section-intro">
             <div>
               <h2>生成卡密</h2>
-              <p>按产品政策与当前额度创建新的授权凭证。</p>
+              <p>
+                选择管理员授予的套餐，按代理实际成本扣款；规格与价格由服务端核验。
+              </p>
             </div>
           </section>
           <section class="panel">
             <form class="form-grid" @submit.prevent="generate">
               <label class="field"
-                >产品<select v-model="batch.product_id" @change="syncPolicy">
-                  <option
-                    v-for="p in products.filter(
-                      (p) => p.status === 'active' && p.policy.can_generate,
-                    )"
-                    :value="p.id"
-                  >
-                    {{ p.name }} · {{ p.code }}
+                >授权套餐<select v-model="batch.package_id" required>
+                  <option v-for="q in packages" :value="q.package.id">
+                    {{ productName(q.package.product_id) }} /
+                    {{ q.package.name }} ·
+                    {{
+                      q.package.is_permanent
+                        ? "永久"
+                        : `${q.package.duration_days} 天`
+                    }}
                   </option>
                 </select></label
-              ><label class="field"
-                >授权时长<select
-                  v-model.number="batch.duration_days"
-                  :disabled="batch.is_permanent"
-                >
-                  <option
-                    v-for="d in currentProduct?.policy.allowed_duration_days ||
-                    []"
-                    :value="d"
-                  >
-                    {{ d }} 天
-                  </option>
-                </select></label
-              ><label class="field"
-                >批次名称<input v-model="batch.name" required /></label
-              ><label class="field"
+              >
+              <label class="field"
+                >批次名称<input v-model="batch.name" required maxlength="160"
+              /></label>
+              <label class="field"
                 >数量<input
                   v-model.number="batch.quantity"
                   type="number"
                   min="1"
-                  :max="currentProduct?.policy.max_batch_quantity || 1"
-                  required /></label
-              ><label class="check"
-                ><input
-                  v-model="batch.is_permanent"
-                  type="checkbox"
-                  :disabled="!currentProduct?.policy.allow_permanent"
-                />永久授权</label
-              >
+                  :max="
+                    products.find(
+                      (p) => p.id === currentPackage?.package.product_id,
+                    )?.policy.max_batch_quantity || 1
+                  "
+                  required
+              /></label>
+              <p>
+                单张成本
+                <strong>{{ money(currentPackage?.unit_cost || 0) }}</strong> ·
+                本次合计
+                <strong>{{
+                  money((currentPackage?.unit_cost || 0) * batch.quantity)
+                }}</strong>
+                · 可用余额 <strong>{{ money(account?.balance || 0) }}</strong>
+              </p>
+              <p v-if="!packages.length">暂无已授权套餐，请联系管理员配置。</p>
               <div class="form-actions">
-                <button class="btn"><Sparkles :size="16" />生成卡密</button>
+                <button class="btn" :disabled="issuing || !currentPackage">
+                  <Sparkles :size="16" />{{ issuing ? "正在生成" : "生成卡密" }}
+                </button>
               </div>
             </form>
             <div class="panel-head">
@@ -544,8 +565,50 @@ onMounted(async () => {
                   <td>
                     {{ l.expired_at ? formatTime(l.expired_at) : "永久" }}
                   </td>
-                  <td>{{ l.updates_expired_at ? formatTime(l.updates_expired_at) : '永久更新' }}</td>
+                  <td>
+                    {{
+                      l.updates_expired_at
+                        ? formatTime(l.updates_expired_at)
+                        : "永久更新"
+                    }}
+                  </td>
                   <td>{{ formatTime(l.last_verify_at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section v-if="page === 'ledgers'" class="panel">
+          <div class="panel-head">
+            <h3>资金流水</h3>
+            <b>可用余额 {{ money(account?.balance || 0) }}</b>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>业务</th>
+                  <th>变动金额</th>
+                  <th>余额</th>
+                  <th>数量 / 成本快照</th>
+                  <th>备注</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="l in moneyLedgers" :key="l.id">
+                  <td>{{ formatTime(l.created_at) }}</td>
+                  <td>{{ l.kind === "issue" ? "套餐发卡" : "余额调整" }}</td>
+                  <td>{{ money(l.amount) }}</td>
+                  <td>{{ money(l.balance_after) }}</td>
+                  <td>
+                    {{
+                      l.quantity
+                        ? `${l.quantity} 张 × ${money(l.unit_cost)}`
+                        : "—"
+                    }}
+                  </td>
+                  <td>{{ l.remark }}</td>
                 </tr>
               </tbody>
             </table>

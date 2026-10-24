@@ -14,7 +14,7 @@ import (
 )
 
 func operationCategory(route string) string {
-	for _, v := range []struct{ match, category string }{{"login", "account"}, {"password", "account"}, {"owner", "ownership"}, {"binding", "binding"}, {"rebind", "binding"}, {"unbind", "binding"}, {"renew", "renewal"}, {"releases", "updates"}, {"updates", "updates"}, {"risk", "security"}, {"packages", "packages"}, {"group", "applications"}, {"agent", "agents"}, {"card", "cards"}, {"license", "licenses"}, {"product", "applications"}, {"customer", "users"}, {"user", "users"}, {"audit", "audit"}, {"operation-logs", "audit"}} {
+	for _, v := range []struct{ match, category string }{{"balance", "finance"}, {"money-ledgers", "finance"}, {"login", "account"}, {"password", "account"}, {"owner", "ownership"}, {"binding", "binding"}, {"rebind", "binding"}, {"unbind", "binding"}, {"renew", "renewal"}, {"releases", "updates"}, {"updates", "updates"}, {"risk", "security"}, {"packages", "packages"}, {"group", "applications"}, {"agent", "agents"}, {"card", "cards"}, {"license", "licenses"}, {"product", "applications"}, {"customer", "users"}, {"user", "users"}, {"audit", "audit"}, {"operation-logs", "audit"}} {
 		if strings.Contains(route, v.match) {
 			return v.category
 		}
@@ -88,7 +88,7 @@ func (api *API) operationAudit(mux *http.ServeMux) http.Handler {
 		capture := &operationWriter{ResponseWriter: w}
 		audited := r.WithContext(ctx)
 		mux.ServeHTTP(capture, audited)
-		for _, key := range []string{"licenseNo", "productID", "userID", "agentID"} {
+		for _, key := range []string{"licenseNo", "productID", "userID", "agentID", "packageID", "tierID"} {
 			if id := audited.PathValue(key); id != "" {
 				ticket.Log.ObjectID = id[:min(len(id), 96)]
 				break

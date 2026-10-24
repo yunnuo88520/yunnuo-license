@@ -708,10 +708,13 @@ func TestAgentCanGenerateCardsWithinQuota(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("grant quota: %v", err)
 	}
+	pkg := packageFixture(t, svc, agent.ID, product.ID, 0, true)
+	cost := int64(0)
 	generated, err := svc.AgentCreateCardBatch(ctx, AgentCreateCardBatchInput{
-		AgentID:      agent.ID,
-		ProductID:    product.ID,
-		Name:         "agent batch",
+		AgentID:   agent.ID,
+		ProductID: product.ID,
+		Name:      "agent batch",
+		PackageID: pkg.ID, RequestID: "quota-issue", ExpectedUnitCost: &cost,
 		Quantity:     2,
 		DurationDays: 30,
 	})
@@ -768,7 +771,7 @@ func TestAgentCardGenerationRequiresPolicyAndQuota(t *testing.T) {
 		Quantity:     1,
 		DurationDays: 30,
 	})
-	assertCode(t, err, "AGENT_PRODUCT_NOT_ALLOWED")
+	assertCode(t, err, "AGENT_PACKAGE_NOT_ALLOWED")
 
 	if _, err := svc.UpsertAgentProductPolicy(ctx, AgentProductPolicyInput{
 		AgentID:             agent.ID,
@@ -779,14 +782,17 @@ func TestAgentCardGenerationRequiresPolicyAndQuota(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("upsert policy: %v", err)
 	}
+	pkg := packageFixture(t, svc, agent.ID, product.ID, 0, true)
+	cost := int64(0)
 	_, err = svc.AgentCreateCardBatch(ctx, AgentCreateCardBatchInput{
 		AgentID:      agent.ID,
 		ProductID:    product.ID,
 		Name:         "agent batch",
 		Quantity:     1,
 		DurationDays: 90,
+		PackageID:    pkg.ID, RequestID: "quota-denied", ExpectedUnitCost: &cost,
 	})
-	assertCode(t, err, "AGENT_DURATION_NOT_ALLOWED")
+	assertCode(t, err, "PACKAGE_TERMS_MISMATCH")
 
 	_, err = svc.AgentCreateCardBatch(ctx, AgentCreateCardBatchInput{
 		AgentID:      agent.ID,
@@ -794,6 +800,7 @@ func TestAgentCardGenerationRequiresPolicyAndQuota(t *testing.T) {
 		Name:         "agent batch",
 		Quantity:     1,
 		DurationDays: 30,
+		PackageID:    pkg.ID, RequestID: "quota-denied", ExpectedUnitCost: &cost,
 	})
 	assertCode(t, err, "AGENT_QUOTA_NOT_ENOUGH")
 }

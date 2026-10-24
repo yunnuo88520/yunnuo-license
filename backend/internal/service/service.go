@@ -428,6 +428,9 @@ func (s *Service) GrantAgentQuota(ctx context.Context, input AgentQuotaInput) (d
 	now := s.now()
 	var ledger domain.AgentQuotaLedger
 	err := s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
+		if err := tx.LockAgent(ctx, input.AgentID); err != nil {
+			return err
+		}
 		agent, err := tx.GetAgent(ctx, input.AgentID)
 		if err != nil {
 			if store.IsNotFound(err) {
@@ -455,12 +458,18 @@ func (s *Service) GrantAgentQuota(ctx context.Context, input AgentQuotaInput) (d
 			Remark:         input.Remark,
 			CreatedAt:      now,
 		}
-		return tx.InsertAgentQuotaLedger(ctx, ledger)
+		if err := tx.InsertAgentQuotaLedger(ctx, ledger); err != nil {
+			return err
+		}
+		actor := ""
+		if meta := ActorFrom(ctx); meta != nil {
+			actor = meta.ID
+		}
+		return s.transactionAudit(ctx, tx, "admin", actor, input.ProductID, "", "agent_quota.grant", ledger)
 	})
 	if err != nil {
 		return domain.AgentQuotaLedger{}, err
 	}
-	_ = s.audit(ctx, "admin", "", input.ProductID, "", "", "agent_quota.grant", "success", "")
 	return ledger, nil
 }
 
@@ -515,95 +524,19 @@ func (s *Service) ListAgentProducts(ctx context.Context, agentID string) ([]Agen
 }
 
 type AgentCreateCardBatchInput struct {
-	AgentID      string `json:"-"`
-	ProductID    string `json:"product_id"`
-	Name         string `json:"name"`
-	Quantity     int    `json:"quantity"`
-	DurationDays int    `json:"duration_days"`
-	IsPermanent  bool   `json:"is_permanent"`
+	PackageID        string `json:"package_id"`
+	RequestID        string `json:"request_id"`
+	ExpectedUnitCost *int64 `json:"expected_unit_cost"`
+	AgentID          string `json:"-"`
+	ProductID        string `json:"product_id"`
+	Name             string `json:"name"`
+	Quantity         int    `json:"quantity"`
+	DurationDays     int    `json:"duration_days"`
+	IsPermanent      bool   `json:"is_permanent"`
 }
 
 func (s *Service) AgentCreateCardBatch(ctx context.Context, input AgentCreateCardBatchInput) (CreateCardBatchResult, error) {
-	if input.AgentID == "" || input.ProductID == "" || input.Quantity <= 0 {
-		return CreateCardBatchResult{}, ErrInvalidRequest
-	}
-	if !input.IsPermanent && input.DurationDays <= 0 {
-		return CreateCardBatchResult{}, ErrInvalidRequest
-	}
-	product, err := s.currentStore().GetProduct(ctx, input.ProductID)
-	if err != nil {
-		if store.IsNotFound(err) {
-			return CreateCardBatchResult{}, ErrInvalidRequest
-		}
-		return CreateCardBatchResult{}, err
-	}
-	if product.Status != domain.ProductActive {
-		return CreateCardBatchResult{}, ErrProductDisabled
-	}
-	batch, cards, codes, err := s.buildCardBatch(product, input.AgentID, nonEmpty(input.Name, "Agent batch"), input.Quantity, input.DurationDays, input.IsPermanent, "agent_self_generated")
-	if err != nil {
-		return CreateCardBatchResult{}, err
-	}
-	now := s.now()
-	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
-		agent, err := tx.GetAgent(ctx, input.AgentID)
-		if err != nil {
-			if store.IsNotFound(err) {
-				return ErrAgentNotFound
-			}
-			return err
-		}
-		if err := ensureAgentActive(agent); err != nil {
-			return err
-		}
-		policy, err := tx.GetAgentProductPolicy(ctx, input.AgentID, input.ProductID)
-		if err != nil {
-			if store.IsNotFound(err) {
-				return ErrAgentProductDenied
-			}
-			return err
-		}
-		if err := validateAgentPolicy(policy, input.Quantity, input.DurationDays, input.IsPermanent); err != nil {
-			return err
-		}
-		balance, err := tx.AgentQuotaBalance(ctx, input.AgentID, input.ProductID, input.DurationDays, input.IsPermanent)
-		if err != nil {
-			return err
-		}
-		if balance < input.Quantity {
-			return ErrAgentQuotaNotEnough
-		}
-		if err := tx.CreateCardBatch(ctx, batch); err != nil {
-			return err
-		}
-		for _, card := range cards {
-			if err := tx.CreateCard(ctx, card); err != nil {
-				return err
-			}
-		}
-		ledger := domain.AgentQuotaLedger{
-			ID:             yncrypto.NewID("quota"),
-			AgentID:        input.AgentID,
-			ProductID:      input.ProductID,
-			DurationDays:   input.DurationDays,
-			IsPermanent:    input.IsPermanent,
-			ChangeType:     domain.QuotaGenerateCards,
-			ChangeQuantity: -input.Quantity,
-			BalanceAfter:   balance - input.Quantity,
-			RelatedBatchID: batch.ID,
-			OperatorType:   "agent",
-			OperatorID:     input.AgentID,
-			Remark:         "agent self generated cards",
-			CreatedAt:      now,
-		}
-		return tx.InsertAgentQuotaLedger(ctx, ledger)
-	})
-	if err != nil {
-		_ = s.auditAgent(ctx, "", input.AgentID, input.ProductID, "agent_card_batch.create", "failed", errorCode(err))
-		return CreateCardBatchResult{}, err
-	}
-	_ = s.auditAgent(ctx, "", input.AgentID, input.ProductID, "agent_card_batch.create", "success", "")
-	return CreateCardBatchResult{Batch: batch, Codes: codes}, nil
+	return s.generatePackageCards(ctx, input)
 }
 
 func (s *Service) ListAgentCardBatches(ctx context.Context, agentID string) ([]domain.CardBatch, error) {

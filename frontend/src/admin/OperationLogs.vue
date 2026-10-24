@@ -21,6 +21,7 @@ const labels: Record<string, string> = {
   audit: "日志审计",
   platform: "平台设置",
   packages: "套餐与成本",
+  finance: "资金流水",
 };
 const actorLabels: Record<string, string> = {
   customer: "普通用户",
@@ -160,7 +161,9 @@ onMounted(load);
             <td>
               {{ l.method }}<br /><code>{{ l.route }}</code>
             </td>
-            <td><small>{{l.object_id||'—'}}</small></td>
+            <td>
+              <small>{{ l.object_id || "—" }}</small>
+            </td>
             <td :class="l.result === 'failed' ? 'error' : ''">
               {{ resultLabels[l.result] }}
               · {{ l.http_status || "—" }}

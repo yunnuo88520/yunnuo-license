@@ -137,7 +137,8 @@ if grep -Fq '13812348000' <<<"$account_query_response"; then
 fi
 
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./docker/test-product-updates.py prepare "$base" "$update_state"
-YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage1.py --base-url "$base" --artifacts "$platform_artifacts"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage1.py --base-url "$base" --artifacts "$platform_artifacts/stage1"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2"
 
 docker restart "$container" >/dev/null
 for attempt in $(seq 1 120); do
@@ -148,4 +149,5 @@ curl --fail --silent --show-error -X POST "$base/v1/licenses/query" \
   -H 'Content-Type: application/json' -d "{\"license_no\":\"$license_no\"}" | grep -q "$license_no"
 
 python3 ./docker/test-product-updates.py verify "$base" "$update_state"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2" --verify-state "$platform_artifacts/stage2/report.json"
 echo "Docker image end-to-end test passed: $image"
