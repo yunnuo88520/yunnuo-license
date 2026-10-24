@@ -76,8 +76,9 @@ login_payload="$(printf '{"username":"admin","password":"%s"}' "$admin_password"
 login_response="$(curl --fail --silent --show-error -X POST "$base/admin/login" \
   -H 'Content-Type: application/json' -d "$login_payload")"
 admin_token="$(json_get 'data["data"]["access_token"]' <<<"$login_response")"
+expected_version="$(tr -d '[:space:]' < VERSION)"
 curl --fail --silent --show-error "$base/admin/system/version" \
-  -H "Authorization: Bearer $admin_token" | grep -q '"current_version":"0.2.0"'
+  -H "Authorization: Bearer $admin_token" | grep -q "\"current_version\":\"$expected_version\""
 curl --fail --silent --show-error -X POST "$base/admin/site-settings" \
   -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
   -d '{"site_name":"Docker 授权中心","browser_title":"Docker License","logo_data_url":"","favicon_data_url":""}' | grep -q 'Docker 授权中心'

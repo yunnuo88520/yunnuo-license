@@ -1,7 +1,8 @@
 ARG GO_IMAGE=golang:1.26-bookworm
 ARG MYSQL_IMAGE=mysql:8.4
 ARG NODE_IMAGE=node:22-bookworm-slim
-ARG APP_VERSION=0.2.0
+# Defaults to the repo-root VERSION file; pass APP_VERSION to override.
+ARG APP_VERSION=
 ARG VCS_REF=unknown
 ARG BUILD_TIME=unknown
 
@@ -18,21 +19,21 @@ FROM ${GO_IMAGE} AS builder
 ARG APP_VERSION
 ARG VCS_REF
 ARG BUILD_TIME
+COPY VERSION /src/VERSION
 
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/yunnuo88520/yunnuo-license/backend/internal/buildinfo.Version=${APP_VERSION} -X github.com/yunnuo88520/yunnuo-license/backend/internal/buildinfo.Commit=${VCS_REF} -X github.com/yunnuo88520/yunnuo-license/backend/internal/buildinfo.BuildTime=${BUILD_TIME}" -o /out/yunnuo-server ./cmd/server \
+RUN APP_VERSION=${APP_VERSION:-$(tr -d "[:space:]" < /src/VERSION)} \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/yunnuo88520/yunnuo-license/backend/internal/buildinfo.Version=${APP_VERSION} -X github.com/yunnuo88520/yunnuo-license/backend/internal/buildinfo.Commit=${VCS_REF} -X github.com/yunnuo88520/yunnuo-license/backend/internal/buildinfo.BuildTime=${BUILD_TIME}" -o /out/yunnuo-server ./cmd/server \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/yunnuo-healthcheck ./cmd/healthcheck
 
 FROM ${MYSQL_IMAGE}
 
-ARG APP_VERSION
 ARG VCS_REF
 ARG BUILD_TIME
 LABEL org.opencontainers.image.title="Yunnuo License" \
-      org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.created="${BUILD_TIME}"
 

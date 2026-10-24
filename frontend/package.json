@@ -1,12 +1,13 @@
 {
   "name": "yunnuo-license-web",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc --noEmit && vite build",
-    "check": "vue-tsc --noEmit"
+    "check": "vue-tsc --noEmit",
+    "prebuild": "node scripts/sync-version.mjs"
   },
   "dependencies": {
     "@vueuse/core": "^13.9.0",

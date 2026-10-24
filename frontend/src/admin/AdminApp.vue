@@ -523,7 +523,7 @@ onMounted(async () => {
       </nav>
       <div class="sidebar-foot">
         SECURE NODE / ONLINE<br />V{{
-          a.data.system?.current_version || "0.2.0"
+          a.data.system?.current_version || "…"
         }}
       </div>
     </aside>
@@ -2067,7 +2067,7 @@ onMounted(async () => {
           <section v-if="settingsTab === 'version'" class="version-console">
             <div class="version-hero">
               <span><PackageCheck :size="18" /> 当前运行版本</span>
-              <strong>v{{ a.data.system?.current_version || "0.2.0" }}</strong>
+              <strong>v{{ a.data.system?.current_version || "…" }}</strong>
               <div>
                 <code>{{ a.data.system?.channel || "stable" }}</code>
                 <span

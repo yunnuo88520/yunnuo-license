@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/yunnuo88520/yunnuo-license/actions/workflows/ci.yml/badge.svg)](https://github.com/yunnuo88520/yunnuo-license/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/yunnuo88520/yunnuo-license)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-146447)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-%E6%9F%A5%E7%9C%8B%20VERSION%20%E6%96%87%E4%BB%B6-146447)](CHANGELOG.md)
 
 允诺云授权系统（Yunnuo License）是一套可自托管的通用应用授权服务平台，面向桌面软件、
 插件、私有化应用和 SaaS 产品。管理员管理平台、代理销售已获授权的应用套餐、用户管理自己的授权，
@@ -40,7 +40,7 @@
 
 ## 版本与更新
 
-当前版本为 `v0.2.0`。管理员登录后可在“系统设置”查看运行版本、构建信息、发布通道、
+发布版本维护在仓库根目录 `VERSION` 文件（唯一来源）。管理员登录后可在“系统设置”查看运行版本、构建信息、发布通道、
 升级能力状态和结构化更新记录；这些内部信息不在公开查询页展示。
 
 “系统设置”也提供全局站点品牌配置，可统一修改网站名称、浏览器标题、Logo 和网站图标。

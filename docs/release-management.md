@@ -8,12 +8,11 @@
 - `MINOR`：向后兼容的新功能。
 - `PATCH`：向后兼容的问题修复和安全更新。
 
-正式发布前必须同步修改：
+正式发布前需要：
 
-1. `backend/internal/buildinfo/buildinfo.go` 中的默认版本和结构化更新记录。
-2. `frontend/package.json` 与 `frontend/package-lock.json` 中的版本。
-3. 根目录 `CHANGELOG.md` 和 `README.md` 中的当前版本。
-4. `Dockerfile` 的默认 `APP_VERSION` 与 Docker 端到端断言。
+1. 更新根目录 `VERSION` 文件——这是唯一的版本来源，Docker 构建、本地后端运行和版本接口都会读取它。
+2. 根目录 `CHANGELOG.md` 增加条目，并在 `backend/internal/buildinfo/buildinfo.go` 的结构化更新记录中同步一条。
+3. `frontend/package.json` / `package-lock.json` 由构建脚本自动从 `VERSION` 同步，无需手改。
 
 ## 镜像构建
 
@@ -21,13 +20,12 @@
 
 ```bash
 docker build \
-  --build-arg APP_VERSION=0.2.0 \
   --build-arg VCS_REF="$(git rev-parse HEAD)" \
   --build-arg BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  -t yunnuo-license:0.2.0 .
+  -t "yunnuo-license:$(cat VERSION | tr -d '[:space:]')" .
 ```
 
-这些值会同时进入后端版本接口和 OCI 镜像标签。前端显示以后端接口返回的运行版本为准。
+版本默认读取仓库根目录 `VERSION`（唯一来源），可通过 `--build-arg APP_VERSION=` 覆盖；构建信息进入后端版本接口。前端显示以后端接口返回的运行版本为准。
 
 ## 发布检查
 
