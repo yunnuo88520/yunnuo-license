@@ -103,7 +103,7 @@ jobs:
           python -m playwright install --with-deps chromium
           sudo apt-get install -y fonts-noto-cjk
           go -C backend build -o /tmp/yunnuo-appearance-server ./cmd/server
-          python examples/platform-e2e/test_appearance.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-appearance"
+          python .github/scripts/check-command.py "Appearance browser acceptance" python examples/platform-e2e/test_appearance.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-appearance"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -115,4 +115,4 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Build and test all-in-one image
-        run: ./docker/test-image.sh yunnuo-license:test
+        run: python3 .github/scripts/check-command.py "Docker image acceptance" ./docker/test-image.sh yunnuo-license:test
