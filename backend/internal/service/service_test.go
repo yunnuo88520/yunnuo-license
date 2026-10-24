@@ -260,6 +260,7 @@ func TestPublicLicenseQuerySupportsBindingIdentifiersAndMasksValues(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			product, err := svc.CreateProduct(ctx, CreateProductInput{
 				Name: tc.name, Code: tc.code, BindMode: tc.mode, MaxBindCount: 1,
+				UnbindLimit:          3,
 				BindConflictStrategy: domain.ConflictReject,
 			})
 			if err != nil {
@@ -896,6 +897,7 @@ func newTestService(t *testing.T) *Service {
 func createTestProduct(t *testing.T, ctx context.Context, svc *Service, conflictStrategy string) domain.Product {
 	t.Helper()
 	product, err := svc.CreateProduct(ctx, CreateProductInput{
+		UnbindLimit:          3,
 		Name:                 "Test Product",
 		Code:                 "YN",
 		BindMode:             domain.BindDevice,

@@ -118,6 +118,7 @@ async function initialize() {
         ><img :src="logoSource" alt="" /><span>{{ branding.site_name }}</span></a
       >
       <div>
+        <a href="/user-console/">用户中心</a>
         <a href="/agent-console/">代理入口 <ArrowRight :size="15" /></a
         ><a href="/admin-console/">管理控制台</a>
       </div>

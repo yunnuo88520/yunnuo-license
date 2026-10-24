@@ -35,6 +35,9 @@ import AppToast from "../shared/components/AppToast.vue";
 import StatusBadge from "../shared/components/StatusBadge.vue";
 import ProductReleases from "../shared/components/ProductReleases.vue";
 import LicensePolicy from "../shared/components/LicensePolicy.vue";
+import CustomersPanel from "./CustomersPanel.vue";
+import BindingPolicy from "./BindingPolicy.vue";
+import OperationLogs from "./OperationLogs.vue";
 import {
   applyBranding,
   branding,
@@ -58,6 +61,7 @@ const nav = [
   { id: "products", label: "产品", icon: Boxes },
   { id: "releases", label: "产品升级", icon: PackageCheck },
   { id: "agents", label: "代理", icon: UserRoundCog },
+  { id: "customers", label: "用户", icon: UserRoundCog },
   { id: "cards", label: "卡密", icon: TicketCheck },
   { id: "licenses", label: "授权", icon: BadgeCheck },
   { id: "risk", label: "风控", icon: ShieldAlert },
@@ -541,11 +545,13 @@ onMounted(async () => {
             </table>
           </div>
         </section>
+        <CustomersPanel v-if="page === 'customers'" :api="a.api" :can-write="a.isManager.value" />
         <section v-if="page === 'releases'" class="panel">
           <h2>产品版本与升级包</h2>
           <label class="field">选择产品<select v-model="a.selected.product"><option value="" disabled>请选择产品</option><option v-for="p in a.data.products" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
           <p v-if="!a.data.products.length">请先创建产品。</p>
           <template v-if="a.selected.product">
+            <BindingPolicy :key="'binding-' + a.selected.product" :product-id="a.selected.product" :api="a.api" :can-write="a.isManager.value" />
             <LicensePolicy :key="'policy-' + a.selected.product" :product-id="a.selected.product" :api="a.api" prefix="/admin" :can-write="a.isManager.value" @saved="a.refresh" />
             <form v-if="a.isSuper.value" class="form-grid" @submit.prevent="create(`/admin/products/${a.selected.product}/developer`, $event, '开发者归属已保存')">
               <label class="field">产品所属开发者<select name="developer_id" :key="a.selected.product + (a.data.products.find((p: any) => p.id === a.selected.product)?.developer_id || '')" :value="a.data.products.find((p: any) => p.id === a.selected.product)?.developer_id || ''"><option value="">仅由站点管理</option><option v-for="u in a.data.users.filter((u: any) => u.role === 'developer' && u.status === 'active')" :key="u.id" :value="u.id">{{ u.display_name || u.username }}</option></select></label>
@@ -1277,6 +1283,7 @@ onMounted(async () => {
           </section>
         </section>
         <section v-if="page === 'audit'" class="panel">
+          <OperationLogs :api="a.api" :token="a.token.value" />
           <div class="panel-head"><h3>审计日志</h3></div>
           <form class="form-grid" @submit.prevent="a.refresh">
             <label class="field"

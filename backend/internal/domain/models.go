@@ -142,6 +142,7 @@ type CardBatch struct {
 }
 
 type License struct {
+	OwnerUserID         string     `json:"owner_user_id,omitempty"`
 	LicenseMode         string     `json:"license_mode"`
 	UsageExpiredAt      *time.Time `json:"usage_expired_at"`
 	UpdatesExpiredAt    *time.Time `json:"updates_expired_at"`

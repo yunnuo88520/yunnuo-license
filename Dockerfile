@@ -51,6 +51,7 @@ ENV YN_ADDR=:8080 \
     YN_ADMIN_STATIC_DIR=/opt/yunnuo/frontend/admin-console \
     YN_AGENT_STATIC_DIR=/opt/yunnuo/frontend/agent-console \
     YN_DEVELOPER_STATIC_DIR=/opt/yunnuo/frontend/developer-console \
+    YN_CUSTOMER_STATIC_DIR=/opt/yunnuo/frontend/user-console \
     MYSQL_DATABASE=yunnuo_license \
     MYSQL_USER=yunnuo
 

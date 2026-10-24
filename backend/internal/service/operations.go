@@ -79,7 +79,7 @@ func (s *Service) ListAuditLogs(ctx context.Context, filter AuditLogFilter) ([]d
 	filter.ActorType = strings.TrimSpace(filter.ActorType)
 	filter.Result = strings.TrimSpace(filter.Result)
 	filter.Action = strings.TrimSpace(filter.Action)
-	if filter.ActorType != "" && filter.ActorType != "admin" && filter.ActorType != "agent" && filter.ActorType != "client" {
+	if filter.ActorType != "" && filter.ActorType != "admin" && filter.ActorType != "agent" && filter.ActorType != "client" && filter.ActorType != "customer" && filter.ActorType != "developer" {
 		return nil, ErrInvalidRequest
 	}
 	if filter.Result != "" && filter.Result != "success" && filter.Result != "failed" {

@@ -215,6 +215,11 @@ func (api *API) developerLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, service.ErrPermissionDenied)
 		return
 	}
+	if a := service.ActorFrom(r.Context()); a != nil {
+		a.Type = "developer"
+		a.ID = result.User.ID
+		a.Role = result.User.Role
+	}
 	writeOK(w, r, result)
 }
 

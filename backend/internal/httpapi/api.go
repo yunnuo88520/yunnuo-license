@@ -44,6 +44,7 @@ type API struct {
 	adminStaticDir     string
 	agentStaticDir     string
 	developerStaticDir string
+	customerStaticDir  string
 	adminLoginLimit    *fixedWindowLimiter
 	agentLoginLimit    *fixedWindowLimiter
 	publicQueryLimit   *fixedWindowLimiter
@@ -66,6 +67,7 @@ func New(svc *service.Service, publicStaticDir, adminStaticDir, agentStaticDir s
 		adminStaticDir:     adminStaticDir,
 		agentStaticDir:     agentStaticDir,
 		developerStaticDir: envOr("YN_DEVELOPER_STATIC_DIR", "../frontend/dist/developer-console"),
+		customerStaticDir:  envOr("YN_CUSTOMER_STATIC_DIR", "../frontend/dist/user-console"),
 		adminLoginLimit:    newFixedWindowLimiter(20, 5*time.Minute),
 		agentLoginLimit:    newFixedWindowLimiter(30, 5*time.Minute),
 		publicQueryLimit:   newFixedWindowLimiter(60, time.Minute),
@@ -85,6 +87,7 @@ func (api *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	api.registerReleaseRoutes(mux)
 	api.registerDeveloperRoutes(mux)
+	api.registerCustomerRoutes(mux)
 	mux.HandleFunc("GET /healthz", api.health)
 	mux.HandleFunc("GET /v1/setup/status", api.setupStatus)
 	mux.HandleFunc("POST /v1/setup/initialize", withRateLimit(api.setupLimit, api.setupInitialize))
@@ -149,7 +152,7 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("GET /admin-console", api.adminAppRedirect)
 	mux.HandleFunc("GET /admin-console/", api.adminApp)
 	mux.HandleFunc("GET /", api.publicApp)
-	return requestID(mux)
+	return requestID(api.operationAudit(mux))
 }
 
 func (api *API) publicApp(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +294,11 @@ func (api *API) adminLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, r, err)
 		return
+	}
+	if a := service.ActorFrom(r.Context()); a != nil {
+		a.Type = "admin"
+		a.ID = result.User.ID
+		a.Role = result.User.Role
 	}
 	writeOK(w, r, result)
 }
@@ -864,6 +872,11 @@ func (api *API) agentLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, r, err)
 		return
+	}
+	if a := service.ActorFrom(r.Context()); a != nil {
+		a.Type = "agent"
+		a.ID = result.User.ID
+		a.Role = result.User.Role
 	}
 	writeOK(w, r, result)
 }

@@ -8,9 +8,11 @@ volume="yunnuo-license-test-$$"
 port="${YN_DOCKER_TEST_PORT:-18083}"
 admin_password="docker-test-admin-password"
 update_state="$(mktemp)"
+platform_artifacts="$(mktemp -d)"
 
 cleanup() {
   rm -f "$update_state"
+  rm -r "$platform_artifacts"
   docker rm -f "$container" >/dev/null 2>&1 || true
   docker volume rm "$volume" >/dev/null 2>&1 || true
 }
@@ -135,6 +137,7 @@ if grep -Fq '13812348000' <<<"$account_query_response"; then
 fi
 
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./docker/test-product-updates.py prepare "$base" "$update_state"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage1.py --base-url "$base" --artifacts "$platform_artifacts"
 
 docker restart "$container" >/dev/null
 for attempt in $(seq 1 120); do

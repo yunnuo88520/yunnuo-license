@@ -907,6 +907,7 @@ func (s *Service) publicLicenseResult(ctx context.Context, queryType string, car
 }
 
 type ActivateInput struct {
+	OwnerUserID   string `json:"-"`
 	AppKey        string `json:"app_key"`
 	CardCode      string `json:"card_code"`
 	BindMode      string `json:"bind_mode"`
@@ -971,6 +972,7 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 		}
 		if card.ActivatedLicenseID == "" {
 			lic = newLicense(product, card, now)
+			lic.OwnerUserID = input.OwnerUserID
 			if err := tx.CreateLicense(ctx, lic); err != nil {
 				return err
 			}
@@ -982,6 +984,9 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 			if err != nil {
 				return err
 			}
+		}
+		if input.OwnerUserID != "" && lic.OwnerUserID != input.OwnerUserID {
+			return ErrOwnerRequired
 		}
 		if err := s.ensureUsable(product, lic, now); err != nil {
 			return err
@@ -999,11 +1004,17 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 		}
 		if product.MaxBindCount != -1 && count >= product.MaxBindCount {
 			if product.BindConflictStrategy == domain.ConflictKickOldest {
+				if err := s.guardBindingChange(ctx, tx, product, lic); err != nil {
+					return err
+				}
 				oldest, err := tx.OldestActiveBinding(ctx, lic.ID)
 				if err != nil {
 					return err
 				}
 				if err := tx.MarkBindingKicked(ctx, oldest.ID, now); err != nil {
+					return err
+				}
+				if err := tx.AddBindingChange(ctx, yncrypto.NewID("change"), lic.ID, oldest.ID, yncrypto.NewID("req"), bindHash, "kick", now); err != nil {
 					return err
 				}
 			} else {
@@ -1030,7 +1041,13 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 			CreatedAt:          now,
 			UpdatedAt:          now,
 		}
-		return tx.CreateBinding(ctx, binding)
+		if err := tx.CreateBinding(ctx, binding); err != nil {
+			return err
+		}
+		if input.OwnerUserID != "" {
+			return s.transactionAudit(ctx, tx, "customer", input.OwnerUserID, product.ID, lic.ID, "license.claim", nil)
+		}
+		return nil
 	})
 	if err != nil {
 		_ = s.auditClient(ctx, product.ID, "", "", "license.activate", "failed", errorCode(err), input.ClientIP, input.UserAgent)
@@ -1149,6 +1166,7 @@ func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]
 }
 
 type RenewInput struct {
+	OwnerUserID   string `json:"-"`
 	AppKey        string `json:"app_key"`
 	LicenseNo     string `json:"license_no"`
 	RenewCardCode string `json:"renew_card_code"`
@@ -1186,6 +1204,16 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 				return ErrLicenseNotFound
 			}
 			return err
+		}
+		if err := tx.LockLicense(ctx, lic.ID); err != nil {
+			return err
+		}
+		lic, err = tx.GetLicenseByID(ctx, lic.ID)
+		if err != nil {
+			return err
+		}
+		if input.OwnerUserID != "" && lic.OwnerUserID != input.OwnerUserID {
+			return ErrLicenseNotFound
 		}
 		if lic.ProductID != product.ID {
 			return ErrLicenseNotFound
@@ -1230,6 +1258,9 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 		}
 		lic.UsageExpiredAt = lic.ExpiredAt
 		lic.Status = domain.LicenseActive
+		if input.OwnerUserID != "" {
+			return s.transactionAudit(ctx, tx, "customer", input.OwnerUserID, product.ID, lic.ID, "license.renew", nil)
+		}
 		return nil
 	})
 	if err != nil {
@@ -1275,6 +1306,13 @@ func (s *Service) Unbind(ctx context.Context, input UnbindInput) (map[string]any
 			}
 			return err
 		}
+		if err := tx.LockLicense(ctx, lic.ID); err != nil {
+			return err
+		}
+		lic, err = tx.GetLicenseByID(ctx, lic.ID)
+		if err != nil {
+			return err
+		}
 		if lic.ProductID != product.ID {
 			return ErrLicenseNotFound
 		}
@@ -1288,7 +1326,16 @@ func (s *Service) Unbind(ctx context.Context, input UnbindInput) (map[string]any
 			}
 			return err
 		}
-		return tx.MarkBindingUnbound(ctx, binding.ID, now)
+		if err := s.guardBindingChange(ctx, tx, product, lic); err != nil {
+			return err
+		}
+		if err := tx.MarkBindingUnbound(ctx, binding.ID, now); err != nil {
+			return err
+		}
+		if err := tx.AddBindingChange(ctx, yncrypto.NewID("change"), lic.ID, binding.ID, yncrypto.NewID("req"), binding.BindValueHash, "unbind", now); err != nil {
+			return err
+		}
+		return s.transactionAudit(ctx, tx, "client", "", product.ID, lic.ID, "binding.unbind", nil)
 	})
 	if err != nil {
 		_ = s.auditClient(ctx, product.ID, "", "", "license.unbind", "failed", errorCode(err), input.ClientIP, input.UserAgent)
@@ -1312,7 +1359,7 @@ type AdminUnbindInput struct {
 }
 
 func (s *Service) AdminUnbind(ctx context.Context, input AdminUnbindInput) (map[string]any, error) {
-	if strings.TrimSpace(input.LicenseNo) == "" || strings.TrimSpace(input.BindingID) == "" {
+	if strings.TrimSpace(input.LicenseNo) == "" || strings.TrimSpace(input.BindingID) == "" || strings.TrimSpace(input.Reason) == "" {
 		return nil, ErrInvalidRequest
 	}
 	now := s.now()
@@ -1324,6 +1371,9 @@ func (s *Service) AdminUnbind(ctx context.Context, input AdminUnbindInput) (map[
 			if store.IsNotFound(err) {
 				return ErrLicenseNotFound
 			}
+			return err
+		}
+		if err := tx.LockLicense(ctx, lic.ID); err != nil {
 			return err
 		}
 		binding, err := tx.GetBindingByID(ctx, input.BindingID)
@@ -1339,7 +1389,10 @@ func (s *Service) AdminUnbind(ctx context.Context, input AdminUnbindInput) (map[
 		if binding.Status != domain.BindingActive {
 			return nil
 		}
-		return tx.MarkBindingUnbound(ctx, binding.ID, now)
+		if err := tx.MarkBindingUnbound(ctx, binding.ID, now); err != nil {
+			return err
+		}
+		return s.transactionAudit(ctx, tx, "admin", input.ActorID, lic.ProductID, lic.ID, "binding.admin_override", map[string]string{"reason": input.Reason, "binding_id": binding.ID})
 	})
 	if err != nil {
 		return nil, err
@@ -1750,6 +1803,10 @@ func validateAgentPolicy(policy domain.AgentProductPolicy, quantity, durationDay
 }
 
 func (s *Service) audit(ctx context.Context, actorType, actorID, productID, licenseID, cardID, action, result, code string) error {
+	if a := ActorFrom(ctx); a != nil && actorID == "" && a.Type != "anonymous" {
+		actorID = a.ID
+		actorType = a.Type
+	}
 	return s.currentStore().InsertAudit(ctx, domain.AuditLog{
 		ID:        yncrypto.NewID("audit"),
 		ActorType: actorType,
