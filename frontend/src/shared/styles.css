@@ -86,6 +86,10 @@ pre,
 .mono {
   font-family: "DM Mono", monospace;
 }
+/* Identifiers must fit narrow screens with different installed fonts and text sizes. */
+code {
+  overflow-wrap: anywhere;
+}
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,

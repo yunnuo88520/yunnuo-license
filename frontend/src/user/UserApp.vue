@@ -369,9 +369,6 @@ onMounted(async () => {
   margin: auto;
   padding: 30px 22px;
 }
-.user-page code {
-  overflow-wrap: anywhere;
-}
 .heading > div {
   min-width: 0;
 }

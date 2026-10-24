@@ -78,7 +78,8 @@ jobs:
         run: mvn -B test
 
   frontend:
-    runs-on: ubuntu-latest
+    # Keep the browser/font environment stable while ubuntu-latest migrates.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -100,6 +101,7 @@ jobs:
         run: |
           pip install playwright==1.62.0
           python -m playwright install --with-deps chromium
+          sudo apt-get install -y fonts-noto-cjk
           go -C backend build -o /tmp/yunnuo-appearance-server ./cmd/server
           python examples/platform-e2e/test_appearance.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-appearance"
       - uses: actions/upload-artifact@v4

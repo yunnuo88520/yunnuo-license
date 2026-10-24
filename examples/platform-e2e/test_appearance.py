@@ -7,6 +7,7 @@ import os
 import pathlib
 import secrets
 import subprocess
+import traceback
 import tempfile
 
 from playwright.sync_api import sync_playwright
@@ -69,6 +70,7 @@ def main():
             http.wait_ready(base, "/healthz", process)
             with sync_playwright() as pw:
                 browser = pw.chromium.launch(executable_path=None if args.chromium == "bundled" else args.chromium, headless=True, args=["--no-sandbox"])
+                report["browser"] = browser.version
                 context = browser.new_context(viewport={"width": 1440, "height": 1050}, color_scheme="light", locale="zh-CN")
                 page = context.new_page()
                 errors = []
@@ -135,6 +137,15 @@ def main():
                             if args.screenshots and width != 320:
                                 page.screenshot(path=str(args.artifacts / f"{name}-{device}-{mode}.png"), full_page=True, animations="disabled")
                         report["pages"].append(name + "-" + device)
+                # Fallback font metrics and text enlargement must not widen identifiers.
+                page.set_viewport_size({"width": 320, "height": 844})
+                page.goto(base + "/agent-console/")
+                page.locator(".console .workspace").wait_for()
+                page.add_style_tag(content="code { font-family: monospace !important; font-size: 20px !important; }")
+                verify_layout(page, "agent-small-mobile-large-monospace")
+                if args.screenshots:
+                    page.screenshot(path=str(args.artifacts / "agent-small-mobile-large-font.png"), full_page=True, animations="disabled")
+                report["checks"].append("Long identifiers wrap on a 320px phone with enlarged monospace fallback fonts")
                 # Exercise real mobile navigation and a horizontally scrolling history table.
                 page.set_viewport_size({"width": 390, "height": 844})
                 page.goto(base + "/admin#recovery")
@@ -198,6 +209,9 @@ def main():
                 browser.close()
             report["result"] = "passed"
             print(json.dumps({"result": "passed", "checks": len(report["checks"]), "layouts": len(report["pages"]), "artifacts": str(args.artifacts)}))
+        except Exception:
+            report["error"] = traceback.format_exc()
+            raise
         finally:
             if report["result"] != "passed":
                 report["result"] = "failed"
