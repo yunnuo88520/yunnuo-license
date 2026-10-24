@@ -26,6 +26,7 @@ backend/yn-releases/
 docker/test-bin/
 docker/__pycache__/
 examples/update-demo/__pycache__/
+examples/platform-e2e/__pycache__/
 
 # Local env
 .env

@@ -33,8 +33,6 @@ docker run -d --name "$container" \
   -e MYSQL_ROOT_PASSWORD=docker-test-root-password \
   -e YN_ADMIN_PASSWORD="$admin_password" \
   -e YN_ADMIN_USERNAME=admin \
-  -e YN_CARD_PEPPER=docker-test-card-pepper \
-  -e YN_DATA_KEY=docker-test-data-key \
   -e YN_TRUST_PROXY_HEADERS=true \
   "$image" >/dev/null
 
@@ -57,11 +55,14 @@ done
 
 base="http://127.0.0.1:${port}"
 curl --fail --silent --show-error "$base/healthz" | grep -q '"status":"ok"'
+[[ "$(curl --silent --output /dev/null --write-out '%{http_code}' "$base/")" == "307" ]]
+curl --fail --silent --show-error "$base/install" | grep -q '安装授权平台'
+curl --fail --silent --show-error -X POST "$base/v1/setup/initialize" -H 'Content-Type: application/json' -d '{"database_driver":"mysql","database_host":"127.0.0.1","database_port":3306,"database_name":"yunnuo_license","database_user":"yunnuo","database_password":"docker-test-db-password","admin_username":"admin","admin_password":"docker-test-admin-password"}' | grep -q '"initialized":true'
 curl --fail --silent --show-error "$base/v1/site/settings" | grep -q '"site_name":"允诺云授权"'
 curl --fail --silent --show-error "$base/" | grep -q '允诺云授权'
 curl --fail --silent --show-error "$base/assets/yunnuo-mark.svg" | grep -q '<svg'
 curl --fail --silent --show-error "$base/" | grep -q '/assets/public-'
-curl --fail --silent --show-error "$base/admin-console/" | grep -q '管理控制台'
+curl --fail --silent --show-error "$base/admin" | grep -q '管理控制台'
 curl --fail --silent --show-error "$base/agent-console/" | grep -q '代理工作台'
 
 published_ports="$(docker port "$container")"
@@ -141,6 +142,8 @@ YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_st
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage3.py --base-url "$base" --artifacts "$platform_artifacts/stage3"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage4.py --base-url "$base" --artifacts "$platform_artifacts/stage4"
+
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_recovery_history.py --base-url "$base" --artifacts "$platform_artifacts/recovery-history"
 
 docker restart "$container" >/dev/null
 for attempt in $(seq 1 120); do

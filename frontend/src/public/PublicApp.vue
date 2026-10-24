@@ -13,28 +13,18 @@ import {
   ShieldCheck,
   TicketCheck,
 } from "lucide-vue-next";
+import { entries } from "../shared/entries";
 import AgentVerify from "./AgentVerify.vue";
 import { request } from "../shared/api";
 import { formatTime, statusLabel } from "../shared/format";
 import { branding, loadBranding, logoSource } from "../shared/branding";
 
-const mode=ref("license");
+const mode = ref("license");
 const query = ref("");
 const queryType = ref("auto");
 const loading = ref(false);
 const error = ref("");
 const result = ref<any>(null);
-const setupRequired = ref(false);
-const setupLoading = ref(false);
-const setupError = ref("");
-const sqliteSetupDSN = ref("file:yn-license.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)");
-const setup = ref({
-  database_driver: "sqlite",
-  database_dsn: "file:yn-license.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)",
-  admin_username: "",
-  admin_password: "",
-  admin_name: "系统管理员",
-});
 const queryTypes = [
   { value: "auto", label: "智能识别", icon: Crosshair },
   { value: "domain", label: "域名", icon: Globe2 },
@@ -52,19 +42,14 @@ const placeholders: Record<string, string> = {
   card: "输入完整卡密",
 };
 const displayResults = computed(() =>
-  result.value?.results?.length ? result.value.results : result.value ? [result.value] : [],
+  result.value?.results?.length
+    ? result.value.results
+    : result.value
+      ? [result.value]
+      : [],
 );
 onMounted(async () => {
   await loadBranding("授权查询").catch(() => undefined);
-  const status: { initialized: boolean; suggested_sqlite_dsn?: string } = await request<{
-    initialized: boolean;
-    suggested_sqlite_dsn?: string;
-  }>("/v1/setup/status").catch(() => ({ initialized: true }));
-  if (status.suggested_sqlite_dsn) {
-    sqliteSetupDSN.value = status.suggested_sqlite_dsn;
-    setup.value.database_dsn = status.suggested_sqlite_dsn;
-  }
-  setupRequired.value = !status.initialized;
 });
 async function submit() {
   const value = query.value.trim();
@@ -96,33 +81,19 @@ function selectQueryType(value: string) {
   result.value = null;
   error.value = "";
 }
-async function initialize() {
-  setupLoading.value = true;
-  setupError.value = "";
-  try {
-    await request("/v1/setup/initialize", {
-      method: "POST",
-      body: JSON.stringify(setup.value),
-    });
-    setupRequired.value = false;
-    setup.value.admin_password = "";
-  } catch (e: any) {
-    setupError.value = e.message || "初始化失败，请检查数据库配置";
-  } finally {
-    setupLoading.value = false;
-  }
-}
 </script>
 <template>
   <main class="query-canvas">
     <header class="query-nav">
       <a class="query-brand" href="/"
-        ><img :src="logoSource" alt="" /><span>{{ branding.site_name }}</span></a
+        ><img :src="logoSource" alt="" /><span>{{
+          branding.site_name
+        }}</span></a
       >
       <div>
         <a href="/user-console/">用户中心</a>
         <a href="/agent-console/">代理入口 <ArrowRight :size="15" /></a
-        ><a href="/admin-console/">管理控制台</a>
+        ><a :href="entries.admin">管理控制台</a>
       </div>
     </header>
     <section class="query-stage">
@@ -136,8 +107,24 @@ async function initialize() {
         <h1>软件授权<br /><em>公开验真。</em></h1>
         <p>查询应用授权与代理身份，让正版使用和交易有据可查。</p>
       </div>
-      <div class="query-types" role="group" aria-label="验真对象"><button type="button" :class="{active:mode==='license'}" :aria-pressed="mode==='license'" @click="mode='license'">授权验真</button><button type="button" :class="{active:mode==='agent'}" :aria-pressed="mode==='agent'" @click="mode='agent'">代理验真</button></div>
-      <AgentVerify v-if="mode==='agent'" />
+      <div class="query-types" role="group" aria-label="验真对象">
+        <button
+          type="button"
+          :class="{ active: mode === 'license' }"
+          :aria-pressed="mode === 'license'"
+          @click="mode = 'license'"
+        >
+          授权验真</button
+        ><button
+          type="button"
+          :class="{ active: mode === 'agent' }"
+          :aria-pressed="mode === 'agent'"
+          @click="mode = 'agent'"
+        >
+          代理验真
+        </button>
+      </div>
+      <AgentVerify v-if="mode === 'agent'" />
       <form v-else class="query-form" @submit.prevent="submit">
         <label for="license-query">授权查询</label>
         <div class="query-types" role="group" aria-label="查询类型">
@@ -174,14 +161,18 @@ async function initialize() {
       </div>
     </section>
     <Transition name="result">
-      <section v-if="result && mode==='license'" class="query-result">
+      <section v-if="result && mode === 'license'" class="query-result">
         <div class="result-title">
           <div>
             <span class="eyebrow"
               ><CheckCircle2 :size="15" /> QUERY COMPLETE</span
             >
             <h2>
-              {{ result.results?.length ? `找到 ${result.match_count} 项授权` : result.product_name }}
+              {{
+                result.results?.length
+                  ? `找到 ${result.match_count} 项授权`
+                  : result.product_name
+              }}
             </h2>
             <code>{{ result.query_masked || result.product_code }}</code>
           </div>
@@ -195,10 +186,18 @@ async function initialize() {
           >
         </div>
         <div class="result-list">
-          <article v-for="(item, index) in displayResults" :key="item.license_no || index">
+          <article
+            v-for="(item, index) in displayResults"
+            :key="item.license_no || index"
+          >
             <header v-if="result.results?.length">
-              <div><strong>{{ item.product_name }}</strong><code>{{ item.product_code }}</code></div>
-              <span class="status" :class="item.license_status">{{ statusLabel(item.license_status) }}</span>
+              <div>
+                <strong>{{ item.product_name }}</strong
+                ><code>{{ item.product_code }}</code>
+              </div>
+              <span class="status" :class="item.license_status">{{
+                statusLabel(item.license_status)
+              }}</span>
             </header>
             <dl>
               <div v-if="item.license_no">
@@ -211,11 +210,21 @@ async function initialize() {
               </div>
               <div>
                 <dt>授权状态</dt>
-                <dd>{{ statusLabel(item.license_status || item.card_status) }}</dd>
+                <dd>
+                  {{ statusLabel(item.license_status || item.card_status) }}
+                </dd>
               </div>
               <div>
                 <dt>授权时长</dt>
-                <dd>{{ item.is_permanent ? "永久" : item.duration_days ? `${item.duration_days} 天` : "按到期时间" }}</dd>
+                <dd>
+                  {{
+                    item.is_permanent
+                      ? "永久"
+                      : item.duration_days
+                        ? `${item.duration_days} 天`
+                        : "按到期时间"
+                  }}
+                </dd>
               </div>
               <div>
                 <dt>激活时间</dt>
@@ -223,9 +232,21 @@ async function initialize() {
               </div>
               <div>
                 <dt>到期时间</dt>
-                <dd>{{ item.is_permanent ? "永久使用" : formatTime(item.expired_at) }}</dd>
+                <dd>
+                  {{
+                    item.is_permanent ? "永久使用" : formatTime(item.expired_at)
+                  }}
+                </dd>
               </div>
-              <div v-if="item.license_no"><dt>更新服务到期</dt><dd>{{ item.updates_expired_at ? formatTime(item.updates_expired_at) : '永久更新' }}</dd>
+              <div v-if="item.license_no">
+                <dt>更新服务到期</dt>
+                <dd>
+                  {{
+                    item.updates_expired_at
+                      ? formatTime(item.updates_expired_at)
+                      : "永久更新"
+                  }}
+                </dd>
               </div>
               <div>
                 <dt>最近验证</dt>
@@ -238,43 +259,13 @@ async function initialize() {
             </dl>
           </article>
         </div>
-        <p v-if="result.results?.length" class="result-time">查询时间 {{ formatTime(result.server_time) }}</p>
+        <p v-if="result.results?.length" class="result-time">
+          查询时间 {{ formatTime(result.server_time) }}
+        </p>
         <button class="btn secondary" @click="clear">
           <KeyRound :size="16" />查询其他授权
         </button>
       </section>
     </Transition>
-    <div v-if="setupRequired" class="setup-overlay">
-      <section class="setup-panel" role="dialog" aria-modal="true" aria-labelledby="setup-title">
-        <div class="setup-heading">
-          <span class="eyebrow"><ShieldCheck :size="15" /> FIRST BOOT</span>
-          <h2 id="setup-title">初始化授权中心</h2>
-          <p>首次启动需要设置数据库连接和首个超级管理员。完成后才开放登录入口。</p>
-        </div>
-        <form class="setup-form" @submit.prevent="initialize">
-          <div class="setup-section">
-            <span class="setup-label">01 / 数据库</span>
-            <div class="setup-choice">
-              <button type="button" :class="{ active: setup.database_driver === 'sqlite' }" @click="setup.database_driver = 'sqlite'; setup.database_dsn = sqliteSetupDSN">SQLite</button>
-              <button type="button" :class="{ active: setup.database_driver === 'mysql' }" @click="setup.database_driver = 'mysql'; setup.database_dsn = 'user:password@tcp(127.0.0.1:3306)/yunnuo_license?charset=utf8mb4&parseTime=false'">MySQL</button>
-            </div>
-            <label class="field">连接 DSN<textarea v-model="setup.database_dsn" rows="3" required></textarea></label>
-            <small class="setup-hint">SQLite 适合单机试用；生产环境可填写外部 MySQL 连接串。</small>
-          </div>
-          <div class="setup-section">
-            <span class="setup-label">02 / 管理员</span>
-            <div class="setup-grid">
-              <label class="field">管理员账号<input v-model="setup.admin_username" autocomplete="username" required minlength="3" /></label>
-              <label class="field">显示名称<input v-model="setup.admin_name" required /></label>
-              <label class="field full">管理员密码<input v-model="setup.admin_password" type="password" autocomplete="new-password" required minlength="8" /></label>
-            </div>
-          </div>
-          <p class="error">{{ setupError }}</p>
-          <button class="btn setup-submit" :disabled="setupLoading">
-            <RotateCcw v-if="setupLoading" class="spin" :size="17" /><ArrowRight v-else :size="17" />完成初始化
-          </button>
-        </form>
-      </section>
-    </div>
   </main>
 </template>

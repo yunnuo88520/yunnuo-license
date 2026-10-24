@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PagedRecords from "../shared/components/PagedRecords.vue";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { renderLicenseBlockPage } from "../../../sdk/node/src/web.js";
 import { formatTime } from "../shared/format";
@@ -6,26 +7,20 @@ const props = defineProps<{
   api: <T = any>(path: string, options?: RequestInit) => Promise<T>;
   products: any[];
   canWrite: boolean;
+  token: string;
 }>();
 const product = ref(""),
-  cases = ref<any[]>([]),
-  appeals = ref<any[]>([]),
   selected = ref<any>(),
   error = ref(""),
   message = ref(""),
-  busy = ref(false),
-  filter = ref("");
-const preview = ref(false);
+  busy = ref(false);
+const preview = ref(false),
+  refreshKey = ref(0);
 const actions: Record<string, string> = {
   observe: "仅记录观察",
   deny_updates: "禁止更新，保留使用",
   deny_use: "禁止使用与更新",
   block_page: "应用端显示拦截页",
-};
-const statuses: Record<string, string> = {
-  open: "待核实",
-  confirmed: "已确认处置",
-  resolved: "已解除",
 };
 const policy = reactive({
   enabled: false,
@@ -57,12 +52,7 @@ async function run(fn: () => Promise<any>) {
   }
 }
 async function load() {
-  const [c, a] = await Promise.all([
-    props.api<any[]>("/admin/security/cases"),
-    props.api<any[]>("/admin/security/appeals"),
-  ]);
-  cases.value = c;
-  appeals.value = a;
+  refreshKey.value++;
   if (!product.value) product.value = props.products[0]?.id || "";
   if (product.value)
     Object.assign(
@@ -197,55 +187,16 @@ onMounted(() => run(load));
     </section>
     <section class="panel">
       <h3>线索与处置记录</h3>
-      <label class="field"
-        >线索状态<select v-model="filter">
-          <option value="">全部</option>
-          <option v-for="(name, id) in statuses" :value="id">{{ name }}</option>
-        </select></label
-      >
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>应用 / 授权号</th>
-              <th>线索</th>
-              <th>状态 / 动作</th>
-              <th>次数 / 最近时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="c in cases.filter(
-                (c) =>
-                  (!product || c.product_id === product) &&
-                  (!filter || c.status === filter),
-              )"
-              :key="c.id"
-            >
-              <td>
-                {{ products.find((p) => p.id === c.product_id)?.name
-                }}<code>{{ c.license_no }}</code>
-              </td>
-              <td>
-                {{
-                  c.signal === "binding_mismatch"
-                    ? "绑定不匹配"
-                    : "客户端完整性报告"
-                }}<code>{{ c.subject }}</code>
-              </td>
-              <td>{{ statuses[c.status] }}<br />{{ actions[c.action] }}</td>
-              <td>{{ c.occurrences }} 次<br />{{ formatTime(c.last_seen) }}</td>
-              <td>
-                <button class="btn secondary small" @click="choose(c)">
-                  查看与核实
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p v-if="!cases.length">暂无检测线索。</p>
+      <PagedRecords
+        :api="api"
+        :token="token"
+        endpoint="/admin/history/cases"
+        kind="cases"
+        :params="{ product_id: product }"
+        :refresh="refreshKey"
+        selectable
+        @select="choose"
+      />
       <div v-if="selected" class="review">
         <h4>核实记录 {{ selected.id }}</h4>
         <p class="evidence">{{ selected.evidence }}</p>
@@ -287,28 +238,14 @@ onMounted(() => run(load));
     </section>
     <section class="panel">
       <h3>用户申诉</h3>
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>处置编号</th>
-              <th>用户 / 时间</th>
-              <th>申诉内容</th>
-              <th>状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="a in appeals" :key="a.id">
-              <td>
-                <code>{{ a.case_id }}</code>
-              </td>
-              <td>{{ a.user_id }}<br />{{ formatTime(a.created_at) }}</td>
-              <td>{{ a.reason }}</td>
-              <td>{{ a.status === "open" ? "待处理" : "已随处置解除关闭" }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <PagedRecords
+        :api="api"
+        :token="token"
+        endpoint="/admin/history/appeals"
+        kind="appeals"
+        :params="{ product_id: product }"
+        :refresh="refreshKey"
+      />
     </section>
   </div>
 </template>

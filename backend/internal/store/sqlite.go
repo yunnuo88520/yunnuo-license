@@ -152,7 +152,7 @@ func (s *Store) Migrate(ctx context.Context, dir string) error {
 			return fmt.Errorf("run migration %s: %w", filepath.Base(file), err)
 		}
 	}
-	return nil
+	return s.ensureHistoryIndexes(ctx)
 }
 
 func (s *Store) WithTx(ctx context.Context, fn func(*Tx) error) error {
@@ -1100,7 +1100,7 @@ const licenseColumns = `id, license_no, product_id, card_id, agent_id, status, i
 const offlineLicenseColumns = `id, license_no, product_id, label, machine_code_hash, machine_code_encrypted, machine_code_masked, signed_token_encrypted, token_version, status, issued_at, expired_at, revoked_at, revoked_reason, created_by, created_at, updated_at`
 const bindingColumns = `id, license_id, product_id, bind_mode, bind_value_hash, bind_value_encrypted, display_name, status, first_seen_ip, last_seen_ip, user_agent, last_heartbeat_at, activated_at, created_at, updated_at`
 const agentColumns = `id, agent_no, parent_agent_id, name, contact_name, phone, email, level, status, settlement_mode, default_discount_rate, credit_limit, remark, created_by, created_at, updated_at, disabled_at`
-const agentUserColumns = `id, agent_id, username, password_hash, display_name, phone, email, role, status, last_login_at, created_at, updated_at`
+const agentUserColumns = `id, agent_id, username, password_hash, display_name, phone, email, role, status, last_login_at, created_at, updated_at, COALESCE((SELECT version FROM agent_session_versions WHERE user_id=agent_users.id),0)`
 const adminUserColumns = `id, username, password_hash, display_name, role, status, session_version, last_login_at, created_at, updated_at`
 const agentPolicyColumns = `id, agent_id, product_id, can_generate, can_export_plain_code, allowed_duration_days, allow_permanent, max_batch_quantity, discount_rate, settlement_price, status, created_at, updated_at`
 const agentQuotaLedgerColumns = `id, agent_id, product_id, duration_days, is_permanent, change_type, change_quantity, balance_after, related_batch_id, related_card_id, operator_type, operator_id, remark, created_at`
@@ -1270,7 +1270,7 @@ func scanAgentUser(row scanner) (domain.AgentUser, error) {
 	var displayName, phone, email, lastLoginAt sql.NullString
 	var createdAt, updatedAt string
 	err := row.Scan(&u.ID, &u.AgentID, &u.Username, &u.PasswordHash, &displayName,
-		&phone, &email, &u.Role, &u.Status, &lastLoginAt, &createdAt, &updatedAt)
+		&phone, &email, &u.Role, &u.Status, &lastLoginAt, &createdAt, &updatedAt, &u.SessionVersion)
 	if err != nil {
 		return domain.AgentUser{}, err
 	}

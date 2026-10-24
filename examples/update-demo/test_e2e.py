@@ -53,6 +53,11 @@ def api(base, path, data=None, token="", content_type="application/json"):
     return envelope["data"]
 
 
+def initialize(base, username, password, dsn):
+    if not api(base, "/v1/setup/status")["initialized"]:
+        return api(base, "/v1/setup/initialize", {"database_driver":"sqlite", "database_dsn":dsn, "admin_username":username, "admin_password":password})
+
+
 def wait_ready(base, path, process):
     for _ in range(100):
         if process.poll() is not None:
@@ -121,6 +126,7 @@ def main():
                 license_process = subprocess.Popen([str(binary)], cwd=REPO / "backend", env=environment, stdout=license_log, stderr=license_log)
                 processes.append(license_process)
                 wait_ready(license_base, "/healthz", license_process)
+                initialize(license_base,"demo-root",password,environment["YN_DB"])
                 admin = api(license_base, "/admin/login", {"username": "demo-root", "password": password})["access_token"]
                 api(license_base, "/admin/users", {"username": "demo-developer", "password": password, "role": "developer"}, admin)
                 developer = api(license_base, "/developer/login", {"username": "demo-developer", "password": password})["access_token"]

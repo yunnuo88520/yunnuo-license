@@ -39,6 +39,7 @@ import CustomersPanel from "./CustomersPanel.vue";
 import BindingPolicy from "./BindingPolicy.vue";
 import OperationLogs from "./OperationLogs.vue";
 import CommercePanel from "./CommercePanel.vue";
+import RecoveryPanel from "./RecoveryPanel.vue";
 import SecurityPanel from "./SecurityPanel.vue";
 import {
   applyBranding,
@@ -65,6 +66,7 @@ const nav = [
   { id: "agents", label: "代理", icon: UserRoundCog },
   { id: "commerce", label: "套餐与结算", icon: TicketCheck },
   { id: "customers", label: "用户", icon: UserRoundCog },
+  { id: "recovery", label: "账号恢复", icon: KeyRound },
   { id: "cards", label: "卡密", icon: TicketCheck },
   { id: "licenses", label: "授权", icon: BadgeCheck },
   { id: "risk", label: "风控", icon: ShieldAlert },
@@ -111,9 +113,12 @@ async function create(
 }
 async function productCreate(e: Event) {
   await create("/admin/products", e, "产品已创建", (o) =>
-    ["max_bind_count", "offline_grace_days", "expire_grace_days", "update_duration_days"].forEach(
-      (k) => (o[k] = Number(o[k])),
-    ),
+    [
+      "max_bind_count",
+      "offline_grace_days",
+      "expire_grace_days",
+      "update_duration_days",
+    ].forEach((k) => (o[k] = Number(o[k]))),
   );
 }
 async function agentTask(kind: string, e: Event) {
@@ -237,7 +242,15 @@ async function readBrandAsset(
   input.value = "";
   if (!file) return;
   if (file.size > 512 * 1024) return toast("图片不能超过 512 KB");
-  if (!["image/png", "image/jpeg", "image/webp", "image/x-icon", "image/vnd.microsoft.icon"].includes(file.type))
+  if (
+    ![
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/x-icon",
+      "image/vnd.microsoft.icon",
+    ].includes(file.type)
+  )
     return toast("仅支持 PNG、JPEG、WebP 或 ICO 图片");
   siteForm[field] = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -290,7 +303,10 @@ onMounted(async () => {
       <div class="login-box">
         <div class="brand">
           <img :src="logoSource" alt="" />
-          <div><strong>{{ branding.site_name }}</strong><span>ADMIN CONSOLE</span></div>
+          <div>
+            <strong>{{ branding.site_name }}</strong
+            ><span>ADMIN CONSOLE</span>
+          </div>
         </div>
         <h2>管理控制台</h2>
         <p>使用管理员账号进入安全控制域。</p>
@@ -312,8 +328,8 @@ onMounted(async () => {
               v-if="a.loading.value"
               class="spin"
               :size="17"
-            /><KeyRound v-else :size="17" />安全登录
-          </button>
+            /><KeyRound v-else :size="17" />安全登录</button
+          ><a href="/recover">忘记密码</a>
           <p class="error">{{ a.loginError.value }}</p>
         </form>
       </div>
@@ -327,7 +343,9 @@ onMounted(async () => {
       </div>
       <nav class="nav">
         <a
-          v-for="n in nav"
+          v-for="n in nav.filter(
+            (n) => n.id !== 'recovery' || a.isManager.value,
+          )"
           :key="n.id"
           href="#"
           :class="{ active: page === n.id }"
@@ -446,8 +464,21 @@ onMounted(async () => {
             class="form-grid"
             @submit.prevent="productCreate"
           >
-            <label class="field">授权模式<select name="license_mode"><option value="subscription">订阅使用（到期停用）</option><option value="perpetual">永久使用、限期更新</option></select></label>
-            <label class="field">更新天数（0 跟随卡密期限）<input name="update_duration_days" type="number" min="0" max="36500" value="0" required /></label>
+            <label class="field"
+              >授权模式<select name="license_mode">
+                <option value="subscription">订阅使用（到期停用）</option>
+                <option value="perpetual">永久使用、限期更新</option>
+              </select></label
+            >
+            <label class="field"
+              >更新天数（0 跟随卡密期限）<input
+                name="update_duration_days"
+                type="number"
+                min="0"
+                max="36500"
+                value="0"
+                required
+            /></label>
             <label class="field">产品名称<input name="name" required /></label
             ><label class="field"
               >产品编码<input name="code" maxlength="6" required /></label
@@ -475,7 +506,12 @@ onMounted(async () => {
                 type="number"
                 value="15" /></label
             ><label class="field"
-              >使用到期宽限天数<input name="expire_grace_days" type="number" min="0" max="365" value="0"
+              >使用到期宽限天数<input
+                name="expire_grace_days"
+                type="number"
+                min="0"
+                max="365"
+                value="0"
             /></label>
             <div class="form-actions">
               <button class="btn">确认新增</button>
@@ -506,7 +542,13 @@ onMounted(async () => {
                   <td>v{{ p.key_version || 1 }}</td>
                   <td>{{ p.bind_mode }}</td>
                   <td>{{ p.max_bind_count }}</td>
-                  <td>{{ p.license_mode === 'perpetual' ? '永久使用、限期更新' : '订阅使用' }}</td>
+                  <td>
+                    {{
+                      p.license_mode === "perpetual"
+                        ? "永久使用、限期更新"
+                        : "订阅使用"
+                    }}
+                  </td>
                   <td><StatusBadge :status="p.status" /></td>
                   <td>
                     <div class="row-actions">
@@ -549,21 +591,105 @@ onMounted(async () => {
             </table>
           </div>
         </section>
-        <SecurityPanel v-if="page === 'security'" :api="a.api" :products="a.data.products" :can-write="a.isManager.value" />
-        <CommercePanel v-if="page === 'commerce'" :api="a.api" :products="a.data.products" :agents="a.data.agents" :can-write="a.isManager.value" />
-        <CustomersPanel v-if="page === 'customers'" :api="a.api" :can-write="a.isManager.value" />
+        <RecoveryPanel
+          v-if="page === 'recovery' && a.isManager.value"
+          :api="a.api"
+          :agents="a.data.agents"
+        />
+        <SecurityPanel
+          :token="a.token.value"
+          v-if="page === 'security'"
+          :api="a.api"
+          :products="a.data.products"
+          :can-write="a.isManager.value"
+        />
+        <CommercePanel
+          :token="a.token.value"
+          v-if="page === 'commerce'"
+          :api="a.api"
+          :products="a.data.products"
+          :agents="a.data.agents"
+          :can-write="a.isManager.value"
+        />
+        <CustomersPanel
+          v-if="page === 'customers'"
+          :api="a.api"
+          :can-write="a.isManager.value"
+        />
         <section v-if="page === 'releases'" class="panel">
           <h2>产品版本与升级包</h2>
-          <label class="field">选择产品<select v-model="a.selected.product"><option value="" disabled>请选择产品</option><option v-for="p in a.data.products" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+          <label class="field"
+            >选择产品<select v-model="a.selected.product">
+              <option value="" disabled>请选择产品</option>
+              <option v-for="p in a.data.products" :key="p.id" :value="p.id">
+                {{ p.name }}
+              </option>
+            </select></label
+          >
           <p v-if="!a.data.products.length">请先创建产品。</p>
           <template v-if="a.selected.product">
-            <BindingPolicy :key="'binding-' + a.selected.product" :product-id="a.selected.product" :api="a.api" :can-write="a.isManager.value" />
-            <LicensePolicy :key="'policy-' + a.selected.product" :product-id="a.selected.product" :api="a.api" prefix="/admin" :can-write="a.isManager.value" @saved="a.refresh" />
-            <form v-if="a.isSuper.value" class="form-grid" @submit.prevent="create(`/admin/products/${a.selected.product}/developer`, $event, '开发者归属已保存')">
-              <label class="field">产品所属开发者<select name="developer_id" :key="a.selected.product + (a.data.products.find((p: any) => p.id === a.selected.product)?.developer_id || '')" :value="a.data.products.find((p: any) => p.id === a.selected.product)?.developer_id || ''"><option value="">仅由站点管理</option><option v-for="u in a.data.users.filter((u: any) => u.role === 'developer' && u.status === 'active')" :key="u.id" :value="u.id">{{ u.display_name || u.username }}</option></select></label>
+            <BindingPolicy
+              :key="'binding-' + a.selected.product"
+              :product-id="a.selected.product"
+              :api="a.api"
+              :can-write="a.isManager.value"
+            />
+            <LicensePolicy
+              :key="'policy-' + a.selected.product"
+              :product-id="a.selected.product"
+              :api="a.api"
+              prefix="/admin"
+              :can-write="a.isManager.value"
+              @saved="a.refresh"
+            />
+            <form
+              v-if="a.isSuper.value"
+              class="form-grid"
+              @submit.prevent="
+                create(
+                  `/admin/products/${a.selected.product}/developer`,
+                  $event,
+                  '开发者归属已保存',
+                )
+              "
+            >
+              <label class="field"
+                >产品所属开发者<select
+                  name="developer_id"
+                  :key="
+                    a.selected.product +
+                    (a.data.products.find(
+                      (p: any) => p.id === a.selected.product,
+                    )?.developer_id || '')
+                  "
+                  :value="
+                    a.data.products.find(
+                      (p: any) => p.id === a.selected.product,
+                    )?.developer_id || ''
+                  "
+                >
+                  <option value="">仅由站点管理</option>
+                  <option
+                    v-for="u in a.data.users.filter(
+                      (u: any) =>
+                        u.role === 'developer' && u.status === 'active',
+                    )"
+                    :key="u.id"
+                    :value="u.id"
+                  >
+                    {{ u.display_name || u.username }}
+                  </option>
+                </select></label
+              >
               <button class="btn secondary">保存产品归属</button>
             </form>
-            <ProductReleases :key="a.selected.product" :product-id="a.selected.product" :api="a.api" prefix="/admin" :can-write="a.isManager.value" />
+            <ProductReleases
+              :key="a.selected.product"
+              :product-id="a.selected.product"
+              :api="a.api"
+              prefix="/admin"
+              :can-write="a.isManager.value"
+            />
           </template>
         </section>
         <section v-if="page === 'agents'" class="panel">
@@ -682,7 +808,8 @@ onMounted(async () => {
                 <thead>
                   <tr>
                     <th>代理</th>
-                    <th>内部登录代码</th><th>公开代理编号</th>
+                    <th>内部登录代码</th>
+                    <th>公开代理编号</th>
                     <th>联系人</th>
                     <th>状态</th>
                     <th>创建时间</th>
@@ -695,7 +822,9 @@ onMounted(async () => {
                     <td>
                       <code>{{ x.login_code || x.agent_no }}</code>
                     </td>
-                    <td><code>{{x.agent_no}}</code></td>
+                    <td>
+                      <code>{{ x.agent_no }}</code>
+                    </td>
                     <td>{{ x.contact_name || "-" }}</td>
                     <td><StatusBadge :status="x.status" /></td>
                     <td>{{ formatTime(x.created_at) }}</td>
@@ -937,7 +1066,13 @@ onMounted(async () => {
                   <td>
                     {{ l.expired_at ? formatTime(l.expired_at) : "永久" }}
                   </td>
-                  <td>{{ l.updates_expired_at ? formatTime(l.updates_expired_at) : '永久更新' }}</td>
+                  <td>
+                    {{
+                      l.updates_expired_at
+                        ? formatTime(l.updates_expired_at)
+                        : "永久更新"
+                    }}
+                  </td>
                   <td>{{ formatTime(l.last_verify_at) }}</td>
                   <td>
                     <div class="row-actions">
@@ -1359,21 +1494,73 @@ onMounted(async () => {
               <p>统一应用于授权查询、管理控制台和代理工作台。</p>
             </div>
             <div class="branding-fields">
-              <label class="field">网站名称<input v-model="siteForm.site_name" maxlength="80" :disabled="!a.isManager.value" required /></label>
-              <label class="field">浏览器标题<input v-model="siteForm.browser_title" maxlength="80" :disabled="!a.isManager.value" required /></label>
+              <label class="field"
+                >网站名称<input
+                  v-model="siteForm.site_name"
+                  maxlength="80"
+                  :disabled="!a.isManager.value"
+                  required
+              /></label>
+              <label class="field"
+                >浏览器标题<input
+                  v-model="siteForm.browser_title"
+                  maxlength="80"
+                  :disabled="!a.isManager.value"
+                  required
+              /></label>
               <div class="asset-field">
                 <span>网站 Logo</span>
-                <div class="asset-preview"><img :src="siteForm.logo_data_url || '/assets/yunnuo-mark.svg'" alt="Logo 预览" /></div>
-                <label v-if="a.isManager.value" class="btn secondary small"><ImageUp :size="14" />上传图片<input type="file" accept="image/png,image/jpeg,image/webp,image/x-icon" @change="readBrandAsset($event, 'logo_data_url')" /></label>
-                <button v-if="a.isManager.value && siteForm.logo_data_url" class="icon-btn" type="button" title="恢复默认 Logo" @click="siteForm.logo_data_url = ''"><RotateCcw :size="16" /></button>
+                <div class="asset-preview">
+                  <img
+                    :src="siteForm.logo_data_url || '/assets/yunnuo-mark.svg'"
+                    alt="Logo 预览"
+                  />
+                </div>
+                <label v-if="a.isManager.value" class="btn secondary small"
+                  ><ImageUp :size="14" />上传图片<input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/x-icon"
+                    @change="readBrandAsset($event, 'logo_data_url')"
+                /></label>
+                <button
+                  v-if="a.isManager.value && siteForm.logo_data_url"
+                  class="icon-btn"
+                  type="button"
+                  title="恢复默认 Logo"
+                  @click="siteForm.logo_data_url = ''"
+                >
+                  <RotateCcw :size="16" />
+                </button>
               </div>
               <div class="asset-field">
                 <span>网站图标</span>
-                <div class="asset-preview favicon"><img :src="siteForm.favicon_data_url || '/assets/yunnuo-mark.svg'" alt="网站图标预览" /></div>
-                <label v-if="a.isManager.value" class="btn secondary small"><ImageUp :size="14" />上传图片<input type="file" accept="image/png,image/jpeg,image/webp,image/x-icon" @change="readBrandAsset($event, 'favicon_data_url')" /></label>
-                <button v-if="a.isManager.value && siteForm.favicon_data_url" class="icon-btn" type="button" title="恢复默认图标" @click="siteForm.favicon_data_url = ''"><RotateCcw :size="16" /></button>
+                <div class="asset-preview favicon">
+                  <img
+                    :src="
+                      siteForm.favicon_data_url || '/assets/yunnuo-mark.svg'
+                    "
+                    alt="网站图标预览"
+                  />
+                </div>
+                <label v-if="a.isManager.value" class="btn secondary small"
+                  ><ImageUp :size="14" />上传图片<input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/x-icon"
+                    @change="readBrandAsset($event, 'favicon_data_url')"
+                /></label>
+                <button
+                  v-if="a.isManager.value && siteForm.favicon_data_url"
+                  class="icon-btn"
+                  type="button"
+                  title="恢复默认图标"
+                  @click="siteForm.favicon_data_url = ''"
+                >
+                  <RotateCcw :size="16" />
+                </button>
               </div>
-              <div v-if="a.isManager.value" class="form-actions"><button class="btn">保存站点设置</button></div>
+              <div v-if="a.isManager.value" class="form-actions">
+                <button class="btn">保存站点设置</button>
+              </div>
             </div>
           </form>
           <section class="version-console">
@@ -1472,7 +1659,21 @@ onMounted(async () => {
                   <td>{{ roleLabel(u.role) }}</td>
                   <td><StatusBadge :status="u.status" /></td>
                   <td>{{ formatTime(u.last_login_at) }}</td>
-                  <td><button v-if="u.role === 'developer'" class="btn secondary small" @click="a.mutate(`/admin/developers/${u.id}/${u.status === 'active' ? 'disable' : 'enable'}`, {}, '开发者状态已更新')">{{ u.status === 'active' ? '停用' : '启用' }}</button></td>
+                  <td>
+                    <button
+                      v-if="u.role === 'developer'"
+                      class="btn secondary small"
+                      @click="
+                        a.mutate(
+                          `/admin/developers/${u.id}/${u.status === 'active' ? 'disable' : 'enable'}`,
+                          {},
+                          '开发者状态已更新',
+                        )
+                      "
+                    >
+                      {{ u.status === "active" ? "停用" : "启用" }}
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>

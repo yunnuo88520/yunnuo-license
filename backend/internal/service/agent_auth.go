@@ -121,13 +121,14 @@ type AgentSession struct {
 }
 
 type agentTokenPayload struct {
-	Type      string `json:"type"`
-	AgentID   string `json:"agent_id"`
-	UserID    string `json:"user_id"`
-	Username  string `json:"username"`
-	Role      string `json:"role"`
-	IssuedAt  int64  `json:"iat"`
-	ExpiresAt int64  `json:"exp"`
+	SessionVersion int    `json:"session_version"`
+	Type           string `json:"type"`
+	AgentID        string `json:"agent_id"`
+	UserID         string `json:"user_id"`
+	Username       string `json:"username"`
+	Role           string `json:"role"`
+	IssuedAt       int64  `json:"iat"`
+	ExpiresAt      int64  `json:"exp"`
 }
 
 func (s *Service) AgentLogin(ctx context.Context, input AgentLoginInput) (AgentLoginResponse, error) {
@@ -162,13 +163,14 @@ func (s *Service) AgentLogin(ctx context.Context, input AgentLoginInput) (AgentL
 	now := s.now()
 	expiresAt := now.Add(agentTokenTTL)
 	token, err := s.signAgentToken(agentTokenPayload{
-		Type:      "agent_session",
-		AgentID:   agent.ID,
-		UserID:    user.ID,
-		Username:  user.Username,
-		Role:      user.Role,
-		IssuedAt:  now.Unix(),
-		ExpiresAt: expiresAt.Unix(),
+		Type:           "agent_session",
+		SessionVersion: user.SessionVersion,
+		AgentID:        agent.ID,
+		UserID:         user.ID,
+		Username:       user.Username,
+		Role:           user.Role,
+		IssuedAt:       now.Unix(),
+		ExpiresAt:      expiresAt.Unix(),
 	})
 	if err != nil {
 		return AgentLoginResponse{}, err
@@ -221,6 +223,9 @@ func (s *Service) AuthenticateAgentToken(ctx context.Context, token string) (Age
 			return AgentSession{}, ErrInvalidAgentToken
 		}
 		return AgentSession{}, err
+	}
+	if payload.SessionVersion != user.SessionVersion {
+		return AgentSession{}, ErrInvalidAgentToken
 	}
 	if user.AgentID != payload.AgentID || user.Status != domain.AgentUserActive {
 		return AgentSession{}, ErrAgentUserDisabled

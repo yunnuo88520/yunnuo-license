@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/buildinfo"
@@ -39,6 +41,8 @@ var (
 )
 
 type API struct {
+	adminPath          string
+	installReady       atomic.Bool
 	service            *service.Service
 	publicStaticDir    string
 	adminStaticDir     string
@@ -63,6 +67,7 @@ func (api *API) WithTrustedProxyHeaders(enabled bool) *API {
 func New(svc *service.Service, publicStaticDir, adminStaticDir, agentStaticDir string) *API {
 	return &API{
 		service:            svc,
+		adminPath:          "/admin",
 		publicStaticDir:    publicStaticDir,
 		adminStaticDir:     adminStaticDir,
 		agentStaticDir:     agentStaticDir,
@@ -90,6 +95,8 @@ func (api *API) Handler() http.Handler {
 	api.registerCustomerRoutes(mux)
 	api.registerCommerceRoutes(mux)
 	api.registerSecurityRoutes(mux)
+	api.registerRecoveryRoutes(mux)
+	api.registerHistoryRoutes(mux)
 	mux.HandleFunc("GET /healthz", api.health)
 	mux.HandleFunc("GET /v1/setup/status", api.setupStatus)
 	mux.HandleFunc("POST /v1/setup/initialize", withRateLimit(api.setupLimit, api.setupInitialize))
@@ -159,10 +166,19 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("GET /agent/licenses", api.agentLicenses)
 	mux.HandleFunc("GET /agent-console", api.agentAppRedirect)
 	mux.HandleFunc("GET /agent-console/", api.agentApp)
-	mux.HandleFunc("GET /admin-console", api.adminAppRedirect)
-	mux.HandleFunc("GET /admin-console/", api.adminApp)
+	mux.HandleFunc("GET /install", api.installApp)
+	mux.HandleFunc("GET /install/", api.installApp)
+	mux.HandleFunc("GET "+api.adminPath+"/{$}", api.adminApp)
+	mux.HandleFunc("GET "+api.adminPath+"/", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	mux.HandleFunc("GET "+api.adminPath, api.adminApp)
+	if api.adminPath != "/admin" {
+		mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+		mux.HandleFunc("GET /admin/", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	}
+	mux.HandleFunc("GET /admin-console", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	mux.HandleFunc("GET /admin-console/", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	mux.HandleFunc("GET /", api.publicApp)
-	return requestID(api.operationAudit(mux))
+	return requestID(api.operationAudit(api.installationGate(mux), mux))
 }
 
 func (api *API) publicApp(w http.ResponseWriter, r *http.Request) {
@@ -170,11 +186,14 @@ func (api *API) publicApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) adminAppRedirect(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/admin-console/", http.StatusTemporaryRedirect)
+	http.Redirect(w, r, api.adminPath, http.StatusTemporaryRedirect)
 }
 
 func (api *API) adminApp(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/admin-console")
+	path := strings.TrimPrefix(r.URL.Path, api.adminPath)
+	if path == "" {
+		path = "/"
+	}
 	serveStaticApp(w, r, api.adminStaticDir, path)
 }
 
@@ -220,7 +239,7 @@ func (api *API) setupStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status.SuggestedSQLiteDSN = api.sqliteSetupDSN
-	writeOK(w, r, status)
+	writeOK(w, r, map[string]any{"initialized": status.Initialized, "database_driver": status.DatabaseDriver, "suggested_sqlite_dsn": status.SuggestedSQLiteDSN, "entries": api.entries()})
 }
 
 func envOr(key, fallback string) string {
@@ -231,6 +250,14 @@ func envOr(key, fallback string) string {
 }
 
 func (api *API) setupInitialize(w http.ResponseWriter, r *http.Request) {
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || u.Host != r.Host || (u.Scheme != "http" && u.Scheme != "https") {
+			writeError(w, r, service.ErrPermissionDenied)
+			return
+		}
+	}
+
 	var input service.SetupInput
 	if !decode(w, r, &input) {
 		return
@@ -242,7 +269,7 @@ func (api *API) setupInitialize(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	writeOK(w, r, map[string]any{"initialized": true})
+	writeOK(w, r, map[string]any{"initialized": true, "entries": api.entries()})
 }
 
 func (api *API) systemVersion(w http.ResponseWriter, r *http.Request) {

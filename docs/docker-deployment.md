@@ -37,8 +37,6 @@ docker run -d \
   -v yunnuo-license-data:/var/lib/mysql \
   -e MYSQL_PASSWORD='替换为数据库用户强密码' \
   -e MYSQL_ROOT_PASSWORD='替换为数据库 root 强密码' \
-  -e YN_ADMIN_USERNAME='admin' \
-  -e YN_ADMIN_PASSWORD='替换为管理员强密码' \
   -e YN_CARD_PEPPER='替换为随机长字符串' \
   -e YN_DATA_KEY='替换为 64 位十六进制随机密钥' \
   yunnuo-license:latest
@@ -50,11 +48,13 @@ docker run -d \
 openssl rand -hex 32
 ```
 
-访问入口：
+首次运行访问任意页面会跳转 `/install`。选择内置 MySQL 时填写地址 `127.0.0.1`、端口 `3306`、库名 `yunnuo_license`、用户名 `yunnuo` 和启动时设置的 `MYSQL_PASSWORD`；管理员用户名与密码在向导中单独设置。完成安装后显示以下入口：
 
 - 授权查询：`http://服务器地址:8080/`
-- 管理端：`http://服务器地址:8080/admin-console/`
+- 管理端：`http://服务器地址:8080/admin`
 - 代理端：`http://服务器地址:8080/agent-console/`
+
+配置默认位于持久卷的 `/var/lib/mysql/.yunnuo/database.json`。编辑其中 `admin_path`（默认 `/admin`）后执行 `docker restart yunnuo-license`，新管理页面入口生效。请保留同一文件中的数据库和密钥字段，详细步骤见 [安装与账号恢复](installation-and-recovery.md)。
 
 ## 运维
 

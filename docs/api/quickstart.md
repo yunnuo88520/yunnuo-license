@@ -1,23 +1,20 @@
 # Phase 1 API Quickstart
 
-启动后端：
+先在 `frontend` 执行 `npm ci && npm run build`，再启动后端：
 
 ```bash
 cd backend
-YN_ADDR=:18080 \
-YN_ADMIN_USERNAME=admin \
-YN_ADMIN_PASSWORD='change-this-password' \
-go run ./cmd/server
+YN_ADDR=:18080 go run ./cmd/server
 ```
 
-首次启动会创建一个 `super_admin`。如果未设置环境变量，开发环境默认账号为
-首次启动通过网页初始化向导设置管理员；也可以通过 `YN_ADMIN_USERNAME` 与 `YN_ADMIN_PASSWORD` 在启动时自动创建首个管理员。数据库中已有管理员时，启动配置不会覆盖
-已有账号或密码。
+首次运行访问 `http://127.0.0.1:18080/install`，配置数据库并创建 `super_admin`。未完成安装时页面强制跳转至安装页，业务 API 返回 `503 INSTALL_REQUIRED`。设置环境变量中的管理员账号密码不能绕过此流程。已有数据库中的管理员和密码不会被启动配置覆盖。
+
+安装完成后页面提供各端链接。管理页面默认 `/admin`，可编辑配置文件 `admin_path` 并重启修改；API 仍使用 `/admin/*`。安装后的数据库配置优先于启动环境，详见 [安装与账号恢复](../installation-and-recovery.md)。
 
 管理台：
 
 ```text
-http://127.0.0.1:18080/admin-console/
+http://127.0.0.1:18080/admin
 ```
 
 代理工作台：

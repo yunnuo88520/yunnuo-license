@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PagedRecords from "../shared/components/PagedRecords.vue";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   BadgeCheck,
@@ -34,7 +35,6 @@ const products = ref<any[]>([]),
   codes = ref<string[]>([]);
 const packages = ref<any[]>([]),
   account = ref<any>(),
-  moneyLedgers = ref<any[]>([]),
   issuing = ref(false);
 const money = (n: number) => `¥${(n / 100).toFixed(2)}`;
 const login = reactive({
@@ -118,7 +118,7 @@ function logout(message = "") {
 async function refresh() {
   loading.value = true;
   try {
-    const [p, q, l, b, li, pk, ac, ml] = await Promise.all([
+    const [p, q, l, b, li, pk, ac] = await Promise.all([
       api<any[]>("/agent/products"),
       api<any[]>("/agent/quotas"),
       api<any[]>("/agent/quota-ledgers"),
@@ -126,7 +126,6 @@ async function refresh() {
       api<any[]>("/agent/licenses"),
       api<any[]>("/agent/packages"),
       api<any>("/agent/account"),
-      api<any[]>("/agent/money-ledgers"),
     ]);
     products.value = p || [];
     quotas.value = q || [];
@@ -135,7 +134,6 @@ async function refresh() {
     licenses.value = li || [];
     packages.value = pk || [];
     account.value = ac;
-    moneyLedgers.value = ml || [];
     if (!packages.value.some((q) => q.package.id === batch.package_id))
       batch.package_id = packages.value[0]?.package.id || "";
   } catch (e) {
@@ -270,8 +268,8 @@ onMounted(async () => {
             <LoaderCircle v-if="loading" class="spin" :size="17" /><KeyRound
               v-else
               :size="17"
-            />进入工作台
-          </button>
+            />进入工作台</button
+          ><a href="/recover">忘记密码</a>
           <p class="error">{{ loginError }}</p>
         </form>
       </div>
@@ -320,7 +318,12 @@ onMounted(async () => {
       </header>
       <div class="workspace">
         <template v-if="page === 'overview'"
-          ><section class="panel"><p>公开代理编号：<code>{{profile.agent_no}}</code></p><a href="/" target="_blank" rel="noopener">打开公开验真首页</a></section>
+          ><section class="panel">
+            <p>
+              公开代理编号：<code>{{ profile.agent_no }}</code>
+            </p>
+            <a href="/" target="_blank" rel="noopener">打开公开验真首页</a>
+          </section>
           <section class="section-intro">
             <div>
               <h2>业务脉搏</h2>
@@ -584,36 +587,12 @@ onMounted(async () => {
             <h3>资金流水</h3>
             <b>可用余额 {{ money(account?.balance || 0) }}</b>
           </div>
-          <div class="table-wrap">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>时间</th>
-                  <th>业务</th>
-                  <th>变动金额</th>
-                  <th>余额</th>
-                  <th>数量 / 成本快照</th>
-                  <th>备注</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="l in moneyLedgers" :key="l.id">
-                  <td>{{ formatTime(l.created_at) }}</td>
-                  <td>{{ l.kind === "issue" ? "套餐发卡" : "余额调整" }}</td>
-                  <td>{{ money(l.amount) }}</td>
-                  <td>{{ money(l.balance_after) }}</td>
-                  <td>
-                    {{
-                      l.quantity
-                        ? `${l.quantity} 张 × ${money(l.unit_cost)}`
-                        : "—"
-                    }}
-                  </td>
-                  <td>{{ l.remark }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <PagedRecords
+            :api="api"
+            :token="token"
+            endpoint="/agent/history/money"
+            kind="money"
+          />
         </section>
         <section v-if="page === 'ledgers'" class="panel">
           <div class="panel-head"><h3>额度流水</h3></div>

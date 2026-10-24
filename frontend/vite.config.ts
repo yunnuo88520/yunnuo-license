@@ -15,6 +15,12 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
+        recover: fileURLToPath(
+          new URL("./recover/index.html", import.meta.url),
+        ),
+        install: fileURLToPath(
+          new URL("./install/index.html", import.meta.url),
+        ),
         public: fileURLToPath(new URL("./index.html", import.meta.url)),
         admin: fileURLToPath(
           new URL("./admin-console/index.html", import.meta.url),
@@ -22,8 +28,12 @@ export default defineConfig({
         agent: fileURLToPath(
           new URL("./agent-console/index.html", import.meta.url),
         ),
-        developer: fileURLToPath(new URL("./developer-console/index.html", import.meta.url)),
-        user: fileURLToPath(new URL("./user-console/index.html", import.meta.url)),
+        developer: fileURLToPath(
+          new URL("./developer-console/index.html", import.meta.url),
+        ),
+        user: fileURLToPath(
+          new URL("./user-console/index.html", import.meta.url),
+        ),
       },
     },
   },

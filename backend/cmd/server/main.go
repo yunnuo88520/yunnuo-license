@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +20,9 @@ import (
 )
 
 func main() {
+	resetUsername := flag.String("reset-admin", "", "reset an existing administrator password (read one line from stdin)")
+	resetReason := flag.String("reason", "", "reason for the administrator password reset")
+	flag.Parse()
 	ctx := context.Background()
 	cfg, err := config.Load()
 	if err != nil {
@@ -34,24 +38,30 @@ func main() {
 		log.Fatal(err)
 	}
 
-	svc := service.New(st, cfg.CardPepper, cfg.DataKey).WithReleaseDir(cfg.ReleaseDir)
-	defer svc.Close()
-	if err := svc.EnsureAgentLoginCodes(ctx); err != nil {
+	adminCount, err := st.CountAdminUsers(ctx)
+	if err != nil {
 		log.Fatal(err)
 	}
-	if cfg.AdminExplicit {
-		admin, created, err := svc.EnsureBootstrapAdmin(ctx, cfg.AdminUsername, cfg.AdminPassword, cfg.AdminName)
-		if err != nil {
+	if err := cfg.PrepareInstallationKeys(adminCount > 0); err != nil {
+		log.Fatal(err)
+	}
+	svc := service.New(st, cfg.CardPepper, cfg.DataKey).WithReleaseDir(cfg.ReleaseDir)
+	defer svc.Close()
+	if *resetUsername != "" {
+		if err := resetAdministrator(ctx, svc, *resetUsername, *resetReason, os.Stdin); err != nil {
 			log.Fatal(err)
 		}
-		if created {
-			log.Printf("bootstrap admin created: %s", admin.Username)
-		}
+		log.Print("administrator password reset; previous sessions invalidated")
+		return
+	}
+	if err := svc.EnsureAgentLoginCodes(ctx); err != nil {
+		log.Fatal(err)
 	}
 	server := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(svc, cfg.PublicStaticDir, cfg.AdminStaticDir, cfg.AgentStaticDir).
 			WithTrustedProxyHeaders(cfg.TrustProxyHeaders).
+			WithAdminPath(cfg.AdminPath).
 			WithSetupConfig(migrationDir, cfg.DatabaseConfigFile).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

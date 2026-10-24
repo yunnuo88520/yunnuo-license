@@ -5,8 +5,6 @@ export MYSQL_DATABASE="${MYSQL_DATABASE:-yunnuo_license}"
 export MYSQL_USER="${MYSQL_USER:-yunnuo}"
 : "${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}"
 : "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}"
-: "${YN_CARD_PEPPER:?YN_CARD_PEPPER must be set}"
-: "${YN_DATA_KEY:?YN_DATA_KEY must be set}"
 
 mysql_pid=""
 app_pid=""
@@ -45,7 +43,7 @@ done
 export YN_ADDR="${YN_ADDR:-:8080}"
 export YN_DB_CONFIG_FILE="${YN_DB_CONFIG_FILE:-/var/lib/mysql/.yunnuo/database.json}"
 export YN_SQLITE_SETUP_DSN="${YN_SQLITE_SETUP_DSN:-file:/var/lib/mysql/.yunnuo/yn-license.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)}"
-if [[ -z "${YN_DB_DRIVER:-}" && -z "${YN_DB:-}" && ! -f "$YN_DB_CONFIG_FILE" ]]; then
+if [[ -z "${YN_DB_DRIVER:-}" && -z "${YN_DB:-}" ]]; then
   export YN_DB_DRIVER=mysql
   export YN_DB="${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(127.0.0.1:3306)/${MYSQL_DATABASE}?charset=utf8mb4&collation=utf8mb4_unicode_ci&multiStatements=true&parseTime=false"
 fi

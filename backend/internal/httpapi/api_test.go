@@ -25,7 +25,11 @@ func TestStaticAppServesAssetsAndRejectsMissingFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := New(newHTTPTestService(t), staticDir, "", "").Handler()
+	svc := newHTTPTestService(t)
+	if _, _, err := svc.EnsureBootstrapAdmin(context.Background(), "root", "secret123", "Root"); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(svc, staticDir, "", "").Handler()
 	asset := httptest.NewRecorder()
 	handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "/styles.css", nil))
 	if asset.Code != http.StatusOK || !strings.Contains(asset.Header().Get("Content-Type"), "text/css") {
@@ -142,6 +146,9 @@ func TestFirstRunSetupInitializesDatabaseAndPersistsSelection(t *testing.T) {
 func TestAgentBearerTokenCanGenerateCards(t *testing.T) {
 	ctx := context.Background()
 	svc := newHTTPTestService(t)
+	if _, _, err := svc.EnsureBootstrapAdmin(context.Background(), "root", "secret123", "Root"); err != nil {
+		t.Fatal(err)
+	}
 	product, err := svc.CreateProduct(ctx, service.CreateProductInput{
 		Name:                 "Test Product",
 		Code:                 "YN",
@@ -400,6 +407,9 @@ func TestAdminAuthenticationAndRoleBoundaries(t *testing.T) {
 func TestPublicLicenseQueryDoesNotRequireAuthentication(t *testing.T) {
 	ctx := context.Background()
 	svc := newHTTPTestService(t)
+	if _, _, err := svc.EnsureBootstrapAdmin(context.Background(), "root", "secret123", "Root"); err != nil {
+		t.Fatal(err)
+	}
 	product, err := svc.CreateProduct(ctx, service.CreateProductInput{
 		Name:                 "Public Query Product",
 		Code:                 "PUB",

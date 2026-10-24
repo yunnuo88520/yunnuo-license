@@ -14,7 +14,7 @@ import (
 )
 
 func operationCategory(route string) string {
-	for _, v := range []struct{ match, category string }{{"security", "security"}, {"balance", "finance"}, {"money-ledgers", "finance"}, {"login", "account"}, {"password", "account"}, {"owner", "ownership"}, {"binding", "binding"}, {"rebind", "binding"}, {"unbind", "binding"}, {"renew", "renewal"}, {"releases", "updates"}, {"updates", "updates"}, {"risk", "security"}, {"packages", "packages"}, {"group", "applications"}, {"agent", "agents"}, {"card", "cards"}, {"license", "licenses"}, {"product", "applications"}, {"customer", "users"}, {"user", "users"}, {"audit", "audit"}, {"operation-logs", "audit"}} {
+	for _, v := range []struct{ match, category string }{{"recovery", "account"}, {"security", "security"}, {"balance", "finance"}, {"money-ledgers", "finance"}, {"login", "account"}, {"password", "account"}, {"owner", "ownership"}, {"binding", "binding"}, {"rebind", "binding"}, {"unbind", "binding"}, {"renew", "renewal"}, {"releases", "updates"}, {"updates", "updates"}, {"risk", "security"}, {"packages", "packages"}, {"group", "applications"}, {"agent", "agents"}, {"card", "cards"}, {"license", "licenses"}, {"product", "applications"}, {"customer", "users"}, {"user", "users"}, {"audit", "audit"}, {"operation-logs", "audit"}} {
 		if strings.Contains(route, v.match) {
 			return v.category
 		}
@@ -44,7 +44,7 @@ func (w *operationWriter) Write(b []byte) (int, error) {
 	}
 	return w.ResponseWriter.Write(b)
 }
-func (api *API) operationAudit(mux *http.ServeMux) http.Handler {
+func (api *API) operationAudit(next http.Handler, mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, route := mux.Handler(r)
 		business := false
@@ -54,7 +54,7 @@ func (api *API) operationAudit(mux *http.ServeMux) http.Handler {
 			}
 		}
 		if !business {
-			mux.ServeHTTP(w, r)
+			next.ServeHTTP(w, r)
 			return
 		}
 		if route == "" || route == "GET /" {
@@ -87,7 +87,7 @@ func (api *API) operationAudit(mux *http.ServeMux) http.Handler {
 		}
 		capture := &operationWriter{ResponseWriter: w}
 		audited := r.WithContext(ctx)
-		mux.ServeHTTP(capture, audited)
+		next.ServeHTTP(capture, audited)
 		for _, key := range []string{"licenseNo", "productID", "userID", "agentID", "packageID", "tierID", "caseID"} {
 			if id := audited.PathValue(key); id != "" {
 				ticket.Log.ObjectID = id[:min(len(id), 96)]

@@ -46,7 +46,7 @@ func (s *Service) FinishOperation(ctx context.Context, t OperationTicket, a *Aud
 		return err
 	}
 	if t.st != s.currentStore() {
-		return s.currentStore().BeginOperation(ctx, l)
+		return s.currentStore().ImportOperation(ctx, l)
 	}
 	return nil
 }

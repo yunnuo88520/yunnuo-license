@@ -1,0 +1,104 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
+	"time"
+)
+
+func accountTable(kind string) (string, error) {
+	switch kind {
+	case "customer":
+		return "customer_users", nil
+	case "agent":
+		return "agent_users", nil
+	case "admin":
+		return "admin_users", nil
+	}
+	return "", fmt.Errorf("invalid account kind")
+}
+func readRecoveryAccount(ctx context.Context, q commerceQuery, kind, id string) (domain.RecoveryAccount, error) {
+	var a domain.RecoveryAccount
+	table, err := accountTable(kind)
+	if err != nil {
+		return a, err
+	}
+	role := "role"
+	if kind == "customer" {
+		role = "'customer'"
+	}
+	var name sql.NullString
+	err = q.QueryRowContext(ctx, `SELECT id,username,display_name,`+role+`,status,password_hash FROM `+table+` WHERE id=?`, id).Scan(&a.ID, &a.Username, &name, &a.Role, &a.Status, &a.PasswordHash)
+	a.DisplayName = str(name)
+	return a, err
+}
+func (s *Store) RecoveryAccount(ctx context.Context, kind, id string) (domain.RecoveryAccount, error) {
+	return readRecoveryAccount(ctx, s.db, kind, id)
+}
+func (tx *Tx) RecoveryAccount(ctx context.Context, kind, id string) (domain.RecoveryAccount, error) {
+	return readRecoveryAccount(ctx, tx.tx, kind, id)
+}
+func (tx *Tx) LockAccount(ctx context.Context, kind, id string) error {
+	table, err := accountTable(kind)
+	if err != nil {
+		return err
+	}
+	_, err = tx.tx.ExecContext(ctx, `UPDATE `+table+` SET id=id WHERE id=?`, id)
+	return err
+}
+func (tx *Tx) ResetAccountPassword(ctx context.Context, kind, id, hash string, now time.Time) error {
+	switch kind {
+	case "customer":
+		return tx.SetCustomerPassword(ctx, id, hash)
+	case "admin":
+		_, err := tx.tx.ExecContext(ctx, `UPDATE admin_users SET password_hash=?,session_version=session_version+1,updated_at=? WHERE id=?`, hash, ts(now), id)
+		return err
+	case "agent":
+		if _, err := tx.tx.ExecContext(ctx, `UPDATE agent_users SET password_hash=?,updated_at=? WHERE id=?`, hash, ts(now), id); err != nil {
+			return err
+		}
+		var version int
+		err := tx.tx.QueryRowContext(ctx, `SELECT version FROM agent_session_versions WHERE user_id=?`, id).Scan(&version)
+		if err != nil && !IsNotFound(err) {
+			return err
+		}
+		if _, err = tx.tx.ExecContext(ctx, `DELETE FROM agent_session_versions WHERE user_id=?`, id); err != nil {
+			return err
+		}
+		_, err = tx.tx.ExecContext(ctx, `INSERT INTO agent_session_versions (user_id,version) VALUES (?,?)`, id, version+1)
+		return err
+	}
+	return fmt.Errorf("invalid account kind")
+}
+func (tx *Tx) CreatePasswordReset(ctx context.Context, r domain.PasswordReset) error {
+	if _, err := tx.tx.ExecContext(ctx, `UPDATE account_password_resets SET consumed_at=? WHERE account_kind=? AND user_id=? AND consumed_at IS NULL`, ts(r.CreatedAt), r.Kind, r.UserID); err != nil {
+		return err
+	}
+	_, err := tx.tx.ExecContext(ctx, `INSERT INTO account_password_resets (id,token_hash,account_kind,user_id,credential_hash,expires_at,created_by,reason,created_at) VALUES (?,?,?,?,?,?,?,?,?)`, r.ID, r.TokenHash, r.Kind, r.UserID, r.CredentialHash, ts(r.ExpiresAt), r.CreatedBy, r.Reason, ts(r.CreatedAt))
+	return err
+}
+func readReset(row scanner) (domain.PasswordReset, error) {
+	var r domain.PasswordReset
+	var expires, created string
+	var consumed sql.NullString
+	err := row.Scan(&r.ID, &r.TokenHash, &r.Kind, &r.UserID, &r.CredentialHash, &expires, &consumed, &r.CreatedBy, &r.Reason, &created)
+	r.ExpiresAt = parseTS(expires)
+	r.CreatedAt = parseTS(created)
+	r.ConsumedAt = timePtr(consumed)
+	return r, err
+}
+
+const resetCols = `id,token_hash,account_kind,user_id,credential_hash,expires_at,consumed_at,created_by,reason,created_at`
+
+func (s *Store) PasswordReset(ctx context.Context, hash string) (domain.PasswordReset, error) {
+	return readReset(s.db.QueryRowContext(ctx, `SELECT `+resetCols+` FROM account_password_resets WHERE token_hash=?`, hash))
+}
+func (tx *Tx) PasswordReset(ctx context.Context, hash string) (domain.PasswordReset, error) {
+	return readReset(tx.tx.QueryRowContext(ctx, `SELECT `+resetCols+` FROM account_password_resets WHERE token_hash=?`, hash))
+}
+func (tx *Tx) ConsumePasswordReset(ctx context.Context, id string, now time.Time) error {
+	_, err := tx.tx.ExecContext(ctx, `UPDATE account_password_resets SET consumed_at=? WHERE id=?`, ts(now), id)
+	return err
+}

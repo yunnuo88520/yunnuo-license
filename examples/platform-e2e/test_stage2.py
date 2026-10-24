@@ -58,6 +58,8 @@ def main():
                 env.update(YN_ADDR=f"127.0.0.1:{port}", YN_DB_DRIVER="sqlite", YN_DB=f"file:{temporary}/db.sqlite?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", YN_DB_CONFIG_FILE=temporary + "/config.json", YN_RELEASE_DIR=temporary + "/packages", YN_ADMIN_USERNAME="admin", YN_ADMIN_PASSWORD=password, YN_CARD_PEPPER=secrets.token_hex(32), YN_DATA_KEY=secrets.token_hex(32))
                 process = subprocess.Popen([str(args.server.resolve())], cwd=REPO / "backend", env=env, stdout=log, stderr=log)
                 http.wait_ready(base, "/healthz", process)
+            if process:
+                http.initialize(base,"admin",password,env["YN_DB"])
             root = http.api(base, "/admin/login", {"username": "admin", "password": password})["access_token"]
             product = http.api(base, "/admin/products", {"name": "Ebox 企业网站", "code": "P" + suffix.upper(), "bind_mode": "domain"}, root)
             pkg = http.api(base, "/admin/packages", {"product_id": product["id"], "name": "Ebox 月度授权", "duration_days": 30, "base_cost": 1000}, root)
@@ -77,7 +79,7 @@ def main():
                 browser = playwright.chromium.launch(executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox"])
                 page = browser.new_page(viewport={"width": 1540, "height": 1100}, locale="zh-CN", timezone_id="Asia/Shanghai")
                 page.on("pageerror", lambda e: errors.append(str(e)))
-                page.goto(base + "/admin-console/#commerce")
+                page.goto(base + "/admin#commerce")
                 page.get_by_label("账号", exact=True).fill("admin")
                 page.get_by_label("密码", exact=True).fill(password)
                 page.get_by_role("button", name="安全登录", exact=True).click()

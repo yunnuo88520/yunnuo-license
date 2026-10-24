@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -8,7 +9,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -18,14 +21,11 @@ type Config struct {
 	PublicStaticDir    string
 	AdminStaticDir     string
 	AgentStaticDir     string
-	AdminUsername      string
-	AdminPassword      string
-	AdminName          string
 	CardPepper         []byte
 	DataKey            []byte
 	TrustProxyHeaders  bool
 	DatabaseConfigFile string
-	AdminExplicit      bool
+	AdminPath          string
 	ReleaseDir         string
 }
 
@@ -37,22 +37,29 @@ func Load() (Config, error) {
 		PublicStaticDir:    env("YN_PUBLIC_STATIC_DIR", "../frontend/dist"),
 		AdminStaticDir:     env("YN_ADMIN_STATIC_DIR", "../frontend/dist/admin-console"),
 		AgentStaticDir:     env("YN_AGENT_STATIC_DIR", "../frontend/dist/agent-console"),
-		AdminUsername:      env("YN_ADMIN_USERNAME", "admin"),
-		AdminPassword:      os.Getenv("YN_ADMIN_PASSWORD"),
-		AdminName:          env("YN_ADMIN_NAME", "系统管理员"),
 		CardPepper:         []byte(env("YN_CARD_PEPPER", "dev-card-pepper-change-me")),
 		TrustProxyHeaders:  envBool("YN_TRUST_PROXY_HEADERS", false),
 		DatabaseConfigFile: env("YN_DB_CONFIG_FILE", "yn-license-config.json"),
-		AdminExplicit:      os.Getenv("YN_ADMIN_USERNAME") != "" && os.Getenv("YN_ADMIN_PASSWORD") != "",
 		ReleaseDir:         env("YN_RELEASE_DIR", "yn-releases"),
 	}
-	if fileCfg, err := readDatabaseConfig(cfg.DatabaseConfigFile); err != nil {
+	fileCfg, err := readDatabaseConfig(cfg.DatabaseConfigFile)
+	if err != nil {
 		return Config{}, err
-	} else if fileCfg.Driver != "" && os.Getenv("YN_DB_DRIVER") == "" && os.Getenv("YN_DB") == "" {
+	}
+	if fileCfg.Driver != "" {
 		cfg.DatabaseDriver, cfg.Database = fileCfg.Driver, fileCfg.DSN
 	}
-
-	keyText := env("YN_DATA_KEY", "dev-data-key-change-me")
+	cfg.AdminPath, err = NormalizeAdminPath(fileCfg.AdminPath)
+	if err != nil {
+		return Config{}, err
+	}
+	if os.Getenv("YN_CARD_PEPPER") == "" && fileCfg.CardPepper != "" {
+		cfg.CardPepper = []byte(fileCfg.CardPepper)
+	}
+	keyText := env("YN_DATA_KEY", fileCfg.DataKey)
+	if keyText == "" {
+		keyText = "dev-data-key-change-me"
+	}
 	key, err := parseKey(keyText)
 	if err != nil {
 		return Config{}, err
@@ -62,8 +69,11 @@ func Load() (Config, error) {
 }
 
 type DatabaseConfig struct {
-	Driver string `json:"driver"`
-	DSN    string `json:"dsn"`
+	Driver     string `json:"driver"`
+	DSN        string `json:"dsn"`
+	AdminPath  string `json:"admin_path,omitempty"`
+	CardPepper string `json:"card_pepper,omitempty"`
+	DataKey    string `json:"data_key,omitempty"`
 }
 
 func readDatabaseConfig(path string) (DatabaseConfig, error) {
@@ -88,6 +98,22 @@ func SaveDatabaseConfig(path string, cfg DatabaseConfig) error {
 	if path == "" {
 		return nil
 	}
+	previous, err := readDatabaseConfig(path)
+	if err != nil {
+		return err
+	}
+	if cfg.AdminPath == "" {
+		cfg.AdminPath = previous.AdminPath
+	}
+	if cfg.AdminPath == "" {
+		cfg.AdminPath = "/admin"
+	}
+	if cfg.CardPepper == "" {
+		cfg.CardPepper = previous.CardPepper
+	}
+	if cfg.DataKey == "" {
+		cfg.DataKey = previous.DataKey
+	}
 	raw, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
@@ -97,11 +123,19 @@ func SaveDatabaseConfig(path string, cfg DatabaseConfig) error {
 			return err
 		}
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".yunnuo-config-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 func envBool(key string, fallback bool) bool {
@@ -152,4 +186,62 @@ func EnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func randomKey() string {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b[:])
+}
+func NormalizeAdminPath(value string) (string, error) {
+	value = strings.TrimRight(strings.TrimSpace(value), "/")
+	if value == "" {
+		return "/admin", nil
+	}
+	if !regexp.MustCompile(`^/[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$`).MatchString(value) {
+		return "", errors.New("invalid admin_path in configuration")
+	}
+	for _, prefix := range []string{"/install", "/recover", "/assets", "/v1", "/agent", "/user", "/developer", "/agent-console", "/user-console", "/developer-console", "/admin-console", "/healthz"} {
+		if value == prefix || strings.HasPrefix(value, prefix+"/") {
+			return "", errors.New("admin_path conflicts with a reserved route")
+		}
+	}
+	if strings.HasPrefix(value, "/admin/") {
+		return "", errors.New("admin_path conflicts with the management API")
+	}
+	return value, nil
+}
+
+// Preserve legacy keys for installed databases; new installations get random keys.
+func (cfg *Config) PrepareInstallationKeys(initialized bool) error {
+	f, err := readDatabaseConfig(cfg.DatabaseConfigFile)
+	if err != nil {
+		return err
+	}
+	changed := false
+	if os.Getenv("YN_CARD_PEPPER") == "" && f.CardPepper == "" {
+		f.CardPepper = string(cfg.CardPepper)
+		if !initialized {
+			f.CardPepper = randomKey()
+		}
+		cfg.CardPepper = []byte(f.CardPepper)
+		changed = true
+	}
+	if os.Getenv("YN_DATA_KEY") == "" && f.DataKey == "" {
+		f.DataKey = hex.EncodeToString(cfg.DataKey)
+		if !initialized {
+			f.DataKey = randomKey()
+		}
+		cfg.DataKey, err = parseKey(f.DataKey)
+		if err != nil {
+			return err
+		}
+		changed = true
+	}
+	if changed {
+		return SaveDatabaseConfig(cfg.DatabaseConfigFile, f)
+	}
+	return nil
 }

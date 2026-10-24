@@ -291,18 +291,19 @@ type Agent struct {
 }
 
 type AgentUser struct {
-	ID           string     `json:"id"`
-	AgentID      string     `json:"agent_id"`
-	Username     string     `json:"username"`
-	PasswordHash string     `json:"-"`
-	DisplayName  string     `json:"display_name,omitempty"`
-	Phone        string     `json:"phone,omitempty"`
-	Email        string     `json:"email,omitempty"`
-	Role         string     `json:"role"`
-	Status       string     `json:"status"`
-	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	SessionVersion int        `json:"-"`
+	ID             string     `json:"id"`
+	AgentID        string     `json:"agent_id"`
+	Username       string     `json:"username"`
+	PasswordHash   string     `json:"-"`
+	DisplayName    string     `json:"display_name,omitempty"`
+	Phone          string     `json:"phone,omitempty"`
+	Email          string     `json:"email,omitempty"`
+	Role           string     `json:"role"`
+	Status         string     `json:"status"`
+	LastLoginAt    *time.Time `json:"last_login_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type AdminUser struct {

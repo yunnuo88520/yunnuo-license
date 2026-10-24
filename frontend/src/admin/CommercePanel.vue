@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PagedRecords from "../shared/components/PagedRecords.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { formatTime } from "../shared/format";
 const props = defineProps<{
@@ -6,6 +7,7 @@ const props = defineProps<{
   products: any[];
   agents: any[];
   canWrite: boolean;
+  token: string;
 }>();
 const catalog = ref<any>({ groups: [], packages: [], tiers: [] }),
   account = ref<any>(),
@@ -176,7 +178,8 @@ onMounted(() => run(load));
       <section class="panel">
         <h3>统一卡密套餐</h3>
         <p>
-          套餐规格创建后固定；调整时长请新建套餐。使用与更新期限遵循应用规则；更新天数为 0 时跟随套餐天数，永久卡的更新服务也受应用固定更新天数限制。
+          套餐规格创建后固定；调整时长请新建套餐。使用与更新期限遵循应用规则；更新天数为
+          0 时跟随套餐天数，永久卡的更新服务也受应用固定更新天数限制。
         </p>
         <form class="form-grid" @submit.prevent="run(savePackage)">
           <label class="field"
@@ -500,39 +503,15 @@ onMounted(() => run(load));
           </table>
         </div>
         <h4>资金流水</h4>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>类型</th>
-                <th>变动</th>
-                <th>结余</th>
-                <th>规格快照</th>
-                <th>原因 / 批次</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="l in account.ledgers" :key="l.id">
-                <td>{{ formatTime(l.created_at) }}</td>
-                <td>{{ l.kind === "issue" ? "套餐发卡" : "余额调整" }}</td>
-                <td>{{ money(l.amount) }}</td>
-                <td>{{ money(l.balance_after) }}</td>
-                <td>
-                  {{
-                    l.quantity
-                      ? `${l.quantity} 张 × ${money(l.unit_cost)}`
-                      : "—"
-                  }}
-                </td>
-                <td>
-                  {{ l.remark }}<code>{{ l.batch_id }}</code>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div></template
-      >
+        <PagedRecords
+          :key="`${selected}-${account.account.balance}-${account.ledgers.length}`"
+          :api="api"
+          :token="token"
+          endpoint="/admin/history/money"
+          kind="money"
+          :params="{ agent_id: selected }"
+        />
+      </template>
     </section>
   </div>
 </template>

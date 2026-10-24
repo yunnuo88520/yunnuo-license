@@ -1,4 +1,5 @@
 import { computed, ref } from "vue";
+import { loadEntries } from "./entries";
 import { request } from "./api";
 
 export interface SiteSettings {
@@ -25,10 +26,12 @@ export function applyBranding(settings: SiteSettings, section = "") {
     .filter(Boolean)
     .join(" · ");
   const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-  if (icon) icon.href = branding.value.favicon_data_url || "/assets/yunnuo-mark.svg";
+  if (icon)
+    icon.href = branding.value.favicon_data_url || "/assets/yunnuo-mark.svg";
 }
 
 export async function loadBranding(section = "") {
+  await loadEntries();
   const settings = await request<SiteSettings>("/v1/site/settings");
   applyBranding(settings, section);
   return settings;

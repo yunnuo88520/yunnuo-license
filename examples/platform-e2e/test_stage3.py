@@ -38,6 +38,8 @@ def main():
                 env.update(YN_ADDR=f"127.0.0.1:{port}", YN_DB_DRIVER="sqlite", YN_DB=f"file:{temporary}/db.sqlite?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", YN_DB_CONFIG_FILE=temporary + "/config.json", YN_ADMIN_USERNAME="admin", YN_ADMIN_PASSWORD=password, YN_CARD_PEPPER=secrets.token_hex(32), YN_DATA_KEY=secrets.token_hex(32))
                 process = subprocess.Popen([str(args.server.resolve())], cwd=REPO / "backend", env=env, stdout=log, stderr=log)
                 http.wait_ready(base, "/healthz", process)
+            if process:
+                http.initialize(base,"admin",password,env["YN_DB"])
             root = http.api(base, "/admin/login", {"username": "admin", "password": password})["access_token"]
             product = http.api(base, "/admin/products", {"name": "Ebox 企业网站", "code": "V" + suffix.upper(), "bind_mode": "domain", "license_mode": "perpetual"}, root)
             pkg = http.api(base, "/admin/packages", {"product_id": product["id"], "name": "限期更新套餐", "duration_days": 30, "base_cost": 1000}, root)
@@ -84,7 +86,7 @@ def main():
             http.http(base, path, transfer, tokens[0], expected=401)
             http.api(base, "/admin/products/" + product["id"] + "/binding-policy", {"allowed": False, "limit": 0, "allow_owner_transfer": True}, root)
             if args.screenshots:
-                page.goto(base + "/admin-console/#customers")
+                page.goto(base + "/admin#customers")
                 page.get_by_label("账号", exact=True).fill("admin")
                 page.get_by_label("密码", exact=True).fill(password)
                 page.get_by_role("button", name="安全登录", exact=True).click()

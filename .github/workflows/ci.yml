@@ -37,10 +37,15 @@ jobs:
       - name: Build license server
         working-directory: backend
         run: go build -o /tmp/yunnuo-demo-server ./cmd/server
+      - name: Build installation and console pages
+        working-directory: frontend
+        run: npm ci && npm run build
       - name: Test independent website upgrade, expiry and rollback
         run: |
           python3 examples/update-demo/test_e2e.py --license-server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-update-demo/subscription"
           python3 examples/update-demo/test_e2e.py --license-mode perpetual --license-server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-update-demo/perpetual"
+          python3 examples/platform-e2e/test_install.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/install"
+          python3 examples/platform-e2e/test_recovery_history.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/recovery-history"
           python3 examples/platform-e2e/test_stage1.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/stage1"
           python3 examples/platform-e2e/test_stage2.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/stage2"
           python3 examples/platform-e2e/test_stage3.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/stage3"

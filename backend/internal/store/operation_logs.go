@@ -61,3 +61,14 @@ func (s *Store) Operations(ctx context.Context, category, actor, result, query, 
 	}
 	return items, count, rows.Err()
 }
+
+func (s *Store) ImportOperation(ctx context.Context, l domain.OperationLog) error {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM operation_logs WHERE id=?`, l.ID).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	return s.BeginOperation(ctx, l)
+}

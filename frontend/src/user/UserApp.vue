@@ -166,7 +166,8 @@ onMounted(async () => {
             type="password"
             autocomplete="current-password"
             required /></label
-        ><button class="btn" :disabled="busy">登录用户中心</button>
+        ><button class="btn" :disabled="busy">登录用户中心</button
+        ><a href="/recover">忘记密码</a>
       </form>
     </section>
     <template v-else
@@ -335,7 +336,7 @@ onMounted(async () => {
           </div>
         </form>
       </section>
-      <SecurityAppeals :api="api" />
+      <SecurityAppeals :token="token" :api="api" />
       <section class="panel">
         <details>
           <summary>修改登录密码</summary>

@@ -65,8 +65,6 @@ docker run -d \
   -v yunnuo-license-data:/var/lib/mysql \
   -e MYSQL_PASSWORD='请替换为数据库用户强密码' \
   -e MYSQL_ROOT_PASSWORD='请替换为数据库 root 强密码' \
-  -e YN_ADMIN_USERNAME='admin' \
-  -e YN_ADMIN_PASSWORD='请替换为管理员强密码' \
   -e YN_CARD_PEPPER='请替换为随机长字符串' \
   -e YN_DATA_KEY="$(openssl rand -hex 32)" \
   yunnuo-license:latest
@@ -77,7 +75,7 @@ docker run -d \
 | 入口 | 地址 |
 | --- | --- |
 | 授权查询（无需登录） | <http://127.0.0.1:8080/> |
-| 管理后台 | <http://127.0.0.1:8080/admin-console/> |
+| 管理后台 | <http://127.0.0.1:8080/admin> |
 | 代理工作台 | <http://127.0.0.1:8080/agent-console/> |
 | 开发者控制台 | `/developer-console/` |
 | 普通用户中心 | `/user-console/` |
@@ -107,9 +105,13 @@ cd backend
 go run ./cmd/server
 ```
 
-首次打开 <http://127.0.0.1:8080> 会进入初始化向导，可选择 SQLite 或填写外部 MySQL DSN，并设置首个超级管理员账号和密码。初始化完成后才可进入管理后台；不会再强制使用默认管理员密码。
-单镜像部署时，向导生成的数据库配置和 SQLite 文件会写入 `/var/lib/mysql` 数据卷，容器重启后继续生效；选择外部 MySQL 时只需确保容器可访问所填地址。
-任何可被其他设备访问的环境都必须设置 `YN_CARD_PEPPER` 和 `YN_DATA_KEY`。也可以同时设置 `YN_ADMIN_USERNAME` 与 `YN_ADMIN_PASSWORD` 跳过向导并自动创建首个管理员。可参考 [.env.example](.env.example) 配置环境变量。已有部署也可以通过 `YN_DB_DRIVER` 与 `YN_DB` 直接指定数据库；环境变量优先于初始化向导生成的配置文件。
+首次运行访问任意业务页面，都会强制进入 `/install`。向导中选择 SQLite 文件或填写 MySQL 地址、端口、库名、用户名和密码，再设置管理员账号与密码。安装完成后显示管理后台、代理后台、前台首页及用户、开发者入口，禁止重复安装。环境变量中的管理员账号密码不能跳过安装。
+
+默认管理页面为 `/admin`。在 `YN_DB_CONFIG_FILE` 指向的 JSON 配置文件（本地默认 `backend/yn-license-config.json`）中修改 `"admin_path": "/your-panel"`，重启服务后生效。原页面入口停止提供管理页面，`/admin/*` API 路径保持稳定。
+
+安装生成的数据库配置优先于启动环境中的 `YN_DB_DRIVER`、`YN_DB`，避免重启回到临时数据库。新安装未设置 `YN_CARD_PEPPER`、`YN_DATA_KEY` 时自动生成随机密钥并写入权限为 `0600` 的配置文件；已有安装保留原密钥。请同时备份数据库、配置文件和升级包目录。单镜像默认全部存放于 `/var/lib/mysql` 数据卷；显式配置环境密钥时须保持其不变。
+
+账号恢复入口为 `/recover`。管理员在“账号恢复”中核实身份后发放一次性恢复码或重置密码，原会话随即失效。管理员全部忘记密码时可在服务器本地恢复，详见 [安装与账号恢复](docs/installation-and-recovery.md)。资金流水、安全记录和申诉支持分页、筛选与完整 CSV 导出。
 
 API 接入示例见 [API Quickstart](docs/api/quickstart.md)，详细设计见
 [系统设计](docs/system-design-v1.md)。

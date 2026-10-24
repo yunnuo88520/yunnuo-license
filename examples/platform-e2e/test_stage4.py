@@ -54,6 +54,8 @@ def main():
                 p = subprocess.Popen([str(args.server.resolve())], cwd=REPO / "backend", env=env, stdout=log, stderr=log)
                 processes.append(p)
                 http.wait_ready(base, "/healthz", p)
+            if not args.base_url:
+                http.initialize(base,"admin",password,env["YN_DB"])
             root = http.api(base, "/admin/login", {"username": "admin", "password": password})["access_token"]
             http.api(base, "/admin/users", {"username": "developer-" + suffix, "password": password, "role": "developer"}, root)
             developer = http.api(base, "/developer/login", {"username": "developer-" + suffix, "password": password})["access_token"]
@@ -74,7 +76,7 @@ def main():
                 browser = playwright.chromium.launch(executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox"])
                 page = browser.new_page(viewport={"width": 1500, "height": 1100}, locale="zh-CN", timezone_id="Asia/Shanghai")
                 page.on("pageerror", lambda e: errors.append(str(e)))
-                page.goto(base + "/admin-console/#security")
+                page.goto(base + "/admin#security")
                 page.get_by_label("账号", exact=True).fill("admin")
                 page.get_by_label("密码", exact=True).fill(password)
                 page.get_by_role("button", name="安全登录", exact=True).click()
