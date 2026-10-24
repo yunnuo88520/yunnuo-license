@@ -27,22 +27,34 @@ func (api *API) registerCommerceRoutes(mux *http.ServeMux) {
 		commerceResponse(w, r, v, e)
 	}, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/packages", api.withAdmin(func(w http.ResponseWriter, r *http.Request) {
-		var in domain.CardPackage
+		var in struct {
+			domain.CardPackage
+			Cost *int64 `json:"base_cost"`
+		}
 		if !decode(w, r, &in) {
 			return
 		}
-		v, e := api.service.CreatePackage(r.Context(), in, adminSessionFrom(r.Context()).UserID)
+		if in.Cost == nil {
+			writeError(w, r, service.ErrInvalidRequest)
+			return
+		}
+		in.CardPackage.BaseCost = *in.Cost
+		v, e := api.service.CreatePackage(r.Context(), in.CardPackage, adminSessionFrom(r.Context()).UserID)
 		commerceResponse(w, r, v, e)
 	}, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/packages/{packageID}", api.withAdmin(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Enabled  bool  `json:"enabled"`
-			BaseCost int64 `json:"base_cost"`
+			Enabled  *bool  `json:"enabled"`
+			BaseCost *int64 `json:"base_cost"`
 		}
 		if !decode(w, r, &in) {
 			return
 		}
-		e := api.service.SetPackage(r.Context(), r.PathValue("packageID"), adminSessionFrom(r.Context()).UserID, in.Enabled, in.BaseCost)
+		if in.Enabled == nil || in.BaseCost == nil {
+			writeError(w, r, service.ErrInvalidRequest)
+			return
+		}
+		e := api.service.SetPackage(r.Context(), r.PathValue("packageID"), adminSessionFrom(r.Context()).UserID, *in.Enabled, *in.BaseCost)
 		commerceResponse(w, r, map[string]bool{"saved": e == nil}, e)
 	}, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/agent-tiers", api.withAdmin(func(w http.ResponseWriter, r *http.Request) {

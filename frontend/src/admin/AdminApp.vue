@@ -39,6 +39,7 @@ import CustomersPanel from "./CustomersPanel.vue";
 import BindingPolicy from "./BindingPolicy.vue";
 import OperationLogs from "./OperationLogs.vue";
 import CommercePanel from "./CommercePanel.vue";
+import SecurityPanel from "./SecurityPanel.vue";
 import {
   applyBranding,
   branding,
@@ -67,6 +68,7 @@ const nav = [
   { id: "cards", label: "卡密", icon: TicketCheck },
   { id: "licenses", label: "授权", icon: BadgeCheck },
   { id: "risk", label: "风控", icon: ShieldAlert },
+  { id: "security", label: "盗版处置", icon: ShieldAlert },
   { id: "tools", label: "联调工具", icon: Terminal },
   { id: "offline", label: "离线授权", icon: FileKey2 },
   { id: "audit", label: "审计", icon: ScrollText },
@@ -547,6 +549,7 @@ onMounted(async () => {
             </table>
           </div>
         </section>
+        <SecurityPanel v-if="page === 'security'" :api="a.api" :products="a.data.products" :can-write="a.isManager.value" />
         <CommercePanel v-if="page === 'commerce'" :api="a.api" :products="a.data.products" :agents="a.data.agents" :can-write="a.isManager.value" />
         <CustomersPanel v-if="page === 'customers'" :api="a.api" :can-write="a.isManager.value" />
         <section v-if="page === 'releases'" class="panel">

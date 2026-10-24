@@ -4,6 +4,7 @@ export interface ClientOptions {
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
   userAgent?: string;
+  reportIntegrityFailures?: boolean;
 }
 
 export interface RequestOptions {
@@ -99,6 +100,8 @@ export interface UnbindResponse {
 
 export class LicenseClient {
   constructor(options: ClientOptions);
+  securityDecision(input: VerifyRequest, options?: RequestOptions): Promise<SecurityDecision>;
+  reportIntegrity(input: VerifyRequest & {release_id:string;observed_sha256:string}, options?: RequestOptions): Promise<{id:string;status:string}>;
   activate(input: ActivateRequest, options?: RequestOptions): Promise<LicenseResponse>;
   verify(input: VerifyRequest, options?: RequestOptions): Promise<LicenseResponse>;
   heartbeat(input: HeartbeatRequest, options?: RequestOptions): Promise<HeartbeatResponse>;
@@ -185,6 +188,18 @@ export class OfflineVerifier {
 }
 
 export function bindingDigest(bindMode: string, bindValue: string): string;
+
+export interface SecurityDecision {
+  action: "observe" | "deny_updates" | "deny_use" | "block_page" | "authorization_unavailable";
+  case_id: string;
+  can_use: boolean;
+  can_update: boolean;
+  message: string;
+  support_url: string;
+  server_time: string;
+}
+export function renderLicenseBlockPage(decision: Partial<SecurityDecision>, unavailable?: boolean): string;
+export function enforceWebLicense(client: LicenseClient, binding: VerifyRequest, response: {writeHead(status:number,headers:Record<string,string>):unknown;end(body?:string):unknown}): Promise<boolean>;
 
 export interface HighWaterStore {
   load(): Date | string | null | undefined | Promise<Date | string | null | undefined>;

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
-import { LicenseClient } from "../../sdk/node/src/index.js";
+import { LicenseClient, enforceWebLicense } from "../../sdk/node/src/index.js";
 
 const execute = promisify(execFile);
 const config = JSON.parse(await readFile(process.env.YN_DEMO_CONFIG, "utf8"));
@@ -70,7 +70,8 @@ async function update() {
 
 const server = createServer(async (request, response) => {
   try {
-    if (request.method === "GET" && (request.url === "/" || request.url === "/api/status")) {
+    if (request.method === "GET" && request.url === "/" && await enforceWebLicense(client, config.binding, response)) return;
+    if (request.method === "GET" && request.url === "/api/status") {
       // The product enforces usage; update expiry alone must never disable a perpetual installation.
       try {
         const rights = await client.verify(config.binding);

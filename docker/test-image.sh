@@ -140,6 +140,7 @@ YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./docker/test-product-updates.p
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage1.py --base-url "$base" --artifacts "$platform_artifacts/stage1"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage3.py --base-url "$base" --artifacts "$platform_artifacts/stage3"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage4.py --base-url "$base" --artifacts "$platform_artifacts/stage4"
 
 docker restart "$container" >/dev/null
 for attempt in $(seq 1 120); do
@@ -151,4 +152,5 @@ curl --fail --silent --show-error -X POST "$base/v1/licenses/query" \
 
 python3 ./docker/test-product-updates.py verify "$base" "$update_state"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2" --verify-state "$platform_artifacts/stage2/report.json"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage4.py --base-url "$base" --artifacts "$platform_artifacts/stage4" --verify-state "$platform_artifacts/stage4/report.json"
 echo "Docker image end-to-end test passed: $image"

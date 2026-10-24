@@ -177,7 +177,8 @@ def main():
                 else:
                     assert http(license_base,"/v1/licenses/verify",credentials,expected=403)["error"]["code"]=="LICENSE_EXPIRED"
                     assert http(license_base,"/v1/licenses/heartbeat",credentials,expected=403)["error"]["code"]=="LICENSE_EXPIRED"
-                    assert http(site_base,"/",expected=403)["code"]=="LICENSE_EXPIRED"
+                    blocked_page=http(site_base,"/",expected=403).decode()
+                    assert "应用授权暂不可用" in blocked_page and "已确认的授权安全处置" not in blocked_page
                     assert http(site_base,"/api/status",expected=403)["code"]=="LICENSE_EXPIRED"
                 assert (site_data/"current"/"index.html").read_bytes()==before_html
                 report["cases"].append({"name": "Expired update rights reject updates; perpetual website stays usable and expired subscription website denies access", "passed": True, "fixture": "Only the isolated test entitlement deadline was moved to yesterday"})

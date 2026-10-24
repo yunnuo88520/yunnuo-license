@@ -3,3 +3,4 @@ export { APIError, VerificationError, isAPIErrorCode, isVerificationErrorCode } 
 export { OfflineVerifier, VerificationCode, bindingDigest } from "./offline.js";
 export { HighWaterGuard } from "./highwater.js";
 export { verifyReleaseManifest, verifyReleasePackage } from "./updates.js";
+export { renderLicenseBlockPage, enforceWebLicense } from "./web.js";

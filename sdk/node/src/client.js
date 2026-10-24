@@ -1,5 +1,6 @@
 import { APIError } from "./errors.js";
 import { verifyReleaseManifest, verifyReleasePackage } from "./updates.js";
+import { createHash } from "node:crypto";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
@@ -9,8 +10,9 @@ export class LicenseClient {
   #fetch;
   #timeoutMs;
   #userAgent;
+  #reportIntegrityFailures;
 
-  constructor({ baseUrl, appKey, fetch: fetchImpl = globalThis.fetch, timeoutMs = 10_000, userAgent = "yn-license-node/1.0" }) {
+  constructor({ baseUrl, appKey, fetch: fetchImpl = globalThis.fetch, timeoutMs = 10_000, userAgent = "yn-license-node/1.0", reportIntegrityFailures = false }) {
     const normalizedBaseUrl = String(baseUrl ?? "").trim().replace(/\/+$/, "");
     const normalizedAppKey = String(appKey ?? "").trim();
     let parsed;
@@ -30,6 +32,7 @@ export class LicenseClient {
     this.#fetch = fetchImpl;
     this.#timeoutMs = timeoutMs;
     this.#userAgent = String(userAgent || "yn-license-node/1.0").trim();
+    this.#reportIntegrityFailures = reportIntegrityFailures === true;
   }
 
   activate(input, options) {
@@ -56,11 +59,21 @@ export class LicenseClient {
     return this.#post("/v1/updates/check", input, options);
   }
 
+  securityDecision(input, options) { return this.#post("/v1/security/decision", input, options); }
+  reportIntegrity(input, options) { return this.#post("/v1/security/report", input, options); }
+
   async downloadUpdate(release, input, { publicKeyPem, productId, ...options }) {
     const expected = { publicKeyPem, productId };
     verifyReleaseManifest(release, expected);
     const bytes = await this.#post(`/v1/updates/${encodeURIComponent(release.id)}/download`, input, options, release.size);
-    verifyReleasePackage(release, bytes, expected);
+    try {
+      verifyReleasePackage(release, bytes, expected);
+    } catch (error) {
+      if (this.#reportIntegrityFailures) {
+        try { await this.reportIntegrity({ ...input, release_id: release.id, observed_sha256: createHash("sha256").update(bytes).digest("hex") }, options); } catch { /* Preserve the original integrity failure. */ }
+      }
+      throw error;
+    }
     return bytes;
   }
 

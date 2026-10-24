@@ -205,6 +205,13 @@ func (s *Service) authorizeUpdate(ctx context.Context, input VerifyInput) (strin
 	if err != nil {
 		return "", err
 	}
+	lic, err := s.currentStore().GetLicenseByNo(ctx, input.LicenseNo)
+	if err != nil {
+		return "", err
+	}
+	if err := enforceSecurity(ctx, s.currentStore(), lic, true); err != nil {
+		return "", err
+	}
 	return p.ID, nil
 }
 

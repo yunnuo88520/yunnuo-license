@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SecurityAppeals from "./SecurityAppeals.vue";
 import { onMounted, reactive, ref } from "vue";
 import { ApiError, request } from "../shared/api";
 import { branding, loadBranding } from "../shared/branding";
@@ -334,6 +335,7 @@ onMounted(async () => {
           </div>
         </form>
       </section>
+      <SecurityAppeals :api="api" />
       <section class="panel">
         <details>
           <summary>修改登录密码</summary>

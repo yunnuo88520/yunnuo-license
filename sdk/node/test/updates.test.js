@@ -37,6 +37,16 @@ test("package verification rejects wrong product, tampered signature, metadata a
   assert.throws(() => verifyReleasePackage(release, Buffer.from("tampered"), expected), /checksum/);
 });
 
+test("optional integrity reporting sends observed checksum and preserves original failure", async () => {
+  const tampered=Buffer.from(bytes);tampered[0]^=1;const reports=[];
+  const client=new LicenseClient({baseUrl:"https://license.example.com",appKey:"app_ebox",reportIntegrityFailures:true,fetch:async(url,options)=>{
+    if(url.endsWith("/security/report")){reports.push(JSON.parse(options.body));return Response.json({success:false,error:{code:"SECURITY_REPORTS_DISABLED",message:"disabled"}},{status:403})}
+    return new Response(tampered)
+  }});
+  await assert.rejects(client.downloadUpdate(release,{license_no:"lic_1",bind_mode:"domain",bind_value:"ebox.example.com"},expected),/checksum/);
+  assert.equal(reports.length,1);assert.equal(reports[0].release_id,release.id);assert.equal(reports[0].observed_sha256,createHash("sha256").update(tampered).digest("hex"));
+});
+
 test("update download enforces size and preserves expired-license errors", async () => {
   for (const content of [new Uint8Array(bytes.length + 1), new Uint8Array(bytes.length - 1)]) {
     const client = new LicenseClient({ baseUrl: "https://license.example.com", appKey: "app_ebox", fetch: async () => new Response(content) });

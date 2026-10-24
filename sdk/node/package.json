@@ -20,7 +20,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/client.js && node --check src/offline.js && node --check src/highwater.js"
+    "check": "node --check src/index.js && node --check src/client.js && node --check src/offline.js && node --check src/highwater.js && node --check src/updates.js && node --check src/web.js"
   },
   "license": "Apache-2.0",
   "homepage": "https://github.com/yunnuo88520/yunnuo-license/tree/main/sdk/node",

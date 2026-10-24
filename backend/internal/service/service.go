@@ -924,6 +924,9 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 		if err := s.ensureUsable(product, lic, now); err != nil {
 			return err
 		}
+		if err := enforceSecurity(ctx, tx, lic, false); err != nil {
+			return err
+		}
 		binding, err = tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
 		if err == nil {
 			return nil
@@ -989,7 +992,7 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 	}
 	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.activate", "success", "", input.ClientIP, input.UserAgent)
 	s.evaluateActivationRisk(ctx, product.ID, lic, binding, input.ClientIP, bindValue)
-	return s.licenseResponse(product, lic, binding, now)
+	return s.licenseResponse(ctx, product, lic, binding, now)
 }
 
 type VerifyInput struct {
@@ -1043,14 +1046,22 @@ func (s *Service) Verify(ctx context.Context, input VerifyInput) (LicenseRespons
 		if err := s.ensureUsable(product, lic, now); err != nil {
 			return err
 		}
+		if err := enforceSecurity(ctx, tx, lic, false); err != nil {
+			return err
+		}
 		return tx.UpdateLicenseVerify(ctx, lic.ID, now)
 	})
 	if err != nil {
+		if errorCode(err) == "BINDING_MISMATCH" {
+			if signalErr := s.recordBindingMismatch(ctx, lic, bindMode, bindValue); signalErr != nil {
+				return LicenseResponse{}, signalErr
+			}
+		}
 		_ = s.auditClient(ctx, product.ID, "", "", "license.verify", "failed", errorCode(err), input.ClientIP, input.UserAgent)
 		return LicenseResponse{}, err
 	}
 	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.verify", "success", "", input.ClientIP, input.UserAgent)
-	return s.licenseResponse(product, lic, binding, now)
+	return s.licenseResponse(ctx, product, lic, binding, now)
 }
 
 func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]any, error) {
@@ -1086,6 +1097,9 @@ func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]
 			return err
 		}
 		if err := s.ensureUsable(product, lic, now); err != nil {
+			return err
+		}
+		if err := enforceSecurity(ctx, tx, lic, false); err != nil {
 			return err
 		}
 		return tx.UpdateHeartbeat(ctx, lic.ID, binding.ID, now, input.ClientIP)
@@ -1154,6 +1168,9 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 		if lic.Status == domain.LicenseRevoked {
 			return ErrLicenseRevoked
 		}
+		if err := enforceSecurity(ctx, tx, lic, false); err != nil {
+			return err
+		}
 		if lic.ExpiredAt == nil && lic.UpdatesExpiredAt == nil {
 			return ErrLicensePermanent
 		}
@@ -1201,7 +1218,7 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 		return LicenseResponse{}, err
 	}
 	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.renew", "success", "", input.ClientIP, input.UserAgent)
-	return s.licenseResponse(product, lic, binding, now)
+	return s.licenseResponse(ctx, product, lic, binding, now)
 }
 
 type UnbindInput struct {
@@ -1538,7 +1555,16 @@ func (s *Service) ensureUsable(product domain.Product, lic domain.License, now t
 	return nil
 }
 
-func (s *Service) licenseResponse(product domain.Product, lic domain.License, binding domain.Binding, now time.Time) (LicenseResponse, error) {
+func (s *Service) licenseResponse(ctx context.Context, product domain.Product, lic domain.License, binding domain.Binding, now time.Time) (LicenseResponse, error) {
+	action, _, _, err := securityAction(ctx, s.currentStore(), lic)
+	if err != nil {
+		return LicenseResponse{}, err
+	}
+	canUse := s.ensureUsable(product, lic, now) == nil && action != "deny_use" && action != "block_page"
+	canUpdate := licenseCanUpdate(lic, now) && action == "observe"
+	if !canUse {
+		return LicenseResponse{LicenseMode: lic.LicenseMode, CanUse: false, CanUpdate: false, LicenseNo: lic.LicenseNo, Status: lic.Status, UsageExpiredAt: lic.ExpiredAt, UpdatesExpiredAt: lic.UpdatesExpiredAt, ServerTime: now}, nil
+	}
 	privatePEM, err := yncrypto.DecryptString(s.dataKey, product.PrivateKeyEncrypted)
 	if err != nil {
 		return LicenseResponse{}, err
@@ -1550,7 +1576,8 @@ func (s *Service) licenseResponse(product domain.Product, lic domain.License, bi
 	bindDigest := yncrypto.BindDigest(binding.BindMode, bindValue)
 	graceUntil := usageGraceUntil(product, lic)
 	payload := map[string]any{
-		"type":               "license",
+		"type":    "license",
+		"can_use": canUse, "can_update": canUpdate, "security_action": action,
 		"license_no":         lic.LicenseNo,
 		"product_code":       product.Code,
 		"bind_mode":          binding.BindMode,
@@ -1573,7 +1600,8 @@ func (s *Service) licenseResponse(product domain.Product, lic domain.License, bi
 		offlineUntil = *graceUntil
 	}
 	offlinePayload := map[string]any{
-		"type":               "offline_cache",
+		"type":    "offline_cache",
+		"can_use": canUse, "can_update": canUpdate, "security_action": action,
 		"license_no":         lic.LicenseNo,
 		"product_code":       product.Code,
 		"bind_mode":          binding.BindMode,
@@ -1593,8 +1621,8 @@ func (s *Service) licenseResponse(product domain.Product, lic domain.License, bi
 	}
 	return LicenseResponse{
 		LicenseMode:      lic.LicenseMode,
-		CanUse:           s.ensureUsable(product, lic, now) == nil,
-		CanUpdate:        licenseCanUpdate(lic, now),
+		CanUse:           canUse,
+		CanUpdate:        canUpdate,
 		UsageExpiredAt:   lic.ExpiredAt,
 		UpdatesExpiredAt: lic.UpdatesExpiredAt,
 		LicenseNo:        lic.LicenseNo,

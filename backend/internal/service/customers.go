@@ -171,6 +171,16 @@ func (s *Service) CustomerLicense(ctx context.Context, userID, no string) (domai
 	if lic.Status == domain.LicenseActive && lic.ExpiredAt != nil && !s.now().Before(*lic.ExpiredAt) {
 		lic.Status = domain.LicenseExpired
 	}
+	action, _, _, securityErr := securityAction(ctx, s.currentStore(), lic)
+	if securityErr != nil {
+		return view, securityErr
+	}
+	if action == "deny_use" || action == "block_page" {
+		view.CanUse = false
+	}
+	if action != "observe" {
+		view.CanUpdate = false
+	}
 	view.License = lic
 	view.Product = p
 	view.Policy, err = s.currentStore().BindingPolicy(ctx, p)
