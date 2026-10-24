@@ -14,11 +14,13 @@ import {
   RefreshCw,
   Sparkles,
   TicketCheck,
+  Wallet,
 } from "lucide-vue-next";
 import { ApiError, downloadText, request } from "../shared/api";
 import { formatTime, roleLabel } from "../shared/format";
 import AppToast from "../shared/components/AppToast.vue";
 import StatusBadge from "../shared/components/StatusBadge.vue";
+import UserMenu from "../shared/components/UserMenu.vue";
 import { toast } from "../shared/useToast";
 import { branding, loadBranding, logoSource } from "../shared/branding";
 
@@ -58,12 +60,27 @@ watch(
     batch.request_id = crypto.randomUUID();
   },
 );
-const pages = [
-  { id: "overview", label: "业务概览", icon: ChartNoAxesCombined },
-  { id: "generate", label: "生成卡密", icon: Sparkles, manage: true },
-  { id: "batches", label: "卡密批次", icon: TicketCheck },
-  { id: "licenses", label: "授权记录", icon: BadgeCheck },
-  { id: "ledgers", label: "额度流水", icon: ListRestart },
+const navGroups = [
+  {
+    label: "总览",
+    items: [
+      { id: "overview", label: "业务概览", icon: ChartNoAxesCombined },
+    ],
+  },
+  {
+    label: "发卡",
+    items: [
+      { id: "generate", label: "生成卡密", icon: Sparkles, manage: true },
+      { id: "batches", label: "卡密批次", icon: TicketCheck },
+    ],
+  },
+  {
+    label: "记录",
+    items: [
+      { id: "licenses", label: "授权记录", icon: BadgeCheck },
+      { id: "ledgers", label: "额度流水", icon: ListRestart },
+    ],
+  },
 ];
 const canManage = computed(() =>
   ["agent_owner", "agent_manager"].includes(profile.value?.role),
@@ -287,58 +304,73 @@ onMounted(async () => {
         </div>
       </div>
       <nav class="nav" aria-label="代理功能">
-        <a
-          v-for="item in pages"
-          v-show="!item.manage || canManage"
-          :key="item.id"
-          href="#"
-          :class="{ active: page === item.id }"
-          @click.prevent="navigate(item.id)"
-          ><component :is="item.icon" :size="18" /><span>{{
-            item.label
-          }}</span></a
-        >
+        <div v-for="g in navGroups" :key="g.label" class="nav-group">
+          <div class="nav-group-label">{{ g.label }}</div>
+          <a
+            v-for="item in g.items"
+            v-show="!item.manage || canManage"
+            :key="item.id"
+            href="#"
+            :class="{ active: page === item.id }"
+            @click.prevent="navigate(item.id)"
+            ><component :is="item.icon" :size="18" /><span>{{
+              item.label
+            }}</span></a
+          >
+        </div>
       </nav>
       <div class="sidebar-foot">PARTNER NODE / ONLINE</div>
     </aside>
     <main class="console-main">
       <header class="topbar">
         <div>
-          <h1>{{ pages.find((p) => p.id === page)?.label }}</h1>
+          <h1>{{
+            navGroups
+              .flatMap((g) => g.items)
+              .find((p) => p.id === page)?.label
+          }}</h1>
           <p>服务正常 · SECURE CONNECTION</p>
         </div>
         <div class="top-actions">
           <AppearanceMenu />
-          <span class="identity"
-            >{{ profile.display_name || profile.username }} ·
-            {{ roleLabel(profile.role) }}</span
-          ><button class="icon-btn" title="刷新" @click="refresh">
-            <RefreshCw :size="17" /></button
-          ><button class="icon-btn" title="退出" @click="logout()">
-            <LogOut :size="17" />
+          <button class="icon-btn" title="刷新" @click="refresh">
+            <RefreshCw :size="17" />
           </button>
+          <UserMenu
+            :name="profile.display_name || profile.username"
+            :role="roleLabel(profile.role)"
+            @logout="logout()"
+          />
         </div>
       </header>
       <div class="workspace">
         <template v-if="page === 'overview'"
           ><section class="panel">
-            <p>
-              公开代理编号：<code>{{ profile.agent_no }}</code>
-            </p>
-            <a href="/" target="_blank" rel="noopener">打开公开验真首页</a>
+            <div class="panel-body agent-notice">
+              <p>
+                公开代理编号：<code>{{ profile.agent_no }}</code>
+              </p>
+              <a href="/" target="_blank" rel="noopener">打开公开验真首页</a>
+            </div>
           </section>
-          <section class="section-intro">
+          <section class="hero-card">
             <div>
+              <span class="hero-eyebrow">PARTNER NODE</span>
               <h2>业务脉搏</h2>
               <p>额度、卡密与授权状态保持实时同步。</p>
             </div>
           </section>
           <div class="metrics">
             <div v-for="(m, i) in metrics" :key="i" class="metric">
-              <span>{{
+              <span class="metric-icon"
+                ><component
+                  :is="[Wallet, TicketCheck, Sparkles, BadgeCheck][i]"
+                  :size="16"
+              /></span>
+              <strong>{{ m }}</strong>
+              <small>{{
                 ["可用额度", "卡密批次", "已生成卡密", "已激活授权"][i]
-              }}</span
-              ><strong>{{ m }}</strong>
+              }}</small>
             </div>
           </div>
           <section class="panel">
@@ -651,3 +683,15 @@ onMounted(async () => {
     <AppToast />
   </div>
 </template>
+<style scoped>
+.agent-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.agent-notice p {
+  margin: 0;
+}
+</style>

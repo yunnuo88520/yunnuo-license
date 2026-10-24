@@ -192,7 +192,7 @@ function changeStatus(id: string, action: string) {
 <style scoped>
 .release-panel {
   margin-top: 24px;
-  padding-top: 16px;
+  padding: 16px 20px 20px;
   border-top: 1px solid var(--line);
 }
 .release-heading {

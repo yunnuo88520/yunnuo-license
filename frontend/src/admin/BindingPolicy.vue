@@ -107,7 +107,7 @@ async function save() {
 </template>
 <style scoped>
 .binding-policy {
-  padding-top: 20px;
+  padding: 20px 20px 6px;
   margin-top: 24px;
   border-top: 1px solid var(--line);
 }

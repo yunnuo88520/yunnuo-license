@@ -207,13 +207,25 @@ onMounted(load);
   </section>
 </template>
 <style scoped>
+section {
+  padding: 4px 20px 20px;
+}
 .head {
   display: flex;
   justify-content: space-between;
   gap: 14px;
   flex-wrap: wrap;
   align-items: center;
-  margin: 16px 0;
+  margin: 12px 0 16px;
+}
+.head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.head p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 .filters {
   display: grid;

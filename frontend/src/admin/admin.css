@@ -41,6 +41,32 @@
   border-left: 1px solid var(--line);
   padding: 18px;
 }
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.detail-head h4 {
+  margin: 0;
+}
+.detail-pane h5 {
+  margin: 18px 0 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.pane-empty {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.table tbody tr.row-active {
+  background: var(--surface);
+}
 .detail-pane h4 {
   margin: 0 0 14px;
 }
@@ -61,12 +87,18 @@
   color: var(--muted);
 }
 .detail-list {
-  padding: 0 20px;
+  padding: 0 20px 20px;
+}
+.binding-license {
+  margin-left: 8px;
+  color: var(--muted);
+  font: 500 12px "DM Mono", monospace;
 }
 .notice {
   margin: 18px;
-  padding: 13px;
+  padding: 13px 15px;
   border-left: 3px solid var(--amber);
+  border-radius: var(--radius-sm);
   background: var(--amber-soft);
   color: var(--amber);
   font-size: 12px;
@@ -125,6 +157,7 @@
   padding: 8px;
   overflow: hidden;
   border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   background: var(--surface);
 }
 .asset-preview img {
@@ -147,6 +180,10 @@
 }
 .version-console {
   border-bottom: 1px solid var(--line);
+}
+.panel > .branding-settings:last-child,
+.panel > .version-console:last-child {
+  border-bottom: 0;
 }
 .version-hero {
   display: grid;
@@ -243,7 +280,7 @@
   transform: translate(-50%, -50%);
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-panel);
   background: var(--paper);
   box-shadow: 0 30px 120px rgba(0, 0, 0, 0.3);
   z-index: 99;

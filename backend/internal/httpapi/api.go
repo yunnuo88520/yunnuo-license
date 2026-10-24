@@ -112,10 +112,12 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/products", api.withAdmin(api.createProduct, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/products/{productID}/keys", api.withAdmin(api.productKeys, adminReadRoles...))
 	mux.HandleFunc("POST /admin/products/{productID}/keys/rotate", api.withAdmin(api.rotateProductKey, adminSuperRoles...))
+	mux.HandleFunc("POST /admin/products/{productID}/update", api.withAdmin(api.updateProduct, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/products/", api.withAdmin(api.productDetail, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/agents", api.withAdmin(api.listAgents, adminReadRoles...))
 	mux.HandleFunc("POST /admin/agents", api.withAdmin(api.createAgent, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/agents/", api.withAdmin(api.agentDetail, adminReadRoles...))
+	mux.HandleFunc("POST /admin/agents/{agentID}/update", api.withAdmin(api.updateAgent, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/agents/", api.withAdmin(api.agentDetail, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/agent-policies", api.withAdmin(api.upsertAgentPolicy, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/agent-quotas/grant", api.withAdmin(api.grantAgentQuota, adminWriteRoles...))
@@ -451,6 +453,34 @@ func (api *API) createAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agent, err := api.service.CreateAgent(r.Context(), input)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, agent)
+}
+
+func (api *API) updateProduct(w http.ResponseWriter, r *http.Request) {
+	var input service.UpdateProductInput
+	if !decode(w, r, &input) {
+		return
+	}
+	session := adminSessionFrom(r.Context())
+	product, err := api.service.UpdateProductProfile(r.Context(), r.PathValue("productID"), input, session.UserID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, product)
+}
+
+func (api *API) updateAgent(w http.ResponseWriter, r *http.Request) {
+	var input service.UpdateAgentInput
+	if !decode(w, r, &input) {
+		return
+	}
+	session := adminSessionFrom(r.Context())
+	agent, err := api.service.UpdateAgentProfile(r.Context(), r.PathValue("agentID"), input, session.UserID)
 	if err != nil {
 		writeError(w, r, err)
 		return

@@ -108,7 +108,7 @@ async function save() {
 <style scoped>
 .policy-panel {
   border-top: 1px solid var(--line);
-  padding-top: 20px;
+  padding: 20px 20px 6px;
   margin-top: 24px;
 }
 .policy-form {

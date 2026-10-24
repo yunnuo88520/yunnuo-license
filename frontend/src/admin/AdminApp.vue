@@ -4,10 +4,13 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   Activity,
   BadgeCheck,
+  BellRing,
   Boxes,
   CheckCheck,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   Download,
   FileKey2,
   GitCommit,
@@ -24,6 +27,7 @@ import {
   ScrollText,
   Settings2,
   ShieldAlert,
+  Siren,
   Terminal,
   TicketCheck,
   UserRoundCog,
@@ -42,6 +46,8 @@ import OperationLogs from "./OperationLogs.vue";
 import CommercePanel from "./CommercePanel.vue";
 import RecoveryPanel from "./RecoveryPanel.vue";
 import SecurityPanel from "./SecurityPanel.vue";
+import FormDialog from "../shared/components/FormDialog.vue";
+import UserMenu from "../shared/components/UserMenu.vue";
 import {
   applyBranding,
   branding,
@@ -51,6 +57,19 @@ import {
 const a = useAdmin();
 const page = ref(location.hash.slice(1) || "overview"),
   action = ref("");
+const settingsTab = ref("branding");
+const settingTabs = [
+  { id: "branding", label: "站点品牌" },
+  { id: "account", label: "账号与安全" },
+  { id: "version", label: "版本与升级" },
+];
+const agentActionTitles: Record<string, string> = {
+  agent: "新增代理",
+  user: "新增代理账号",
+  policy: "代理授权规则",
+  quota: "发放额度",
+  agentBatch: "代理批量发卡",
+};
 const login = reactive({ username: "", password: "" });
 const result = ref("{}");
 const codes = ref<string[]>([]);
@@ -60,26 +79,90 @@ const siteForm = reactive({
   logo_data_url: "",
   favicon_data_url: "",
 });
-const nav = [
-  { id: "overview", label: "业务概览", icon: LayoutDashboard },
-  { id: "products", label: "产品", icon: Boxes },
-  { id: "releases", label: "产品升级", icon: PackageCheck },
-  { id: "agents", label: "代理", icon: UserRoundCog },
-  { id: "commerce", label: "套餐与结算", icon: TicketCheck },
-  { id: "customers", label: "用户", icon: UserRoundCog },
-  { id: "recovery", label: "账号恢复", icon: KeyRound },
-  { id: "cards", label: "卡密", icon: TicketCheck },
-  { id: "licenses", label: "授权", icon: BadgeCheck },
-  { id: "risk", label: "风控", icon: ShieldAlert },
-  { id: "security", label: "盗版处置", icon: ShieldAlert },
-  { id: "tools", label: "联调工具", icon: Terminal },
-  { id: "offline", label: "离线授权", icon: FileKey2 },
-  { id: "audit", label: "审计", icon: ScrollText },
-  { id: "admins", label: "系统", icon: Settings2 },
+const navHome = { id: "overview", label: "业务概览", icon: LayoutDashboard };
+const navGroups = [
+  {
+    label: "产品",
+    items: [
+      { id: "products", label: "产品", icon: Boxes },
+      { id: "releases", label: "产品升级", icon: PackageCheck },
+    ],
+  },
+  {
+    label: "代理",
+    items: [
+      { id: "agents", label: "代理", icon: UserRoundCog },
+      { id: "commerce", label: "套餐与结算", icon: TicketCheck },
+    ],
+  },
+  {
+    label: "发卡",
+    items: [
+      { id: "cards", label: "卡密", icon: TicketCheck },
+      { id: "licenses", label: "授权", icon: BadgeCheck },
+      { id: "offline", label: "离线授权", icon: FileKey2 },
+    ],
+  },
+  {
+    label: "客户",
+    items: [
+      { id: "customers", label: "用户", icon: UserRoundCog },
+      { id: "recovery", label: "账号恢复", icon: KeyRound },
+    ],
+  },
+  {
+    label: "安全",
+    items: [
+      { id: "risk", label: "风控", icon: ShieldAlert },
+      { id: "security", label: "盗版处置", icon: ShieldAlert },
+    ],
+  },
+  {
+    label: "平台",
+    items: [
+      { id: "tools", label: "联调工具", icon: Terminal },
+      { id: "audit", label: "审计", icon: ScrollText },
+      { id: "admins", label: "系统", icon: Settings2 },
+    ],
+  },
 ];
-const title = computed(
-  () => nav.find((n) => n.id === page.value)?.label || "业务概览",
+const visibleGroups = computed(() =>
+  navGroups
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((n) => n.id !== "recovery" || a.isManager.value),
+    }))
+    .filter((g) => g.items.length),
 );
+/* Collapse state: true/false are explicit user choices, undefined defers to
+   "expand the group that holds the current page". */
+const expandedGroups = reactive<Record<string, boolean | undefined>>(
+  JSON.parse(localStorage.getItem("yn.admin_nav_expanded") || "{}"),
+);
+function isCollapsed(label: string) {
+  const pref = expandedGroups[label];
+  if (pref !== undefined) return !pref;
+  const group = visibleGroups.value.find((g) => g.label === label);
+  return !group?.items.some((n) => n.id === page.value);
+}
+function toggleGroup(label: string) {
+  expandedGroups[label] = isCollapsed(label);
+  localStorage.setItem(
+    "yn.admin_nav_expanded",
+    JSON.stringify(expandedGroups),
+  );
+}
+const title = computed(
+  () =>
+    [navHome, ...navGroups.flatMap((g) => g.items)].find(
+      (n) => n.id === page.value,
+    )?.label || "业务概览",
+);
+const cardsTab = ref("list");
+const licensesTab = ref("list");
+const riskTab = ref("alerts");
+const auditTab = ref("ops");
+const releasesTab = ref("policy");
 const pname = (id: string) =>
   a.data.products.find((p: any) => p.id === id)?.name || id;
 const aname = (id: string) =>
@@ -174,6 +257,59 @@ async function exportBatch() {
     "批次明文已导出",
   );
   codes.value = r.codes || [];
+}
+const productEdit = reactive({
+  id: "",
+  name: "",
+  bind_mode: "device",
+  max_bind_count: 1,
+  bind_conflict_strategy: "reject",
+  offline_grace_days: 15,
+});
+function openProductEdit(p: any) {
+  Object.assign(productEdit, {
+    id: p.id,
+    name: p.name,
+    bind_mode: p.bind_mode,
+    max_bind_count: p.max_bind_count,
+    bind_conflict_strategy: p.bind_conflict_strategy,
+    offline_grace_days: p.offline_grace_days,
+  });
+  action.value = "productEdit";
+}
+async function productUpdate(e: Event) {
+  const o = values(e);
+  o.max_bind_count = Number(o.max_bind_count);
+  o.offline_grace_days = Number(o.offline_grace_days);
+  await a.mutate(`/admin/products/${productEdit.id}/update`, o, "产品已更新");
+  action.value = "";
+}
+const agentEdit = reactive({ id: "", name: "", contact_name: "", phone: "" });
+const selectedAgentName = computed(
+  () =>
+    a.data.agents.find((x: any) => x.id === a.selected.agent)?.name || "",
+);
+function openAgentEdit(x: any) {
+  Object.assign(agentEdit, {
+    id: x.id,
+    name: x.name,
+    contact_name: x.contact_name || "",
+    phone: x.phone || "",
+  });
+  action.value = "agentEdit";
+}
+async function agentUpdate(e: Event) {
+  const o = values(e);
+  await a.mutate(`/admin/agents/${agentEdit.id}/update`, o, "代理信息已更新");
+  action.value = "";
+}
+async function openBatch(id: string) {
+  await a.showBatch(id);
+  cardsTab.value = "detail";
+}
+async function openBindings(no: string) {
+  await a.showBindings(no);
+  licensesTab.value = "bindings";
 }
 async function tools(kind: string, e: Event) {
   const o = values(e);
@@ -345,17 +481,45 @@ onMounted(async () => {
       </div>
       <nav class="nav" aria-label="管理功能">
         <a
-          v-for="n in nav.filter(
-            (n) => n.id !== 'recovery' || a.isManager.value,
-          )"
-          :key="n.id"
           href="#"
-          :class="{ active: page === n.id }"
-          :aria-label="n.label"
-          :title="n.label"
-          @click.prevent="go(n.id)"
-          ><component :is="n.icon" :size="18" /><span>{{ n.label }}</span></a
+          :class="{ active: page === navHome.id }"
+          :aria-label="navHome.label"
+          :title="navHome.label"
+          @click.prevent="go(navHome.id)"
+          ><component :is="navHome.icon" :size="18" /><span>{{
+            navHome.label
+          }}</span></a
         >
+        <div
+          v-for="g in visibleGroups"
+          :key="g.label"
+          class="nav-group"
+          :class="{ collapsed: isCollapsed(g.label) }"
+        >
+          <button
+            type="button"
+            class="nav-group-toggle"
+            :aria-expanded="!isCollapsed(g.label)"
+            @click="toggleGroup(g.label)"
+          >
+            <span>{{ g.label }}</span>
+            <ChevronDown :size="13" />
+          </button>
+          <div class="nav-group-items">
+            <a
+              v-for="n in g.items"
+              :key="n.id"
+              href="#"
+              :class="{ active: page === n.id }"
+              :aria-label="n.label"
+              :title="n.label"
+              @click.prevent="go(n.id)"
+              ><component :is="n.icon" :size="18" /><span>{{
+                n.label
+              }}</span></a
+            >
+          </div>
+        </div>
       </nav>
       <div class="sidebar-foot">
         SECURE NODE / ONLINE<br />V{{
@@ -371,22 +535,27 @@ onMounted(async () => {
         </div>
         <div class="top-actions">
           <AppearanceMenu />
-          <span class="identity"
-            >{{ a.profile.value.display_name || a.profile.value.username }} ·
-            {{ roleLabel(a.profile.value.role) }}</span
-          ><button class="icon-btn" title="刷新" @click="a.refresh">
-            <RefreshCw :size="17" /></button
-          ><button class="icon-btn" title="退出" @click="a.logout()">
-            <LogOut :size="17" />
+          <button class="icon-btn" title="刷新" @click="a.refresh">
+            <RefreshCw :size="17" />
           </button>
+          <UserMenu
+            :name="
+              a.profile.value.display_name || a.profile.value.username
+            "
+            :role="roleLabel(a.profile.value.role)"
+            password-action="修改密码"
+            @password="action = 'password'"
+            @logout="a.logout()"
+          />
         </div>
       </header>
       <div class="workspace">
         <template v-if="page === 'overview'"
-          ><section class="section-intro">
+          ><section class="hero-card">
             <div>
+              <span class="hero-eyebrow">AUTHORIZATION CORE</span>
               <h2>授权运行态</h2>
-              <p>从产品供给到授权验证，核心状态聚合于此。</p>
+              <p>产品供给、发卡与授权验证的核心状态聚合于此。</p>
             </div>
             <button
               v-if="canOperate"
@@ -411,13 +580,23 @@ onMounted(async () => {
               ]"
               class="metric"
             >
-              <span>{{ ["产品", "批次", "代理", "授权", "当前有效"][i] }}</span
-              ><strong>{{ v }}</strong>
+              <span class="metric-icon"
+                ><component
+                  :is="[Boxes, TicketCheck, UserRoundCog, BadgeCheck, Activity][i]"
+                  :size="16"
+              /></span>
+              <strong>{{ v }}</strong>
+              <small>{{ ["产品", "批次", "代理", "授权", "当前有效"][i] }}</small>
             </div>
           </div>
           <div class="overview-grid">
             <section class="panel">
-              <div class="panel-head"><h3>最近授权</h3></div>
+              <div class="panel-head">
+                <h3>最近授权</h3>
+                <button class="btn secondary small" @click="go('licenses')">
+                  全部授权
+                </button>
+              </div>
               <button
                 v-for="l in a.data.licenses.slice(0, 5)"
                 class="activity-row"
@@ -432,9 +611,17 @@ onMounted(async () => {
                   }}</small></span
                 >
               </button>
+              <p v-if="!a.data.licenses.length" class="empty">
+                暂无授权记录，生成卡密并激活后显示。
+              </p>
             </section>
             <section class="panel">
-              <div class="panel-head"><h3>最近批次</h3></div>
+              <div class="panel-head">
+                <h3>最近批次</h3>
+                <button class="btn secondary small" @click="go('cards')">
+                  全部批次
+                </button>
+              </div>
               <button
                 v-for="b in a.data.batches.slice(0, 5)"
                 class="activity-row"
@@ -448,6 +635,7 @@ onMounted(async () => {
                   ><small>{{ formatTime(b.created_at) }}</small></span
                 >
               </button>
+              <p v-if="!a.data.batches.length" class="empty">暂无卡密批次。</p>
             </section>
           </div></template
         >
@@ -462,11 +650,16 @@ onMounted(async () => {
               <Plus :size="14" />新增产品
             </button>
           </div>
-          <form
-            v-if="action === 'product'"
-            class="form-grid"
-            @submit.prevent="productCreate"
+          <FormDialog
+            :open="action === 'product'"
+            title="新增产品"
+            description="保存后生成 AppKey 与验签公钥；期限规则在首次发卡前可调整。"
+            @close="action = ''"
           >
+            <form
+              class="form-grid"
+              @submit.prevent="productCreate"
+            >
             <label class="field"
               >授权模式<select name="license_mode">
                 <option value="subscription">订阅使用（到期停用）</option>
@@ -519,7 +712,58 @@ onMounted(async () => {
             <div class="form-actions">
               <button class="btn">确认新增</button>
             </div>
-          </form>
+            </form>
+          </FormDialog>
+          <FormDialog
+            :open="action === 'productEdit'"
+            title="编辑产品"
+            description="调整绑定与离线策略；期限规则请在“产品升级 → 策略与规则”中维护。"
+            @close="action = ''"
+          >
+            <form class="form-grid" @submit.prevent="productUpdate">
+              <label class="field"
+                >产品名称<input name="name" :value="productEdit.name" required
+              /></label>
+              <label class="field"
+                >绑定模式<select name="bind_mode" :value="productEdit.bind_mode">
+                  <option value="device">设备</option>
+                  <option value="account">账号</option>
+                  <option value="domain">域名</option>
+                  <option value="ip">IP</option>
+                  <option value="none">无绑定</option>
+                </select></label
+              >
+              <label class="field"
+                >最大绑定数<input
+                  name="max_bind_count"
+                  type="number"
+                  min="1"
+                  :value="productEdit.max_bind_count"
+                  required
+              /></label>
+              <label class="field"
+                >超限策略<select
+                  name="bind_conflict_strategy"
+                  :value="productEdit.bind_conflict_strategy"
+                >
+                  <option value="reject">拒绝</option>
+                  <option value="kick_oldest">移除最久未活跃</option>
+                </select></label
+              >
+              <label class="field"
+                >离线天数<input
+                  name="offline_grace_days"
+                  type="number"
+                  min="0"
+                  max="36500"
+                  :value="productEdit.offline_grace_days"
+                  required
+              /></label>
+              <div class="form-actions">
+                <button class="btn">保存修改</button>
+              </div>
+            </form>
+          </FormDialog>
           <div class="table-wrap">
             <table class="table">
               <thead>
@@ -556,6 +800,12 @@ onMounted(async () => {
                   <td>
                     <div class="row-actions">
                       <button
+                        v-if="a.isManager.value"
+                        class="btn secondary small"
+                        @click="openProductEdit(p)"
+                      >
+                        编辑</button
+                      ><button
                         class="btn secondary small"
                         @click="a.showKeys(p.id)"
                       >
@@ -620,17 +870,45 @@ onMounted(async () => {
           :can-write="a.isManager.value"
         />
         <section v-if="page === 'releases'" class="panel">
-          <h2>产品版本与升级包</h2>
-          <label class="field"
-            >选择产品<select v-model="a.selected.product">
-              <option value="" disabled>请选择产品</option>
-              <option v-for="p in a.data.products" :key="p.id" :value="p.id">
-                {{ p.name }}
-              </option>
-            </select></label
-          >
-          <p v-if="!a.data.products.length">请先创建产品。</p>
+          <div class="panel-head">
+            <div>
+              <h3>产品版本与升级包</h3>
+              <p>选择产品后管理换绑规则、期限策略与升级包发布。</p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label class="field wide"
+              >选择产品<select v-model="a.selected.product">
+                <option value="" disabled>请选择产品</option>
+                <option v-for="p in a.data.products" :key="p.id" :value="p.id">
+                  {{ p.name }}
+                </option>
+              </select></label
+            >
+          </div>
+          <p v-if="!a.data.products.length" class="empty">请先创建产品。</p>
           <template v-if="a.selected.product">
+            <div class="tabbar" role="tablist" aria-label="产品升级视图">
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="releasesTab === 'policy'"
+                :class="{ active: releasesTab === 'policy' }"
+                @click="releasesTab = 'policy'"
+              >
+                策略与规则
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="releasesTab === 'release'"
+                :class="{ active: releasesTab === 'release' }"
+                @click="releasesTab = 'release'"
+              >
+                升级包
+              </button>
+            </div>
+            <template v-if="releasesTab === 'policy'">
             <BindingPolicy
               :key="'binding-' + a.selected.product"
               :product-id="a.selected.product"
@@ -686,7 +964,9 @@ onMounted(async () => {
               >
               <button class="btn secondary">保存产品归属</button>
             </form>
+            </template>
             <ProductReleases
+              v-else
               :key="a.selected.product"
               :product-id="a.selected.product"
               :api="a.api"
@@ -698,23 +978,20 @@ onMounted(async () => {
         <section v-if="page === 'agents'" class="panel">
           <div class="panel-head">
             <h3>代理管理</h3>
-            <div class="row-actions" v-if="a.isManager.value">
-              <button
-                v-for="x in [
-                  { k: 'agent', t: '新增代理' },
-                  { k: 'user', t: '账号' },
-                  { k: 'policy', t: '授权规则' },
-                  { k: 'quota', t: '发放额度' },
-                ]"
-                class="btn secondary small"
-                @click="action = action === x.k ? '' : x.k"
-              >
-                {{ x.t }}
-              </button>
-            </div>
+            <button
+              v-if="a.isManager.value"
+              class="btn small"
+              @click="action = action === 'agent' ? '' : 'agent'"
+            >
+              <Plus :size="14" />新增代理
+            </button>
           </div>
+          <FormDialog
+            :open="['agent', 'user', 'policy', 'quota', 'agentBatch'].includes(action)"
+            :title="agentActionTitles[action] || '代理操作'"
+            @close="action = ''"
+          >
           <form
-            v-if="action"
             class="form-grid"
             @submit.prevent="
               agentTask(action === 'agent' ? 'create' : action, $event)
@@ -805,6 +1082,27 @@ onMounted(async () => {
               <button class="btn">确认提交</button>
             </div>
           </form>
+          </FormDialog>
+          <FormDialog
+            :open="action === 'agentEdit'"
+            title="编辑代理"
+            :description="`更新 ${agentEdit.name} 的联系信息；登录代码与编号不可变更。`"
+            @close="action = ''"
+          >
+            <form class="form-grid" @submit.prevent="agentUpdate">
+              <label class="field"
+                >代理名称<input name="name" :value="agentEdit.name" required
+              /></label>
+              <label class="field"
+                >联系人<input name="contact_name" :value="agentEdit.contact_name"
+              /></label>
+              <label class="field"
+                >手机<input name="phone" :value="agentEdit.phone" /></label>
+              <div class="form-actions">
+                <button class="btn">保存修改</button>
+              </div>
+            </form>
+          </FormDialog>
           <div class="agent-grid">
             <div class="table-wrap">
               <table class="table">
@@ -820,7 +1118,10 @@ onMounted(async () => {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="x in a.data.agents">
+                  <tr
+                    v-for="x in a.data.agents"
+                    :class="{ 'row-active': a.selected.agent === x.id }"
+                  >
                     <td>{{ x.name }}</td>
                     <td>
                       <code>{{ x.login_code || x.agent_no }}</code>
@@ -834,6 +1135,12 @@ onMounted(async () => {
                     <td>
                       <div class="row-actions">
                         <button
+                          v-if="a.isManager.value"
+                          class="btn secondary small"
+                          @click="openAgentEdit(x)"
+                        >
+                          编辑</button
+                        ><button
                           class="btn secondary small"
                           @click="a.showAgent(x.id)"
                         >
@@ -858,21 +1165,62 @@ onMounted(async () => {
               </table>
             </div>
             <aside class="detail-pane">
-              <h4>代理账号与额度</h4>
-              <div v-for="u in a.data.agentUsers" class="detail-row">
-                <span
-                  ><b>{{ u.display_name || u.username }}</b
-                  ><code>{{ u.username }} · {{ u.role }}</code></span
-                ><StatusBadge :status="u.status" />
+              <div class="detail-head">
+                <h4>{{ selectedAgentName || "代理详情" }}</h4>
+                <div v-if="a.isManager.value && a.selected.agent" class="row-actions">
+                  <button class="btn secondary small" @click="action = 'user'">
+                    新增账号
+                  </button>
+                  <button class="btn secondary small" @click="action = 'policy'">
+                    授权规则
+                  </button>
+                  <button class="btn secondary small" @click="action = 'quota'">
+                    发放额度
+                  </button>
+                </div>
               </div>
-              <div v-for="q in a.data.agentQuotas" class="detail-row">
-                <span
-                  ><b>{{ pname(q.product_id) }}</b
-                  ><code>{{
-                    q.is_permanent ? "永久" : `${q.duration_days} 天`
-                  }}</code></span
-                ><strong>{{ q.balance }}</strong>
-              </div>
+              <template v-if="a.selected.agent">
+                <h5>代理账号</h5>
+                <div v-for="u in a.data.agentUsers" class="detail-row">
+                  <span
+                    ><b>{{ u.display_name || u.username }}</b
+                    ><code>{{ u.username }} · {{ u.role }}</code></span
+                  ><span class="row-actions"
+                    ><StatusBadge :status="u.status" />
+                    <button
+                      v-if="a.isManager.value"
+                      class="btn secondary small"
+                      @click="
+                        a.mutate(
+                          `/admin/agents/${a.selected.agent}/users/${u.id}/${u.status === 'active' ? 'disable' : 'enable'}`,
+                          undefined,
+                          '代理账号状态已更新',
+                        )
+                      "
+                    >
+                      {{ u.status === "active" ? "停用" : "启用" }}
+                    </button></span
+                  >
+                </div>
+                <p v-if="!a.data.agentUsers.length" class="pane-empty">
+                  该代理还没有登录账号，点击“新增账号”创建。
+                </p>
+                <h5>产品额度</h5>
+                <div v-for="q in a.data.agentQuotas" class="detail-row">
+                  <span
+                    ><b>{{ pname(q.product_id) }}</b
+                    ><code>{{
+                      q.is_permanent ? "永久" : `${q.duration_days} 天`
+                    }}</code></span
+                  ><strong>{{ q.balance }}</strong>
+                </div>
+                <p v-if="!a.data.agentQuotas.length" class="pane-empty">
+                  尚未发放额度，点击“发放额度”为该代理充值。
+                </p>
+              </template>
+              <p v-else class="pane-empty">
+                点击左侧代理的“详情”，在这里管理它的账号与额度。
+              </p>
             </aside>
           </div>
         </section>
@@ -887,8 +1235,12 @@ onMounted(async () => {
               <Plus :size="14" />生成卡密
             </button>
           </div>
+          <FormDialog
+            :open="action === 'batch'"
+            title="生成卡密"
+            @close="action = ''"
+          >
           <form
-            v-if="action === 'batch'"
             class="form-grid"
             @submit.prevent="batchCreate"
           >
@@ -914,6 +1266,28 @@ onMounted(async () => {
               <button class="btn">生成卡密</button>
             </div>
           </form>
+          </FormDialog>
+          <div class="tabbar" role="tablist" aria-label="卡密视图">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="cardsTab === 'list'"
+              :class="{ active: cardsTab === 'list' }"
+              @click="cardsTab = 'list'"
+            >
+              批次列表
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="cardsTab === 'detail'"
+              :class="{ active: cardsTab === 'detail' }"
+              @click="cardsTab = 'detail'"
+            >
+              批次明细
+            </button>
+          </div>
+          <template v-if="cardsTab === 'list'">
           <pre v-if="codes.length" class="code-box">{{ codes.join("\n") }}</pre>
           <div class="table-wrap">
             <table class="table">
@@ -946,7 +1320,7 @@ onMounted(async () => {
                   <td>
                     <button
                       class="btn secondary small"
-                      @click="a.showBatch(b.id)"
+                      @click="openBatch(b.id)"
                     >
                       明细
                     </button>
@@ -955,6 +1329,8 @@ onMounted(async () => {
               </tbody>
             </table>
           </div>
+          </template>
+          <template v-else>
           <div class="panel-head">
             <h3>批次卡密明细</h3>
             <button
@@ -1010,9 +1386,31 @@ onMounted(async () => {
               </tbody>
             </table>
           </div>
+          </template>
         </section>
         <section v-if="page === 'licenses'" class="panel">
           <div class="panel-head"><h3>授权管理</h3></div>
+          <div class="tabbar" role="tablist" aria-label="授权视图">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="licensesTab === 'list'"
+              :class="{ active: licensesTab === 'list' }"
+              @click="licensesTab = 'list'"
+            >
+              授权列表
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="licensesTab === 'bindings'"
+              :class="{ active: licensesTab === 'bindings' }"
+              @click="licensesTab = 'bindings'"
+            >
+              绑定明细
+            </button>
+          </div>
+          <template v-if="licensesTab === 'list'">
           <form
             class="form-grid filter-grid"
             @submit.prevent="
@@ -1081,7 +1479,7 @@ onMounted(async () => {
                     <div class="row-actions">
                       <button
                         class="btn secondary small"
-                        @click="a.showBindings(l.license_no)"
+                        @click="openBindings(l.license_no)"
                       >
                         绑定</button
                       ><button
@@ -1126,6 +1524,15 @@ onMounted(async () => {
               </button>
             </div>
           </div>
+          </template>
+          <template v-else>
+          <div class="panel-head">
+            <h3>
+              绑定明细<small v-if="a.selected.license" class="binding-license">{{
+                a.selected.license
+              }}</small>
+            </h3>
+          </div>
           <div class="detail-list">
             <div v-for="b in a.data.bindings" class="detail-row">
               <span
@@ -1152,7 +1559,11 @@ onMounted(async () => {
                 解绑
               </button>
             </div>
-          </div>
+            </div>
+            <p v-if="!a.data.bindings.length" class="empty">
+              在授权列表中点击“绑定”查看该授权的绑定明细。
+            </p>
+          </template>
         </section>
         <section v-if="page === 'tools'" class="panel">
           <div class="panel-head"><h3>激活与验证</h3></div>
@@ -1195,8 +1606,12 @@ onMounted(async () => {
               <Plus :size="14" />签发
             </button>
           </div>
+          <FormDialog
+            :open="action === 'offline'"
+            title="签发离线授权"
+            @close="action = ''"
+          >
           <form
-            v-if="action === 'offline'"
             class="form-grid"
             @submit.prevent="
               create(
@@ -1228,6 +1643,7 @@ onMounted(async () => {
               <button class="btn">生成离线授权</button>
             </div>
           </form>
+          </FormDialog>
           <div class="notice">
             纯离线文件无法远程实时收回；吊销后系统将停止再次下载。
           </div>
@@ -1296,8 +1712,18 @@ onMounted(async () => {
               }"
               class="metric"
             >
-              <span>{{ v }}</span
-              ><strong>{{ a.data.riskSummary[k] || 0 }}</strong>
+              <span class="metric-icon"
+                ><component
+                  :is="{
+                    active_blocks: ShieldAlert,
+                    open_alerts: BellRing,
+                    critical_alerts: Siren,
+                    alerts_24h: Clock3,
+                  }[k]"
+                  :size="16"
+              /></span>
+              <strong>{{ a.data.riskSummary[k] || 0 }}</strong>
+              <small>{{ v }}</small>
             </div>
           </div>
           <section class="panel">
@@ -1311,8 +1737,12 @@ onMounted(async () => {
                 <Plus :size="14" />新增封禁
               </button>
             </div>
+            <FormDialog
+              :open="action === 'block'"
+              title="新增封禁规则"
+              @close="action = ''"
+            >
             <form
-              v-if="action === 'block'"
               class="form-grid"
               @submit.prevent="
                 create('/admin/risk/blocks', $event, '封禁规则已生效')
@@ -1336,6 +1766,28 @@ onMounted(async () => {
                 <button class="btn">立即封禁</button>
               </div>
             </form>
+            </FormDialog>
+            <div class="tabbar" role="tablist" aria-label="风控视图">
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="riskTab === 'alerts'"
+                :class="{ active: riskTab === 'alerts' }"
+                @click="riskTab = 'alerts'"
+              >
+                实时告警
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="riskTab === 'blocks'"
+                :class="{ active: riskTab === 'blocks' }"
+                @click="riskTab = 'blocks'"
+              >
+                封禁清单
+              </button>
+            </div>
+            <template v-if="riskTab === 'alerts'">
             <div class="panel-head"><h3>异常告警</h3></div>
             <div class="table-wrap">
               <table class="table">
@@ -1381,6 +1833,8 @@ onMounted(async () => {
                 </tbody>
               </table>
             </div>
+            </template>
+            <template v-else>
             <div class="panel-head"><h3>封禁清单</h3></div>
             <div class="table-wrap">
               <table class="table">
@@ -1424,10 +1878,36 @@ onMounted(async () => {
                 </tbody>
               </table>
             </div>
+            </template>
           </section>
         </section>
         <section v-if="page === 'audit'" class="panel">
-          <OperationLogs :api="a.api" :token="a.token.value" />
+          <div class="tabbar" role="tablist" aria-label="审计视图">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="auditTab === 'ops'"
+              :class="{ active: auditTab === 'ops' }"
+              @click="auditTab = 'ops'"
+            >
+              操作记录
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="auditTab === 'logs'"
+              :class="{ active: auditTab === 'logs' }"
+              @click="auditTab = 'logs'"
+            >
+              审计日志
+            </button>
+          </div>
+          <OperationLogs
+            v-if="auditTab === 'ops'"
+            :api="a.api"
+            :token="a.token.value"
+          />
+          <template v-else>
           <div class="panel-head"><h3>审计日志</h3></div>
           <form class="form-grid" @submit.prevent="a.refresh">
             <label class="field"
@@ -1478,6 +1958,7 @@ onMounted(async () => {
               </tbody>
             </table>
           </div>
+          </template>
         </section>
         <section v-if="page === 'admins'" class="panel">
           <div class="panel-head">
@@ -1490,7 +1971,24 @@ onMounted(async () => {
               <Plus :size="14" />创建账号
             </button>
           </div>
-          <form class="branding-settings" @submit.prevent="saveSiteSettings">
+          <div class="tabbar" role="tablist" aria-label="设置分类">
+            <button
+              v-for="t in settingTabs"
+              :key="t.id"
+              type="button"
+              role="tab"
+              :aria-selected="settingsTab === t.id"
+              :class="{ active: settingsTab === t.id }"
+              @click="settingsTab = t.id"
+            >
+              {{ t.label }}
+            </button>
+          </div>
+          <form
+            v-if="settingsTab === 'branding'"
+            class="branding-settings"
+            @submit.prevent="saveSiteSettings"
+          >
             <div class="branding-copy">
               <span class="eyebrow"><ImageUp :size="15" /> SITE IDENTITY</span>
               <h4>站点品牌</h4>
@@ -1566,7 +2064,7 @@ onMounted(async () => {
               </div>
             </div>
           </form>
-          <section class="version-console">
+          <section v-if="settingsTab === 'version'" class="version-console">
             <div class="version-hero">
               <span><PackageCheck :size="18" /> 当前运行版本</span>
               <strong>v{{ a.data.system?.current_version || "0.2.0" }}</strong>
@@ -1615,8 +2113,13 @@ onMounted(async () => {
               </article>
             </div>
           </section>
+          <FormDialog
+            :open="action === 'admin'"
+            title="创建账号"
+            description="创建管理员、运营、审计或开发者账号。"
+            @close="action = ''"
+          >
           <form
-            v-if="action === 'admin'"
             class="form-grid"
             @submit.prevent="create('/admin/users', $event, '账号已创建')"
           >
@@ -1641,8 +2144,9 @@ onMounted(async () => {
               <button class="btn">创建账号</button>
             </div>
           </form>
-          <div v-if="a.isSuper.value" class="table-wrap">
-            <table class="table">
+          </FormDialog>
+          <template v-if="settingsTab === 'account'">
+          <div v-if="a.isSuper.value" class="table-wrap">            <table class="table">
               <thead>
                 <tr>
                   <th>账号</th>
@@ -1681,34 +2185,44 @@ onMounted(async () => {
               </tbody>
             </table>
           </div>
-          <div class="panel-head"><h3>修改我的密码</h3></div>
-          <form
-            class="form-grid"
-            @submit.prevent="
-              create('/admin/password', $event, '密码已修改').then(() =>
-                a.logout('请使用新密码登录'),
-              )
-            "
-          >
-            <label class="field"
-              >当前密码<input
-                name="current_password"
-                type="password"
-                required /></label
-            ><label class="field"
-              >新密码<input
-                name="new_password"
-                type="password"
-                minlength="8"
-                required
-            /></label>
-            <div class="form-actions">
-              <button class="btn">修改密码</button>
-            </div>
-          </form>
+          <p v-if="!a.isSuper.value" class="empty">
+            账号管理仅超级管理员可见；可在右上角头像菜单修改密码。
+          </p>
+          </template>
         </section>
       </div>
     </main>
+    <FormDialog
+      :open="action === 'password'"
+      title="修改密码"
+      description="修改成功后将退出登录，请使用新密码重新登录。"
+      @close="action = ''"
+    >
+      <form
+        class="form-grid"
+        @submit.prevent="
+          create('/admin/password', $event, '密码已修改').then(() =>
+            a.logout('请使用新密码登录'),
+          )
+        "
+      >
+        <label class="field"
+          >当前密码<input
+            name="current_password"
+            type="password"
+            required /></label
+        ><label class="field"
+          >新密码<input
+            name="new_password"
+            type="password"
+            minlength="8"
+            required
+        /></label>
+        <div class="form-actions">
+          <button class="btn">确认修改</button>
+        </div>
+      </form>
+    </FormDialog>
     <AppToast />
     <dialog :open="!!a.data.keys" class="key-dialog">
       <div class="panel-head">

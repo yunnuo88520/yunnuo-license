@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
+import FormDialog from "../shared/components/FormDialog.vue";
 const props = defineProps<{
   api: <T = any>(path: string, options?: RequestInit) => Promise<T>;
   canWrite: boolean;
@@ -8,7 +9,8 @@ const users = ref<any[]>([]),
   error = ref(""),
   message = ref(""),
   busy = ref(false),
-  license = ref<any>();
+  license = ref<any>(),
+  showCreate = ref(false);
 const form = reactive({ username: "", password: "", display_name: "" }),
   owner = reactive({ license_no: "", user_id: "", reason: "" });
 async function load() {
@@ -36,6 +38,7 @@ function create() {
     form.username = "";
     form.display_name = "";
     await load();
+    showCreate.value = false;
     message.value = "普通用户账号已创建。";
   });
 }
@@ -79,30 +82,53 @@ onMounted(() => run(load));
 </script>
 <template>
   <section class="panel">
-    <h2>普通用户管理</h2>
-    <p>
-      用户只能管理归属于自己的授权。用户账号与管理员、代理、开发者账号相互隔离。
-    </p>
-    <p class="error" role="alert" v-if="error">{{ error }}</p>
-    <p v-if="message" role="status">{{ message }}</p>
-    <form v-if="canWrite" class="customer-form" @submit.prevent="create">
-      <label class="field"
-        >用户登录名<input
-          v-model="form.username"
-          required
-          maxlength="80"
-          autocomplete="off" /></label
-      ><label class="field"
-        >显示名称<input v-model="form.display_name" maxlength="160" /></label
-      ><label class="field"
-        >初始密码<input
-          v-model="form.password"
-          type="password"
-          required
-          minlength="8"
-          autocomplete="new-password" /></label
-      ><button class="btn" :disabled="busy">创建普通用户</button>
-    </form>
+    <div class="panel-head">
+      <div>
+        <h3>普通用户管理</h3>
+        <p>
+          用户只能管理归属于自己的授权。用户账号与管理员、代理、开发者账号相互隔离。
+        </p>
+      </div>
+      <button
+        v-if="canWrite"
+        class="btn small"
+        type="button"
+        @click="showCreate = true"
+      >
+        ＋ 新增用户
+      </button>
+    </div>
+    <div class="panel-body">
+      <p class="error" role="alert" v-if="error">{{ error }}</p>
+      <p v-if="message" role="status">{{ message }}</p>
+    </div>
+    <FormDialog
+      :open="showCreate"
+      title="新增普通用户"
+      description="用户首次登录后可自行管理名下授权。"
+      @close="showCreate = false"
+    >
+      <form class="customer-form in-dialog" @submit.prevent="create">
+        <label class="field"
+          >用户登录名<input
+            v-model="form.username"
+            required
+            maxlength="80"
+            autocomplete="off" /></label
+        ><label class="field"
+          >显示名称<input v-model="form.display_name" maxlength="160" /></label
+        ><label class="field"
+          >初始密码<input
+            v-model="form.password"
+            type="password"
+            required
+            minlength="8"
+            autocomplete="new-password" /></label
+        ><div class="form-actions">
+          <button class="btn" :disabled="busy">创建用户</button>
+        </div>
+      </form>
+    </FormDialog>
     <div class="table-wrap">
       <table class="table">
         <thead>
@@ -132,9 +158,9 @@ onMounted(() => run(load));
         </tbody>
       </table>
     </div>
-    <template v-if="canWrite"
-      ><h3>分配已有授权</h3>
-      <p>
+    <div v-if="canWrite" class="panel-body">
+      <h3>分配已有授权</h3>
+      <p class="assign-hint">
         首次归属可由管理员分配。已有归属默认禁止转移，启用后仍需由管理员填写原因并执行。
       </p>
       <form class="customer-form" @submit.prevent="lookup">
@@ -166,8 +192,8 @@ onMounted(() => run(load));
             required
             maxlength="500" /></label
         ><button class="btn" :disabled="busy">确认分配归属</button>
-      </form></template
-    >
+      </form>
+    </div>
   </section>
 </template>
 <style scoped>
@@ -175,7 +201,20 @@ onMounted(() => run(load));
   display: grid;
   gap: 14px;
   max-width: 680px;
-  margin: 22px 0;
+  margin: 0 0 18px;
+}
+.customer-form.in-dialog {
+  margin: 0;
+  max-width: 480px;
+}
+.panel-body h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.assign-hint {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .error {
   color: var(--red);

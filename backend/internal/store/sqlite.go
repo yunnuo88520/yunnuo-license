@@ -326,6 +326,17 @@ func (s *Store) UpdateProductStatus(ctx context.Context, productID, status strin
 	return requireAffected(result)
 }
 
+func (s *Store) UpdateProductProfile(ctx context.Context, productID, name, bindMode, bindConflictStrategy string, maxBindCount, offlineGraceDays int, now time.Time) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE products SET name = ?, bind_mode = ?, bind_conflict_strategy = ?, max_bind_count = ?, offline_grace_days = ?, updated_at = ?
+		WHERE id = ?`,
+		name, bindMode, bindConflictStrategy, maxBindCount, offlineGraceDays, ts(now), productID)
+	if err != nil {
+		return err
+	}
+	return requireAffected(result)
+}
+
 func (s *Store) CreateCardBatch(ctx context.Context, batch domain.CardBatch, cards []domain.Card) error {
 	return s.WithTx(ctx, func(tx *Tx) error {
 		if err := tx.CreateCardBatch(ctx, batch); err != nil {
@@ -715,6 +726,16 @@ func (s *Store) GetAgentByNo(ctx context.Context, agentNo string) (domain.Agent,
 func (s *Store) UpdateAgentStatus(ctx context.Context, agentID, status string, disabledAt *time.Time, now time.Time) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE agents SET status = ?, disabled_at = ?, updated_at = ? WHERE id = ?`,
 		status, nullTime(disabledAt), ts(now), agentID)
+	if err != nil {
+		return err
+	}
+	return requireAffected(result)
+}
+
+func (s *Store) UpdateAgentProfile(ctx context.Context, agentID, name, contactName, phone, email string, now time.Time) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agents SET name = ?, contact_name = ?, phone = ?, email = ?, updated_at = ? WHERE id = ?`,
+		name, nullString(contactName), nullString(phone), nullString(email), ts(now), agentID)
 	if err != nil {
 		return err
 	}

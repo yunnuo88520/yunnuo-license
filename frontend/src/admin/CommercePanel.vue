@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import PagedRecords from "../shared/components/PagedRecords.vue";
+import FormDialog from "../shared/components/FormDialog.vue";
 import { computed, onMounted, reactive, ref } from "vue";
+import { Plus } from "lucide-vue-next";
 import { formatTime } from "../shared/format";
 const props = defineProps<{
   api: <T = any>(path: string, options?: RequestInit) => Promise<T>;
@@ -12,6 +14,7 @@ const props = defineProps<{
 const catalog = ref<any>({ groups: [], packages: [], tiers: [] }),
   account = ref<any>(),
   selected = ref(""),
+  catalogTab = ref("catalog"),
   error = ref(""),
   message = ref(""),
   busy = ref(false),
@@ -88,16 +91,20 @@ async function run(fn: () => Promise<any>) {
 }
 const post = (path: string, body: any) =>
   props.api(path, { method: "POST", body: JSON.stringify(body) });
+const show = reactive({ group: false, pkg: false, tier: false, price: false });
 function editGroup(g: any) {
   Object.assign(group, { ...g, product_ids: [...g.product_ids] });
+  show.group = true;
 }
 async function saveGroup() {
   await post("/admin/product-groups", group);
   Object.assign(group, { id: "", name: "", product_ids: [] });
+  show.group = false;
 }
 async function savePackage() {
   await post("/admin/packages", pkg);
   pkg.name = "";
+  show.pkg = false;
 }
 async function saveGrant() {
   await post(`/admin/agents/${selected.value}/packages`, {
@@ -134,35 +141,42 @@ onMounted(() => run(load));
     </section>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
     <p v-if="message" class="notice" role="status">{{ message }}</p>
-    <fieldset :disabled="busy || !canWrite">
+    <div class="tabbar plain" role="tablist" aria-label="套餐与结算视图">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="catalogTab === 'catalog'"
+        :class="{ active: catalogTab === 'catalog' }"
+        @click="catalogTab = 'catalog'"
+      >
+        套餐与价格
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="catalogTab === 'agents'"
+        :class="{ active: catalogTab === 'agents' }"
+        @click="catalogTab = 'agents'"
+      >
+        代理运营
+      </button>
+    </div>
+    <fieldset v-if="catalogTab === 'catalog'" :disabled="busy || !canWrite">
       <section class="panel">
-        <h3>应用分组</h3>
-        <form @submit.prevent="run(saveGroup)">
-          <label class="field"
-            >分组名称<input v-model="group.name" required maxlength="160"
-          /></label>
-          <div class="choices">
-            <label v-for="p in products" :key="p.id" class="check"
-              ><input
-                type="checkbox"
-                v-model="group.product_ids"
-                :value="p.id"
-              />{{ p.name }}</label
-            >
-          </div>
-          <div class="row-actions">
-            <button class="btn">{{ group.id ? "更新分组" : "创建分组" }}</button
-            ><button
-              type="button"
-              class="btn secondary"
-              @click="
-                Object.assign(group, { id: '', name: '', product_ids: [] })
-              "
-            >
-              清空
-            </button>
-          </div>
-        </form>
+        <div class="panel-title">
+          <h3>应用分组</h3>
+          <button
+            class="btn small"
+            type="button"
+            :disabled="busy || !canWrite"
+            @click="
+              Object.assign(group, { id: '', name: '', product_ids: [] });
+              show.group = true;
+            "
+          >
+            <Plus :size="14" />{{ group.id ? "继续编辑分组" : "新增分组" }}
+          </button>
+        </div>
         <div class="groups">
           <button
             v-for="g in catalog.groups"
@@ -175,47 +189,49 @@ onMounted(() => run(load));
           </button>
         </div>
       </section>
+      <FormDialog
+        :open="show.group"
+        :title="group.id ? '编辑分组' : '新增分组'"
+        :description="group.id ? '调整分组包含的应用后保存。' : '分组用于按批向代理授予套餐。'"
+        @close="show.group = false"
+      >
+        <p v-if="error" class="modal-error" role="alert">{{ error }}</p>
+        <form class="form-grid" @submit.prevent="run(saveGroup)">
+          <label class="field"
+            >分组名称<input v-model="group.name" required maxlength="160"
+          /></label>
+          <div class="choices wide">
+            <label v-for="p in products" :key="p.id" class="check"
+              ><input
+                type="checkbox"
+                v-model="group.product_ids"
+                :value="p.id"
+              />{{ p.name }}</label
+            >
+          </div>
+          <div class="form-actions">
+            <button class="btn" :disabled="busy">{{
+              group.id ? "更新分组" : "创建分组"
+            }}</button>
+          </div>
+        </form>
+      </FormDialog>
       <section class="panel">
-        <h3>统一卡密套餐</h3>
+        <div class="panel-title">
+          <h3>统一卡密套餐</h3>
+          <button
+            class="btn small"
+            type="button"
+            :disabled="busy || !canWrite"
+            @click="show.pkg = true"
+          >
+            <Plus :size="14" />建立套餐
+          </button>
+        </div>
         <p>
           套餐规格创建后固定；调整时长请新建套餐。使用与更新期限遵循应用规则；更新天数为
           0 时跟随套餐天数，永久卡的更新服务也受应用固定更新天数限制。
         </p>
-        <form class="form-grid" @submit.prevent="run(savePackage)">
-          <label class="field"
-            >所属应用<select v-model="pkg.product_id" required>
-              <option v-for="p in products" :value="p.id">{{ p.name }}</option>
-            </select></label
-          ><label class="field"
-            >套餐名称<input
-              v-model="pkg.name"
-              required
-              maxlength="160" /></label
-          ><label class="field"
-            >套餐天数<input
-              v-model.number="pkg.duration_days"
-              type="number"
-              min="1"
-              max="36500"
-              :disabled="pkg.is_permanent"
-              required /></label
-          ><label class="field"
-            >基础成本（分）<input
-              v-model.number="pkg.base_cost"
-              type="number"
-              min="0"
-              max="1000000000000"
-              required /></label
-          ><label class="check"
-            ><input v-model="pkg.is_permanent" type="checkbox" />永久卡</label
-          ><label class="check"
-            ><input
-              v-model="pkg.use_quota"
-              type="checkbox"
-            />同时扣除已发放的张数额度</label
-          >
-          <div class="form-actions"><button class="btn">建立套餐</button></div>
-        </form>
         <div class="table-wrap">
           <table class="table">
             <thead>
@@ -269,13 +285,90 @@ onMounted(() => run(load));
           </table>
         </div>
       </section>
+      <FormDialog
+        :open="show.pkg"
+        title="建立套餐"
+        description="套餐规格创建后固定，调整时长需另建套餐。"
+        @close="show.pkg = false"
+      >
+        <p v-if="error" class="modal-error" role="alert">{{ error }}</p>
+        <form class="form-grid" @submit.prevent="run(savePackage)">
+          <label class="field"
+            >所属应用<select v-model="pkg.product_id" required>
+              <option v-for="p in products" :value="p.id">{{ p.name }}</option>
+            </select></label
+          ><label class="field"
+            >套餐名称<input
+              v-model="pkg.name"
+              required
+              maxlength="160" /></label
+          ><label class="field"
+            >套餐天数<input
+              v-model.number="pkg.duration_days"
+              type="number"
+              min="1"
+              max="36500"
+              :disabled="pkg.is_permanent"
+              required /></label
+          ><label class="field"
+            >基础成本（分）<input
+              v-model.number="pkg.base_cost"
+              type="number"
+              min="0"
+              max="1000000000000"
+              required /></label
+          ><label class="check"
+            ><input v-model="pkg.is_permanent" type="checkbox" />永久卡</label
+          ><label class="check"
+            ><input
+              v-model="pkg.use_quota"
+              type="checkbox"
+            />同时扣除已发放的张数额度</label
+          >
+          <div class="form-actions">
+            <button class="btn" :disabled="busy">建立套餐</button>
+          </div>
+        </form>
+      </FormDialog>
       <section class="panel">
-        <h3>代理等级与价格</h3>
+        <div class="panel-title">
+          <h3>代理等级与价格</h3>
+          <div class="row-actions">
+            <button
+              class="btn small"
+              type="button"
+              :disabled="busy || !canWrite"
+              @click="show.tier = true"
+            >
+              <Plus :size="14" />创建等级
+            </button>
+            <button
+              class="btn small secondary"
+              type="button"
+              :disabled="busy || !canWrite"
+              @click="show.price = true"
+            >
+              等级定价
+            </button>
+          </div>
+        </div>
+        <p>
+          为代理等级设置专属成本价；未定价的套餐按套餐基础价结算。
+        </p>
+      </section>
+      <FormDialog
+        :open="show.tier"
+        title="创建代理等级"
+        @close="show.tier = false"
+      >
+        <p v-if="error" class="modal-error" role="alert">{{ error }}</p>
         <form
+          class="form-grid"
           @submit.prevent="
             run(async () => {
               await post('/admin/agent-tiers', { name: tierName });
               tierName = '';
+              show.tier = false;
             })
           "
         >
@@ -284,12 +377,29 @@ onMounted(() => run(load));
               v-model="tierName"
               required
               maxlength="160" /></label
-          ><button class="btn">创建等级</button>
+          >
+          <div class="form-actions">
+            <button class="btn" :disabled="busy">创建等级</button>
+          </div>
         </form>
+      </FormDialog>
+      <FormDialog
+        :open="show.price"
+        title="等级定价"
+        description="为等级的指定套餐设置专属成本；恢复基础价即删除等级价。"
+        @close="show.price = false"
+      >
+        <p v-if="error" class="modal-error" role="alert">{{ error }}</p>
         <form
           class="form-grid"
           @submit.prevent="
-            run(() => post(`/admin/agent-tiers/${price.tier_id}/prices`, price))
+            run(async () => {
+              await post(
+                `/admin/agent-tiers/${price.tier_id}/prices`,
+                price,
+              );
+              show.price = false;
+            })
           "
         >
           <label class="field"
@@ -315,27 +425,28 @@ onMounted(() => run(load));
               required
           /></label>
           <div class="form-actions">
-            <button class="btn">保存等级价格</button
+            <button class="btn" :disabled="busy">保存等级价格</button
             ><button
               class="btn secondary"
               type="button"
               :disabled="!price.tier_id || !price.package_id"
               @click="
-                run(() =>
-                  post(`/admin/agent-tiers/${price.tier_id}/prices`, {
+                run(async () => {
+                  await post(`/admin/agent-tiers/${price.tier_id}/prices`, {
                     package_id: price.package_id,
                     unit_cost: null,
-                  }),
-                )
+                  });
+                  show.price = false;
+                })
               "
             >
               恢复套餐基础价
             </button>
           </div>
         </form>
-      </section>
+      </FormDialog>
     </fieldset>
-    <section class="panel">
+    <section v-if="catalogTab === 'agents'" class="panel">
       <h3>代理授权与资金</h3>
       <label class="field"
         >当前代理<select v-model="selected" @change="run(loadAccount)">
@@ -530,6 +641,26 @@ fieldset {
 }
 .panel {
   padding: 26px;
+}
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.panel-title h3 {
+  margin: 0;
+}
+.modal-error {
+  margin: 0;
+  padding: 12px 20px 0;
+  color: var(--red);
+  font-size: 12px;
+}
+.choices.wide {
+  grid-column: span 2;
 }
 form {
   display: grid;

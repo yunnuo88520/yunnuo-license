@@ -31,6 +31,61 @@ func (s *Service) ChangeProductStatus(ctx context.Context, productID, status, ac
 	return product, nil
 }
 
+type UpdateProductInput struct {
+	Name                 string `json:"name"`
+	BindMode             string `json:"bind_mode"`
+	MaxBindCount         int    `json:"max_bind_count"`
+	BindConflictStrategy string `json:"bind_conflict_strategy"`
+	OfflineGraceDays     int    `json:"offline_grace_days"`
+}
+
+// UpdateProductProfile edits presentation and binding settings. License mode,
+// update window and expire grace stay under the locked license-policy endpoint.
+func (s *Service) UpdateProductProfile(ctx context.Context, productID string, input UpdateProductInput, actorID string) (domain.Product, error) {
+	productID = strings.TrimSpace(productID)
+	input.Name = strings.TrimSpace(input.Name)
+	if productID == "" || input.Name == "" {
+		return domain.Product{}, ErrInvalidRequest
+	}
+	switch input.BindMode {
+	case domain.BindNone, domain.BindDevice, domain.BindDomain, domain.BindIP, domain.BindAccount:
+	default:
+		return domain.Product{}, ErrInvalidRequest
+	}
+	if input.BindConflictStrategy == "" {
+		input.BindConflictStrategy = domain.ConflictReject
+	}
+	if input.BindConflictStrategy != domain.ConflictReject && input.BindConflictStrategy != domain.ConflictKickOldest {
+		return domain.Product{}, ErrInvalidRequest
+	}
+	if input.MaxBindCount <= 0 {
+		input.MaxBindCount = 1
+	}
+	if input.OfflineGraceDays < 0 || input.OfflineGraceDays > 36500 {
+		return domain.Product{}, ErrInvalidRequest
+	}
+	product, err := s.currentStore().GetProduct(ctx, productID)
+	if err != nil {
+		if store.IsNotFound(err) {
+			return domain.Product{}, ErrProductNotFound
+		}
+		return domain.Product{}, err
+	}
+	now := s.now()
+	if err := s.currentStore().UpdateProductProfile(ctx, productID, input.Name,
+		input.BindMode, input.BindConflictStrategy, input.MaxBindCount, input.OfflineGraceDays, now); err != nil {
+		return domain.Product{}, err
+	}
+	product.Name = input.Name
+	product.BindMode = input.BindMode
+	product.BindConflictStrategy = input.BindConflictStrategy
+	product.MaxBindCount = input.MaxBindCount
+	product.OfflineGraceDays = input.OfflineGraceDays
+	product.UpdatedAt = now
+	_ = s.audit(ctx, "admin", actorID, product.ID, "", "", "product.update", "success", "")
+	return product, nil
+}
+
 type CardBatchExportResult struct {
 	Batch domain.CardBatch `json:"batch"`
 	Codes []string         `json:"codes"`

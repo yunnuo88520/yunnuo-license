@@ -8,6 +8,45 @@ import (
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/store"
 )
 
+type UpdateAgentInput struct {
+	Name        string `json:"name"`
+	ContactName string `json:"contact_name"`
+	Phone       string `json:"phone"`
+	Email       string `json:"email"`
+}
+
+func (s *Service) UpdateAgentProfile(ctx context.Context, agentID string, input UpdateAgentInput, actorID string) (domain.Agent, error) {
+	agentID = strings.TrimSpace(agentID)
+	input.Name = strings.TrimSpace(input.Name)
+	if agentID == "" || input.Name == "" {
+		return domain.Agent{}, ErrInvalidRequest
+	}
+	agent, err := s.currentStore().GetAgent(ctx, agentID)
+	if err != nil {
+		if store.IsNotFound(err) {
+			return domain.Agent{}, ErrAgentNotFound
+		}
+		return domain.Agent{}, err
+	}
+	now := s.now()
+	if err := s.currentStore().UpdateAgentProfile(ctx, agentID, input.Name,
+		strings.TrimSpace(input.ContactName), strings.TrimSpace(input.Phone), strings.TrimSpace(input.Email), now); err != nil {
+		return domain.Agent{}, err
+	}
+	agent.Name = input.Name
+	agent.ContactName = strings.TrimSpace(input.ContactName)
+	agent.Phone = strings.TrimSpace(input.Phone)
+	agent.Email = strings.TrimSpace(input.Email)
+	agent.UpdatedAt = now
+	loginCode, err := s.currentStore().GetAgentLoginCode(ctx, agentID)
+	if err != nil && !store.IsNotFound(err) {
+		return domain.Agent{}, err
+	}
+	agent.LoginCode = loginCode
+	_ = s.auditAdminAgent(ctx, actorID, agentID, "agent.update", "success", "")
+	return agent, nil
+}
+
 func (s *Service) ChangeAgentStatus(ctx context.Context, agentID, status, actorID string) (domain.Agent, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" || !validAgentStatus(status) {
