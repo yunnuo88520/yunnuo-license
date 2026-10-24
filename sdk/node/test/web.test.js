@@ -7,10 +7,11 @@ test("web guard permits usage when only updates are restricted", async () => {
   assert.equal(handled,false);
 });
 test("web guard renders a safe case-specific block page and prevents caching", async () => {
-  const result={};const decision={action:"block_page",can_use:false,case_id:'case_<script>',message:'<img src=x onerror=alert(1)>',support_url:'javascript:alert(1)'};
+  const result={};const decision={action:"block_page",can_use:false,case_id:'case_<script>',message:'站点未授权，联系 QQ 531023977\n<img src=x onerror=alert(1)>',support_url:'javascript:alert(1)'};
   assert.equal(await enforceWebLicense({securityDecision:async()=>decision},{},{writeHead(status,headers){Object.assign(result,{status,headers})},end(body){result.body=body}}),true);
   assert.equal(result.status,403);assert.equal(result.headers["Cache-Control"],"no-store");
   assert.match(result.body,/授权安全拦截/);assert.ok(!result.body.includes('<img'));assert.ok(!result.body.includes('href="javascript:'));assert.match(result.body,/&lt;script&gt;/);
+  assert.ok(result.body.includes('站点未授权，联系 QQ 531023977\n&lt;img'));
 });
 test("network failures and ordinary expiry are not labeled as confirmed piracy", async () => {
   const result={};await enforceWebLicense({securityDecision:async()=>{throw Error("timeout")}}, {}, {writeHead(status){result.status=status},end(body){result.body=body}});

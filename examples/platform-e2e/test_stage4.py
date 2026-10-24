@@ -66,7 +66,7 @@ def main():
             binding = {"license_no": license["license_no"], "bind_mode": "domain", "bind_value": "ebox.example.com"}
             credentials = {**binding, "app_key": product["app_key"]}
             release = http.publish(base, product, developer, "2.0.0", http.archive("2.0.0", 2))
-            policy = {"enabled": True, "detect_mismatch": True, "accept_reports": True, "action": "block_page", "message": "此部署存在已确认的授权安全异常，请联系服务提供方核实。", "support_url": base + "/user-console/"}
+            policy = {"enabled": True, "detect_mismatch": True, "accept_reports": True, "action": "block_page", "message": "站点未授权，联系 QQ 531023977\n请支持正版软件，完成授权核实后恢复访问。", "support_url": base + "/user-console/"}
             errors = []
             if args.screenshots:
                 from playwright.sync_api import sync_playwright
@@ -83,12 +83,20 @@ def main():
                 page.get_by_label("记录服务端绑定不匹配", exact=True).check()
                 page.get_by_label("接收客户端升级包完整性报告", exact=True).check()
                 page.get_by_label("确认后的建议动作").select_option("block_page")
-                page.get_by_label("拦截提示文字", exact=True).fill(policy["message"])
+                page.get_by_label("打击盗版公告", exact=True).fill(policy["message"])
                 page.get_by_label("服务联系链接", exact=True).fill(policy["support_url"])
                 page.get_by_role("button", name="保存安全策略", exact=True).click()
                 page.get_by_text("应用安全策略已保存。", exact=True).wait_for()
+                page.get_by_role("button", name="预览拦截页", exact=True).click()
+                frame = page.frame_locator('iframe[title="拦截页公告预览"]')
+                assert frame.locator(".announcement-text").inner_text() == policy["message"]
+                page.locator(".announcement-preview").screenshot(path=str(args.artifacts / "admin-announcement-preview.png"))
+                page.get_by_role("button", name="收起拦截页预览", exact=True).click()
             else:
                 http.api(base, "/admin/products/" + product["id"] + "/security-policy", policy, root)
+            saved = http.api(base, "/admin/products/" + product["id"] + "/security-policy", token=root)
+            assert saved["message"] == policy["message"]
+            report["checks"].append("Administrator's multiline anti-piracy notice and QQ contact persist and share the real block-page preview")
             config = temp / "private.json"
             config.write_text(json.dumps({"baseUrl": base, "appKey": product["app_key"], "binding": binding, "release": release, "productId": product["id"], "publicKeyPem": product["public_key_pem"]}))
             config.chmod(0o600)
@@ -142,7 +150,23 @@ await assert.rejects(client.downloadUpdate(c.release,c.binding,{publicKeyPem:c.p
                 response = app.goto(site)
                 assert response.status == 403
                 app.get_by_role("heading", name="授权安全拦截", exact=True).wait_for()
+                assert app.locator(".announcement-text").inner_text() == policy["message"]
                 app.screenshot(path=str(args.artifacts / "real-application-block-page.png"), full_page=True)
+                app.set_viewport_size({"width": 390, "height": 844})
+                assert app.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                app.screenshot(path=str(args.artifacts / "real-application-block-page-mobile.png"), full_page=True)
+                app.set_viewport_size({"width": 1500, "height": 1100})
+            revised_notice = "站点未授权，联系 QQ 531023977\n公告已更新，请联系处理授权事宜。"
+            if args.screenshots:
+                page.get_by_label("打击盗版公告", exact=True).fill(revised_notice)
+                page.get_by_role("button", name="保存安全策略", exact=True).click()
+                page.get_by_text("应用安全策略已保存。", exact=True).wait_for()
+            else:
+                http.api(base, "/admin/products/" + product["id"] + "/security-policy", {**policy, "message": revised_notice}, root)
+            updated_html = http.http(site, "/", expected=403).decode()
+            assert revised_notice in updated_html and policy["message"] not in updated_html
+            http.api(base, "/admin/products/" + product["id"] + "/security-policy", policy, root)
+            report["checks"].append("Editing the announcement updates the blocked application immediately without restarting it")
             report["checks"].append("Configured update-only restriction preserves the website; confirmed blocking affects real app access, heartbeat and package download")
             if args.screenshots:
                 customer = browser.new_page(viewport={"width": 1500, "height": 1100}, locale="zh-CN")

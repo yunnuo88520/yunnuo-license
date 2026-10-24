@@ -6,6 +6,13 @@ backend/yn-license-dev.db*
 backend/yn-license.db*
 backend/yn-license-config.json
 backend/yn-releases
-sdk
+sdk/*
+!sdk/node
+sdk/node/*
+!sdk/node/src
+sdk/node/src/*
+!sdk/node/src/web.js
+!sdk/node/src/web.d.ts
+!sdk/node/src/index.d.ts
 docs
 frontend/**/*.map

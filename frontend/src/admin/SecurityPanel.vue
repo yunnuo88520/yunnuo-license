@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { renderLicenseBlockPage } from "../../../sdk/node/src/web.js";
 import { formatTime } from "../shared/format";
 const props = defineProps<{
   api: <T = any>(path: string, options?: RequestInit) => Promise<T>;
@@ -14,6 +15,7 @@ const product = ref(""),
   message = ref(""),
   busy = ref(false),
   filter = ref("");
+const preview = ref(false);
 const actions: Record<string, string> = {
   observe: "仅记录观察",
   deny_updates: "禁止更新，保留使用",
@@ -34,6 +36,13 @@ const policy = reactive({
   support_url: "",
 });
 const review = reactive({ status: "confirmed", action: "observe", reason: "" });
+const previewHTML = computed(() =>
+  renderLicenseBlockPage({
+    action: "block_page",
+    message: policy.message,
+    support_url: policy.support_url,
+  }),
+);
 async function run(fn: () => Promise<any>) {
   if (busy.value) return;
   busy.value = true;
@@ -138,12 +147,21 @@ onMounted(() => run(load));
                 {{ name }}
               </option>
             </select></label
-          ><label class="field"
-            >拦截提示文字<textarea
+          ><label class="field announcement-field"
+            ><span id="security-announcement-label">打击盗版公告</span
+            ><textarea
               v-model="policy.message"
+              aria-labelledby="security-announcement-label"
+              aria-describedby="security-announcement-help"
               maxlength="1000"
+              rows="4"
+              placeholder="例如：站点未授权，联系 QQ 531023977。"
               required
-            ></textarea></label
+            ></textarea
+            ><small id="security-announcement-help"
+              >公告显示在拦截页的醒目区域，支持多行文字，可填写联系 QQ
+              等处理说明。</small
+            ></label
           ><label class="field"
             >服务联系链接<input
               v-model="policy.support_url"
@@ -156,9 +174,26 @@ onMounted(() => run(load));
           </p>
           <div class="form-actions">
             <button class="btn">保存安全策略</button>
+            <button
+              type="button"
+              class="btn secondary"
+              :aria-expanded="preview"
+              @click="preview = !preview"
+            >
+              {{ preview ? "收起拦截页预览" : "预览拦截页" }}
+            </button>
           </div>
         </form>
       </fieldset>
+      <section v-if="preview" class="announcement-preview">
+        <h4>拦截页公告预览</h4>
+        <p>公告即时预览，保存后应用于该产品的拦截页。</p>
+        <iframe
+          title="拦截页公告预览"
+          :srcdoc="previewHTML"
+          sandbox=""
+        ></iframe>
+      </section>
     </section>
     <section class="panel">
       <h3>线索与处置记录</h3>
@@ -317,5 +352,36 @@ textarea {
 .table td {
   max-width: 420px;
   overflow-wrap: anywhere;
+}
+.announcement-field {
+  grid-column: 1 / -1;
+}
+.announcement-field small,
+.announcement-preview > p {
+  color: #71806e;
+  font-size: 12px;
+  font-weight: 400;
+}
+.announcement-preview {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid #e0e6dc;
+}
+.announcement-preview h4 {
+  margin: 0 0 8px;
+}
+.announcement-preview iframe {
+  display: block;
+  width: 100%;
+  height: 780px;
+  margin-top: 18px;
+  border: 1px solid #dce1d8;
+  border-radius: 14px;
+  background: #f4f5f1;
+}
+@media (max-width: 600px) {
+  .announcement-preview iframe {
+    height: 960px;
+  }
 }
 </style>
