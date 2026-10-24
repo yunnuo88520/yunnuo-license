@@ -7,8 +7,10 @@ container="yunnuo-license-test-$$"
 volume="yunnuo-license-test-$$"
 port="${YN_DOCKER_TEST_PORT:-18083}"
 admin_password="docker-test-admin-password"
+update_state="$(mktemp)"
 
 cleanup() {
+  rm -f "$update_state"
   docker rm -f "$container" >/dev/null 2>&1 || true
   docker volume rm "$volume" >/dev/null 2>&1 || true
 }
@@ -132,6 +134,8 @@ if grep -Fq '13812348000' <<<"$account_query_response"; then
   exit 1
 fi
 
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./docker/test-product-updates.py prepare "$base" "$update_state"
+
 docker restart "$container" >/dev/null
 for attempt in $(seq 1 120); do
   [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container")" == "healthy" ]] && break
@@ -140,4 +144,5 @@ done
 curl --fail --silent --show-error -X POST "$base/v1/licenses/query" \
   -H 'Content-Type: application/json' -d "{\"license_no\":\"$license_no\"}" | grep -q "$license_no"
 
+python3 ./docker/test-product-updates.py verify "$base" "$update_state"
 echo "Docker image end-to-end test passed: $image"

@@ -22,6 +22,7 @@ export default defineConfig({
         agent: fileURLToPath(
           new URL("./agent-console/index.html", import.meta.url),
         ),
+        developer: fileURLToPath(new URL("./developer-console/index.html", import.meta.url)),
       },
     },
   },
@@ -29,6 +30,7 @@ export default defineConfig({
     proxy: {
       "/admin": "http://127.0.0.1:8080",
       "/agent": "http://127.0.0.1:8080",
+      "/developer": "http://127.0.0.1:8080",
       "/v1": "http://127.0.0.1:8080",
       "/healthz": "http://127.0.0.1:8080",
     },

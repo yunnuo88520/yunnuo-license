@@ -1,4 +1,5 @@
 import { APIError } from "./errors.js";
+import { verifyReleaseManifest, verifyReleasePackage } from "./updates.js";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
@@ -51,7 +52,19 @@ export class LicenseClient {
     return this.#post("/v1/licenses/unbind", input, options);
   }
 
-  async #post(path, input, options = {}) {
+  checkUpdate(input, options) {
+    return this.#post("/v1/updates/check", input, options);
+  }
+
+  async downloadUpdate(release, input, { publicKeyPem, productId, ...options }) {
+    const expected = { publicKeyPem, productId };
+    verifyReleaseManifest(release, expected);
+    const bytes = await this.#post(`/v1/updates/${encodeURIComponent(release.id)}/download`, input, options, release.size);
+    verifyReleasePackage(release, bytes, expected);
+    return bytes;
+  }
+
+  async #post(path, input, options = {}, binarySize = 0) {
     const timeoutController = new AbortController();
     const timeout = setTimeout(() => timeoutController.abort(new DOMException("Request timed out", "TimeoutError")), this.#timeoutMs);
     const signal = combineSignals(timeoutController.signal, options.signal);
@@ -66,7 +79,9 @@ export class LicenseClient {
         body: JSON.stringify({ ...(input ?? {}), app_key: this.#appKey }),
         signal,
       });
-      const raw = await readLimitedResponse(response, MAX_RESPONSE_BYTES);
+      const bytes = await readLimitedResponse(response, binarySize && response.ok ? binarySize : MAX_RESPONSE_BYTES);
+      if (binarySize && response.ok) return bytes;
+      const raw = new TextDecoder().decode(bytes);
       let envelope;
       try {
         envelope = JSON.parse(raw);
@@ -94,9 +109,9 @@ export class LicenseClient {
 async function readLimitedResponse(response, limit) {
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > limit) {
-    throw new Error("ynlicense: response exceeds 2 MiB limit");
+    throw new Error(`ynlicense: response exceeds ${limit === MAX_RESPONSE_BYTES ? '2 MiB' : limit + ' bytes'} limit`);
   }
-  if (!response.body) return "";
+  if (!response.body) return new Uint8Array();
   const reader = response.body.getReader();
   const chunks = [];
   let total = 0;
@@ -107,7 +122,7 @@ async function readLimitedResponse(response, limit) {
       total += value.byteLength;
       if (total > limit) {
         await reader.cancel();
-        throw new Error("ynlicense: response exceeds 2 MiB limit");
+        throw new Error(`ynlicense: response exceeds ${limit === MAX_RESPONSE_BYTES ? '2 MiB' : limit + ' bytes'} limit`);
       }
       chunks.push(value);
     }
@@ -120,7 +135,7 @@ async function readLimitedResponse(response, limit) {
     buffer.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(buffer);
+  return buffer;
 }
 
 function combineSignals(timeoutSignal, callerSignal) {

@@ -25,6 +25,38 @@ export interface VerifyRequest {
   license_token?: string;
 }
 
+export interface ProductRelease {
+  id: string;
+  product_id: string;
+  version: string;
+  notes: string;
+  status: string;
+  filename: string;
+  size: number;
+  sha256: string;
+  key_version: number;
+  manifest_token: string;
+  created_at: string;
+}
+
+export interface CheckUpdateRequest extends VerifyRequest {
+  current_version: string;
+}
+
+export interface CheckUpdateResponse {
+  enabled: boolean;
+  update_available: boolean;
+  release?: ProductRelease;
+}
+
+export interface ReleaseExpectation {
+  publicKeyPem: string;
+  productId: string;
+}
+
+export function verifyReleaseManifest(release: ProductRelease, expected: ReleaseExpectation): Record<string, unknown>;
+export function verifyReleasePackage(release: ProductRelease, content: Uint8Array, expected: ReleaseExpectation): Record<string, unknown>;
+
 export interface HeartbeatRequest {
   license_no: string;
   bind_mode: string;
@@ -67,6 +99,8 @@ export class LicenseClient {
   heartbeat(input: HeartbeatRequest, options?: RequestOptions): Promise<HeartbeatResponse>;
   renew(input: RenewRequest, options?: RequestOptions): Promise<LicenseResponse>;
   unbind(input: UnbindRequest, options?: RequestOptions): Promise<UnbindResponse>;
+  checkUpdate(input: CheckUpdateRequest, options?: RequestOptions): Promise<CheckUpdateResponse>;
+  downloadUpdate(release: ProductRelease, input: VerifyRequest, options: RequestOptions & ReleaseExpectation): Promise<Uint8Array>;
 }
 
 export class APIError extends Error {

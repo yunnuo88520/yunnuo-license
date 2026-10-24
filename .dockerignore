@@ -3,6 +3,9 @@
 .env
 backend/.gocache
 backend/yn-license-dev.db*
+backend/yn-license.db*
+backend/yn-license-config.json
+backend/yn-releases
 sdk
 docs
 frontend/**/*.map

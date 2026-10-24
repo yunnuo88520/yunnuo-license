@@ -48,6 +48,7 @@ const (
 	AdminRoleAdmin      = "admin"
 	AdminRoleOperator   = "operator"
 	AdminRoleAuditor    = "auditor"
+	AdminRoleDeveloper  = "developer"
 
 	AgentPolicyActive   = "active"
 	AgentPolicyDisabled = "disabled"
@@ -61,6 +62,7 @@ const (
 )
 
 type Product struct {
+	DeveloperID          string    `json:"developer_id,omitempty"`
 	ID                   string    `json:"id"`
 	Name                 string    `json:"name"`
 	Code                 string    `json:"code"`

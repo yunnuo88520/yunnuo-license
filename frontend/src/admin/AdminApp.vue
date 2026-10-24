@@ -33,6 +33,7 @@ import { formatTime, roleLabel, shortId } from "../shared/format";
 import { toast } from "../shared/useToast";
 import AppToast from "../shared/components/AppToast.vue";
 import StatusBadge from "../shared/components/StatusBadge.vue";
+import ProductReleases from "../shared/components/ProductReleases.vue";
 import {
   applyBranding,
   branding,
@@ -54,6 +55,7 @@ const siteForm = reactive({
 const nav = [
   { id: "overview", label: "业务概览", icon: LayoutDashboard },
   { id: "products", label: "产品", icon: Boxes },
+  { id: "releases", label: "产品升级", icon: PackageCheck },
   { id: "agents", label: "代理", icon: UserRoundCog },
   { id: "cards", label: "卡密", icon: TicketCheck },
   { id: "licenses", label: "授权", icon: BadgeCheck },
@@ -533,6 +535,18 @@ onMounted(async () => {
               </tbody>
             </table>
           </div>
+        </section>
+        <section v-if="page === 'releases'" class="panel">
+          <h2>产品版本与升级包</h2>
+          <label class="field">选择产品<select v-model="a.selected.product"><option value="" disabled>请选择产品</option><option v-for="p in a.data.products" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+          <p v-if="!a.data.products.length">请先创建产品。</p>
+          <template v-if="a.selected.product">
+            <form v-if="a.isSuper.value" class="form-grid" @submit.prevent="create(`/admin/products/${a.selected.product}/developer`, $event, '开发者归属已保存')">
+              <label class="field">产品所属开发者<select name="developer_id" :key="a.selected.product + (a.data.products.find((p: any) => p.id === a.selected.product)?.developer_id || '')" :value="a.data.products.find((p: any) => p.id === a.selected.product)?.developer_id || ''"><option value="">仅由站点管理</option><option v-for="u in a.data.users.filter((u: any) => u.role === 'developer' && u.status === 'active')" :key="u.id" :value="u.id">{{ u.display_name || u.username }}</option></select></label>
+              <button class="btn secondary">保存产品归属</button>
+            </form>
+            <ProductReleases :key="a.selected.product" :product-id="a.selected.product" :api="a.api" prefix="/admin" :can-write="a.isManager.value" />
+          </template>
         </section>
         <section v-if="page === 'agents'" class="panel">
           <div class="panel-head">
@@ -1314,7 +1328,7 @@ onMounted(async () => {
               class="btn small"
               @click="action = action === 'admin' ? '' : 'admin'"
             >
-              <Plus :size="14" />创建管理员
+              <Plus :size="14" />创建账号
             </button>
           </div>
           <form class="branding-settings" @submit.prevent="saveSiteSettings">
@@ -1357,9 +1371,9 @@ onMounted(async () => {
             <div class="upgrade-state">
               <History :size="19" />
               <div>
-                <strong>在线升级</strong>
+                <strong>授权站自身升级</strong>
                 <p>
-                  升级服务尚未启用。后续版本将支持签名升级包、升级前检查和失败回滚。
+                  授权站自身升级尚未启用。被授权产品的升级包请在“产品升级”中管理。
                 </p>
               </div>
               <StatusBadge
@@ -1393,7 +1407,7 @@ onMounted(async () => {
           <form
             v-if="action === 'admin'"
             class="form-grid"
-            @submit.prevent="create('/admin/users', $event, '管理员账号已创建')"
+            @submit.prevent="create('/admin/users', $event, '账号已创建')"
           >
             <label class="field">登录名<input name="username" required /></label
             ><label class="field"
@@ -1408,11 +1422,12 @@ onMounted(async () => {
                 <option value="admin">管理员</option>
                 <option value="operator">运营人员</option>
                 <option value="auditor">审计人员</option>
+                <option value="developer">开发者</option>
                 <option value="super_admin">超级管理员</option>
               </select></label
             >
             <div class="form-actions">
-              <button class="btn">创建管理员</button>
+              <button class="btn">创建账号</button>
             </div>
           </form>
           <div v-if="a.isSuper.value" class="table-wrap">
@@ -1424,6 +1439,7 @@ onMounted(async () => {
                   <th>角色</th>
                   <th>状态</th>
                   <th>最近登录</th>
+                  <th>开发者管理</th>
                 </tr>
               </thead>
               <tbody>
@@ -1435,6 +1451,7 @@ onMounted(async () => {
                   <td>{{ roleLabel(u.role) }}</td>
                   <td><StatusBadge :status="u.status" /></td>
                   <td>{{ formatTime(u.last_login_at) }}</td>
+                  <td><button v-if="u.role === 'developer'" class="btn secondary small" @click="a.mutate(`/admin/developers/${u.id}/${u.status === 'active' ? 'disable' : 'enable'}`, {}, '开发者状态已更新')">{{ u.status === 'active' ? '停用' : '启用' }}</button></td>
                 </tr>
               </tbody>
             </table>

@@ -43,6 +43,7 @@ type API struct {
 	publicStaticDir    string
 	adminStaticDir     string
 	agentStaticDir     string
+	developerStaticDir string
 	adminLoginLimit    *fixedWindowLimiter
 	agentLoginLimit    *fixedWindowLimiter
 	publicQueryLimit   *fixedWindowLimiter
@@ -60,16 +61,17 @@ func (api *API) WithTrustedProxyHeaders(enabled bool) *API {
 
 func New(svc *service.Service, publicStaticDir, adminStaticDir, agentStaticDir string) *API {
 	return &API{
-		service:          svc,
-		publicStaticDir:  publicStaticDir,
-		adminStaticDir:   adminStaticDir,
-		agentStaticDir:   agentStaticDir,
-		adminLoginLimit:  newFixedWindowLimiter(20, 5*time.Minute),
-		agentLoginLimit:  newFixedWindowLimiter(30, 5*time.Minute),
-		publicQueryLimit: newFixedWindowLimiter(60, time.Minute),
-		setupLimit:       newFixedWindowLimiter(10, time.Hour),
-		migrationDir:     "migrations",
-		sqliteSetupDSN:   envOr("YN_SQLITE_SETUP_DSN", "file:yn-license.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"),
+		service:            svc,
+		publicStaticDir:    publicStaticDir,
+		adminStaticDir:     adminStaticDir,
+		agentStaticDir:     agentStaticDir,
+		developerStaticDir: envOr("YN_DEVELOPER_STATIC_DIR", "../frontend/dist/developer-console"),
+		adminLoginLimit:    newFixedWindowLimiter(20, 5*time.Minute),
+		agentLoginLimit:    newFixedWindowLimiter(30, 5*time.Minute),
+		publicQueryLimit:   newFixedWindowLimiter(60, time.Minute),
+		setupLimit:         newFixedWindowLimiter(10, time.Hour),
+		migrationDir:       "migrations",
+		sqliteSetupDSN:     envOr("YN_SQLITE_SETUP_DSN", "file:yn-license.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"),
 	}
 }
 
@@ -81,6 +83,8 @@ func (api *API) WithSetupConfig(migrationDir, databaseConfigFile string) *API {
 
 func (api *API) Handler() http.Handler {
 	mux := http.NewServeMux()
+	api.registerReleaseRoutes(mux)
+	api.registerDeveloperRoutes(mux)
 	mux.HandleFunc("GET /healthz", api.health)
 	mux.HandleFunc("GET /v1/setup/status", api.setupStatus)
 	mux.HandleFunc("POST /v1/setup/initialize", withRateLimit(api.setupLimit, api.setupInitialize))
