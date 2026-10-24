@@ -320,7 +320,8 @@ onMounted(async () => {
       </header>
       <div class="workspace">
         <template v-if="page === 'overview'"
-          ><section class="section-intro">
+          ><section class="panel"><p>公开代理编号：<code>{{profile.agent_no}}</code></p><a href="/" target="_blank" rel="noopener">打开公开验真首页</a></section>
+          <section class="section-intro">
             <div>
               <h2>业务脉搏</h2>
               <p>额度、卡密与授权状态保持实时同步。</p>

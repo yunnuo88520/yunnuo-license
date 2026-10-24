@@ -247,6 +247,22 @@ onMounted(async () => {
             >
           </div>
         </div>
+        <p class="rights-status">
+          <strong>{{ item.can_use ? "应用可用" : "应用暂不可用" }}</strong
+          ><span>{{
+            item.can_update ? "更新服务有效" : "更新服务不可用"
+          }}</span>
+        </p>
+        <p v-if="item.last_change_at && item.policy.cooldown_hours">
+          下次换绑时间：{{
+            formatTime(
+              new Date(
+                new Date(item.last_change_at).getTime() +
+                  item.policy.cooldown_hours * 3600000,
+              ).toISOString(),
+            )
+          }}
+        </p>
         <div class="bindings">
           <p v-for="b in item.bindings" :key="b.id">
             {{ b.mode }} · {{ b.value }} ·
@@ -258,7 +274,7 @@ onMounted(async () => {
             卡密续费</button
           ><button
             class="btn secondary"
-            :disabled="busy || !item.policy.allowed"
+            :disabled="busy || !item.policy.allowed || !item.can_use"
             @click="open('rebind', item)"
           >
             更换绑定</button
@@ -414,6 +430,13 @@ form {
 }
 .error {
   color: #a23535;
+}
+.rights-status {
+  display: flex;
+  gap: 20px;
+  padding: 12px 0;
+  color: #3c5e48;
+  flex-wrap: wrap;
 }
 .bindings {
   padding: 8px 16px;

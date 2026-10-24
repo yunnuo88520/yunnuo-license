@@ -43,6 +43,7 @@ jobs:
           python3 examples/update-demo/test_e2e.py --license-mode perpetual --license-server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-update-demo/perpetual"
           python3 examples/platform-e2e/test_stage1.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/stage1"
           python3 examples/platform-e2e/test_stage2.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/stage2"
+          python3 examples/platform-e2e/test_stage3.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/stage3"
 
   sdk:
     runs-on: ubuntu-latest

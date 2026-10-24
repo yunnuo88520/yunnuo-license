@@ -679,7 +679,7 @@ onMounted(async () => {
                 <thead>
                   <tr>
                     <th>代理</th>
-                    <th>登录代码</th>
+                    <th>内部登录代码</th><th>公开代理编号</th>
                     <th>联系人</th>
                     <th>状态</th>
                     <th>创建时间</th>
@@ -692,6 +692,7 @@ onMounted(async () => {
                     <td>
                       <code>{{ x.login_code || x.agent_no }}</code>
                     </td>
+                    <td><code>{{x.agent_no}}</code></td>
                     <td>{{ x.contact_name || "-" }}</td>
                     <td><StatusBadge :status="x.status" /></td>
                     <td>{{ formatTime(x.created_at) }}</td>

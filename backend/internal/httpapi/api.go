@@ -137,6 +137,14 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/licenses/renew", api.renew)
 	mux.HandleFunc("POST /v1/licenses/unbind", api.unbind)
 	mux.HandleFunc("POST /v1/licenses/query", withRateLimit(api.publicQueryLimit, api.publicLicenseQuery))
+	mux.HandleFunc("POST /v1/agents/query", withRateLimit(api.publicQueryLimit, func(w http.ResponseWriter, r *http.Request) {
+		var input service.PublicAgentInput
+		if !decode(w, r, &input) {
+			return
+		}
+		result, err := api.service.PublicAgentQuery(r.Context(), input)
+		commerceResponse(w, r, result, err)
+	}))
 	mux.HandleFunc("GET /v1/products/keys", withRateLimit(api.publicQueryLimit, api.publicProductKeys))
 	mux.HandleFunc("POST /agent/login", withRateLimit(api.agentLoginLimit, api.agentLogin))
 	mux.HandleFunc("GET /agent/profile", api.agentProfile)

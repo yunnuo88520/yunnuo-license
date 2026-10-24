@@ -139,6 +139,7 @@ fi
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./docker/test-product-updates.py prepare "$base" "$update_state"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage1.py --base-url "$base" --artifacts "$platform_artifacts/stage1"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage3.py --base-url "$base" --artifacts "$platform_artifacts/stage3"
 
 docker restart "$container" >/dev/null
 for attempt in $(seq 1 120); do

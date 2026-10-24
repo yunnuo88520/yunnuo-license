@@ -13,10 +13,12 @@ import {
   ShieldCheck,
   TicketCheck,
 } from "lucide-vue-next";
+import AgentVerify from "./AgentVerify.vue";
 import { request } from "../shared/api";
 import { formatTime, statusLabel } from "../shared/format";
 import { branding, loadBranding, logoSource } from "../shared/branding";
 
+const mode=ref("license");
 const query = ref("");
 const queryType = ref("auto");
 const loading = ref(false);
@@ -131,10 +133,12 @@ async function initialize() {
         <span class="eyebrow"
           ><ShieldCheck :size="15" /> AUTHORIZATION LOOKUP</span
         >
-        <h1>软件授权<br /><em>即时查询。</em></h1>
-        <p>通过域名、IP、QQ、手机号、业务账号或授权凭证，查询软件授权状态。</p>
+        <h1>软件授权<br /><em>公开验真。</em></h1>
+        <p>查询应用授权与代理身份，让正版使用和交易有据可查。</p>
       </div>
-      <form class="query-form" @submit.prevent="submit">
+      <div class="query-types" role="group" aria-label="验真对象"><button type="button" :class="{active:mode==='license'}" :aria-pressed="mode==='license'" @click="mode='license'">授权验真</button><button type="button" :class="{active:mode==='agent'}" :aria-pressed="mode==='agent'" @click="mode='agent'">代理验真</button></div>
+      <AgentVerify v-if="mode==='agent'" />
+      <form v-else class="query-form" @submit.prevent="submit">
         <label for="license-query">授权查询</label>
         <div class="query-types" role="group" aria-label="查询类型">
           <button
@@ -170,7 +174,7 @@ async function initialize() {
       </div>
     </section>
     <Transition name="result">
-      <section v-if="result" class="query-result">
+      <section v-if="result && mode==='license'" class="query-result">
         <div class="result-title">
           <div>
             <span class="eyebrow"
