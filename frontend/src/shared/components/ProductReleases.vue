@@ -193,7 +193,7 @@ function changeStatus(id: string, action: string) {
 .release-panel {
   margin-top: 24px;
   padding-top: 16px;
-  border-top: 1px solid #dfe5e0;
+  border-top: 1px solid var(--line);
 }
 .release-heading {
   display: flex;
@@ -210,7 +210,7 @@ function changeStatus(id: string, action: string) {
 }
 .release-item {
   padding: 18px 0;
-  border-top: 1px solid #e4e8e5;
+  border-top: 1px solid var(--line);
 }
 .release-notes {
   white-space: pre-wrap;

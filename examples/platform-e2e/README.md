@@ -30,3 +30,5 @@ Docker 测试在重启前运行第二阶段并保存结果，重启后通过 `--
 `test_install.py --server <二进制> --artifacts <目录>` 验证强制安装、环境管理员不能绕过安装、SQLite 安装与私有配置、禁止重装，以及修改 `admin_path` 后重启保持数据库、密钥和登录会话。追加 `--screenshots` 保存真实安装页面和新管理入口截图。
 
 `test_recovery_history.py` 使用与阶段脚本相同的参数，验证恢复码一次性使用、密码重置后的用户与代理会话失效、恢复权限隔离、505 条真实资金调整的历史分页及完整导出、CSV 公式转义，以及日志不记录密码或恢复码。自行启动临时服务时还验证服务器本地管理员密码恢复；Docker 模式使用内置 MySQL 执行相同 HTTP 检查。
+
+`test_appearance.py --server <二进制> --artifacts <目录> --screenshots` 使用真实 Chromium 验证七个入口的深浅主题、系统实时变化、手动优先、跨页及标签页同步、刷新恢复、Vue 加载前主题恢复和键盘操作。覆盖电脑、390px 与 320px 手机布局，以及各端登录表单和管理员功能导航；截图保存两种主题的电脑和手机页面。需要 Python `playwright==1.62.0`，默认使用 `/usr/bin/chromium`，安装 Playwright 自带浏览器时传 `--chromium bundled`。前端 CI 会运行并上传页面证据。

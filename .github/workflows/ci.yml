@@ -89,6 +89,24 @@ jobs:
       - name: Install, typecheck, and build Vue frontend
         working-directory: frontend
         run: npm ci && npm run check && npm run build
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test desktop and mobile appearance in a real browser
+        run: |
+          pip install playwright==1.62.0
+          python -m playwright install --with-deps chromium
+          go -C backend build -o /tmp/yunnuo-appearance-server ./cmd/server
+          python examples/platform-e2e/test_appearance.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-appearance"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appearance-browser-evidence
+          path: ${{ runner.temp }}/yunnuo-appearance
 
   docker:
     runs-on: ubuntu-latest

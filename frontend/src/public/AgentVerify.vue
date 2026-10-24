@@ -88,12 +88,12 @@ form {
   gap: 18px;
 }
 form p {
-  color: #63706c;
+  color: var(--muted);
   line-height: 1.7;
 }
 .agent-result {
-  background: #fff;
-  border: 1px solid #d6dfd7;
+  background: var(--paper);
+  border: 1px solid var(--line);
   border-radius: 14px;
   padding: 28px;
   margin-top: 28px;
@@ -102,12 +102,12 @@ form p {
   display: inline-block;
   padding: 8px 14px;
   border-radius: 20px;
-  background: #dcefe2;
-  color: #21563b;
+  background: var(--green-soft);
+  color: var(--green);
 }
 .denied {
-  background: #fae6df;
-  color: #87351c;
+  background: var(--red-soft);
+  color: var(--red);
 }
 li {
   margin: 12px 0;
@@ -116,6 +116,6 @@ h2 {
   margin: 22px 0 10px;
 }
 small {
-  color: #63706c;
+  color: var(--muted);
 }
 </style>

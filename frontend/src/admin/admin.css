@@ -17,7 +17,7 @@
   padding: 14px 18px;
   border: 0;
   border-bottom: 1px solid var(--line);
-  background: #fff;
+  background: var(--paper);
   text-align: left;
 }
 .activity-row > span {
@@ -67,8 +67,8 @@
   margin: 18px;
   padding: 13px;
   border-left: 3px solid var(--amber);
-  background: #fff6df;
-  color: #6d500c;
+  background: var(--amber-soft);
+  color: var(--amber);
   font-size: 12px;
 }
 .pagination {
@@ -89,7 +89,7 @@
 .branding-copy {
   padding: 28px 24px;
   border-right: 1px solid var(--line);
-  background: #f6f8f5;
+  background: var(--surface);
 }
 .branding-copy h4 {
   margin: 14px 0 8px;
@@ -125,7 +125,7 @@
   padding: 8px;
   overflow: hidden;
   border: 1px solid var(--line);
-  background: #eef2ed;
+  background: var(--surface);
 }
 .asset-preview img {
   max-width: 100%;
@@ -231,7 +231,7 @@
 .release-timeline ul {
   margin: 0;
   padding-left: 18px;
-  color: #5e675f;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.9;
 }
@@ -244,7 +244,7 @@
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
+  background: var(--paper);
   box-shadow: 0 30px 120px rgba(0, 0, 0, 0.3);
   z-index: 99;
 }
@@ -332,5 +332,36 @@
   .release-timeline article {
     grid-template-columns: 1fr;
     gap: 12px;
+  }
+}
+
+.activity-row {
+  color: var(--ink);
+}
+.key-dialog {
+  color: var(--ink);
+}
+@media (max-width: 620px) {
+  .panel-head {
+    flex-wrap: wrap;
+  }
+  .panel-head > .row-actions {
+    max-width: 100%;
+  }
+  .panel-head .row-actions {
+    flex-wrap: wrap;
+  }
+  .upgrade-state {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .upgrade-state > button {
+    grid-column: 1 / -1;
+  }
+  .pagination {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .branding-fields {
+    padding: 16px;
   }
 }

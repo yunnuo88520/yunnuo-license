@@ -109,7 +109,7 @@ async function save() {
 .binding-policy {
   padding-top: 20px;
   margin-top: 24px;
-  border-top: 1px solid #dae2db;
+  border-top: 1px solid var(--line);
 }
 form {
   display: grid;
@@ -118,6 +118,6 @@ form {
   margin: 16px 0;
 }
 .error {
-  color: #a23535;
+  color: var(--red);
 }
 </style>

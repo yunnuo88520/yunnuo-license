@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import { onMounted, reactive, ref } from "vue";
 import { request } from "../shared/api";
 import { entries } from "../shared/entries";
@@ -36,7 +37,10 @@ async function submit() {
 </script>
 <template>
   <main>
-    <a href="/" class="brand">{{ branding.site_name }}</a>
+    <header class="recovery-header">
+      <a href="/" class="brand">{{ branding.site_name }}</a
+      ><AppearanceMenu />
+    </header>
     <section class="panel">
       <span class="eyebrow">账号恢复</span>
       <h1>{{ done ? "密码已重置" : "重新设置登录密码" }}</h1>
@@ -102,7 +106,7 @@ h1 {
   margin: 12px 0;
 }
 p {
-  color: #72816c;
+  color: var(--muted);
   line-height: 1.8;
 }
 form {
@@ -117,8 +121,8 @@ nav {
   margin-top: 30px;
 }
 .error {
-  color: #a5392d;
-  background: #fff0eb;
+  color: var(--red);
+  background: var(--red-soft);
   padding: 14px;
 }
 </style>

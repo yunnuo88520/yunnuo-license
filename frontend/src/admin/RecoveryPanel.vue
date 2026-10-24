@@ -164,17 +164,17 @@ form {
   margin: 24px 0;
 }
 p {
-  color: #72816c;
+  color: var(--muted);
 }
 .wide {
   grid-column: 1/-1;
 }
 .error {
-  color: #a13d32;
+  color: var(--red);
 }
 .result {
   padding: 18px;
-  background: #eef4e9;
+  background: var(--green-soft);
   border-radius: 9px;
   margin: 20px 0;
 }
@@ -188,7 +188,7 @@ code {
   margin-top: 15px;
 }
 .direct {
-  border-top: 1px solid #dce3d6;
+  border-top: 1px solid var(--line);
   padding-top: 24px;
 }
 .direct form {

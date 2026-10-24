@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   Activity,
@@ -292,6 +293,7 @@ onMounted(async () => {
 </script>
 <template>
   <div v-if="!a.profile.value" class="login-page">
+    <AppearanceMenu class="login-appearance" />
     <section class="login-art admin-art">
       <div class="login-copy">
         <small>CONTROL / AUTHORIZATION MATRIX</small>
@@ -341,7 +343,7 @@ onMounted(async () => {
         <img :src="logoSource" alt="" />
         <div><strong>管理控制台</strong><span>YUNNUO CLOUD</span></div>
       </div>
-      <nav class="nav">
+      <nav class="nav" aria-label="管理功能">
         <a
           v-for="n in nav.filter(
             (n) => n.id !== 'recovery' || a.isManager.value,
@@ -368,6 +370,7 @@ onMounted(async () => {
           <p>服务正常 · AUTHORIZATION CORE</p>
         </div>
         <div class="top-actions">
+          <AppearanceMenu />
           <span class="identity"
             >{{ a.profile.value.display_name || a.profile.value.username }} ·
             {{ roleLabel(a.profile.value.role) }}</span

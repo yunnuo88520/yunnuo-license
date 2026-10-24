@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import PagedRecords from "../shared/components/PagedRecords.vue";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
@@ -227,6 +228,7 @@ onMounted(async () => {
 </script>
 <template>
   <div v-if="!profile" class="login-page">
+    <AppearanceMenu class="login-appearance" />
     <section class="login-art">
       <div class="login-copy">
         <small>PARTNER / DISTRIBUTION NODE</small>
@@ -284,7 +286,7 @@ onMounted(async () => {
           ><span>{{ profile.agent_name || profile.agent_no }}</span>
         </div>
       </div>
-      <nav class="nav">
+      <nav class="nav" aria-label="代理功能">
         <a
           v-for="item in pages"
           v-show="!item.manage || canManage"
@@ -306,6 +308,7 @@ onMounted(async () => {
           <p>服务正常 · SECURE CONNECTION</p>
         </div>
         <div class="top-actions">
+          <AppearanceMenu />
           <span class="identity"
             >{{ profile.display_name || profile.username }} ·
             {{ roleLabel(profile.role) }}</span

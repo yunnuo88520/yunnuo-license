@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import SecurityAppeals from "./SecurityAppeals.vue";
 import { onMounted, reactive, ref } from "vue";
 import { ApiError, request } from "../shared/api";
@@ -142,7 +143,8 @@ onMounted(async () => {
         <h1>{{ branding.site_name }} · 用户中心</h1>
         <p>管理自己的应用授权、续费与部署绑定</p>
       </div>
-      <div>
+      <div class="header-actions">
+        <AppearanceMenu />
         <a href="/">公开验真</a
         ><button v-if="profile" class="btn secondary" @click="logout">
           {{ profile.display_name || profile.username }} · 退出
@@ -367,6 +369,12 @@ onMounted(async () => {
   margin: auto;
   padding: 30px 22px;
 }
+.user-page code {
+  overflow-wrap: anywhere;
+}
+.heading > div {
+  min-width: 0;
+}
 header,
 .heading,
 .actions {
@@ -417,10 +425,10 @@ form {
 }
 .facts small,
 .actions span {
-  color: #64736a;
+  color: var(--muted);
 }
 .badge {
-  background: #e2eee5;
+  background: var(--green-soft);
   padding: 8px 14px;
   border-radius: 24px;
 }
@@ -429,21 +437,21 @@ form {
 }
 .notice {
   padding: 15px;
-  background: #eef4ee;
+  background: var(--green-soft);
 }
 .error {
-  color: #a23535;
+  color: var(--red);
 }
 .rights-status {
   display: flex;
   gap: 20px;
   padding: 12px 0;
-  color: #3c5e48;
+  color: var(--green);
   flex-wrap: wrap;
 }
 .bindings {
   padding: 8px 16px;
-  background: #f5f7f4;
+  background: var(--surface);
   border-radius: 7px;
   margin-bottom: 18px;
 }

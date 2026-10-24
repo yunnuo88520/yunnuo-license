@@ -1,17 +1,58 @@
+/* Shared semantic colors keep every console and first-run page in sync. */
 :root {
   font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  color: #171a18;
-  background: #f3f5f2;
   font-synthesis: none;
+  color-scheme: light;
+  color: var(--ink);
+  background: var(--canvas);
+  --canvas: #f3f5f2;
   --ink: #171a18;
-  --muted: #69706b;
+  --muted: #626e65;
   --line: #d8ddd8;
+  --line-soft: #e6e9e6;
   --paper: #fff;
+  --surface: #f6f8f5;
+  --surface-hover: #edf2eb;
+  --field: #fbfcfa;
   --acid: #bafc45;
   --green: #146447;
-  --red: #bd3029;
-  --amber: #9b6500;
-  --shadow: 0 18px 60px rgba(17, 26, 20, 0.08);
+  --green-soft: #e3f0e4;
+  --red: #ad3029;
+  --red-soft: #fae7e3;
+  --amber: #865800;
+  --amber-soft: #fff0cf;
+  --button-bg: #171a18;
+  --button-fg: #fff;
+  --button-hover: #146447;
+  --topbar: rgba(243, 245, 242, 0.94);
+  --public-canvas: #eaf0e9;
+  --grid-line: rgba(17, 21, 18, 0.055);
+  --shadow: 0 18px 60px rgba(17, 26, 20, 0.12);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #121713;
+  --ink: #e5ece4;
+  --muted: #a4b1a4;
+  --line: #374139;
+  --line-soft: #2d372f;
+  --paper: #1b231d;
+  --surface: #222d24;
+  --surface-hover: #2a372d;
+  --field: #151d17;
+  --green: #9bdbb0;
+  --green-soft: #253e2d;
+  --red: #ffaaa2;
+  --red-soft: #482a29;
+  --amber: #ebc46d;
+  --amber-soft: #3d3422;
+  --button-bg: #bafc45;
+  --button-fg: #17220e;
+  --button-hover: #d0ff7b;
+  --topbar: rgba(18, 23, 19, 0.94);
+  --public-canvas: #141e17;
+  --grid-line: rgba(204, 230, 205, 0.055);
+  --shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
 }
 * {
   box-sizing: border-box;
@@ -71,8 +112,8 @@ select:focus-visible {
   padding: 0 16px;
   border: 1px solid var(--ink);
   border-radius: 4px;
-  background: var(--ink);
-  color: #fff;
+  background: var(--button-bg);
+  color: var(--button-fg);
   font-weight: 700;
   transition:
     transform 0.2s,
@@ -81,7 +122,7 @@ select:focus-visible {
 }
 .btn:hover {
   transform: translateY(-2px);
-  background: var(--green);
+  background: var(--button-hover);
 }
 .btn.secondary {
   background: transparent;
@@ -91,7 +132,7 @@ select:focus-visible {
 .btn.danger {
   background: transparent;
   color: var(--red);
-  border-color: #e7b9b5;
+  border-color: var(--red);
 }
 .btn.small {
   min-height: 32px;
@@ -101,7 +142,7 @@ select:focus-visible {
 .field {
   display: grid;
   gap: 7px;
-  color: #525a55;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 600;
 }
@@ -113,13 +154,13 @@ select:focus-visible {
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 3px;
-  background: #fbfcfa;
+  background: var(--field);
   color: var(--ink);
 }
 .field input:focus,
 .field select:focus {
   border-color: var(--green);
-  background: #fff;
+  background: var(--paper);
 }
 .check {
   display: flex;
@@ -184,7 +225,7 @@ select:focus-visible {
 .table th,
 .table td {
   padding: 13px 16px;
-  border-bottom: 1px solid #e6e9e6;
+  border-bottom: 1px solid var(--line-soft);
   text-align: left;
   font-size: 13px;
   vertical-align: middle;
@@ -192,8 +233,8 @@ select:focus-visible {
 .table th {
   position: sticky;
   top: 0;
-  background: #f7f8f6;
-  color: #69706b;
+  background: var(--surface);
+  color: var(--muted);
   font-size: 11px;
   text-transform: uppercase;
   z-index: 1;
@@ -202,11 +243,11 @@ select:focus-visible {
   transition: background 0.15s;
 }
 .table tbody tr:hover {
-  background: #f8faf7;
+  background: var(--surface-hover);
 }
 .table code {
   display: block;
-  color: #59615c;
+  color: var(--muted);
   font-size: 11px;
 }
 .empty {
@@ -226,8 +267,8 @@ select:focus-visible {
   min-height: 25px;
   padding: 3px 8px;
   border-radius: 3px;
-  background: #edf0ed;
-  color: #58605b;
+  background: var(--surface);
+  color: var(--muted);
   font-size: 11px;
   font-weight: 700;
 }
@@ -235,23 +276,23 @@ select:focus-visible {
 .status.activated,
 .status.success,
 .status.resolved {
-  background: #ddf3e5;
-  color: #17613f;
+  background: var(--green-soft);
+  color: var(--green);
 }
 .status.disabled,
 .status.revoked,
 .status.voided,
 .status.failed,
 .status.critical {
-  background: #f8e1df;
-  color: #9f2923;
+  background: var(--red-soft);
+  color: var(--red);
 }
 .status.suspended,
 .status.expired,
 .status.open,
 .status.high {
-  background: #fff0cf;
-  color: #815400;
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 .toast {
   position: fixed;
@@ -362,7 +403,7 @@ select:focus-visible {
   min-height: 78px;
   padding: 0 30px;
   border-bottom: 1px solid var(--line);
-  background: rgba(243, 245, 242, 0.92);
+  background: var(--topbar);
   backdrop-filter: blur(18px);
 }
 .topbar h1 {
@@ -381,7 +422,7 @@ select:focus-visible {
 }
 .identity {
   margin-right: 8px;
-  color: #606862;
+  color: var(--muted);
   font-size: 12px;
 }
 .workspace {
@@ -497,7 +538,7 @@ select:focus-visible {
   display: flex;
   align-items: center;
   padding: clamp(28px, 6vw, 90px);
-  background: #f4f6f3;
+  background: var(--canvas);
   color: var(--ink);
 }
 .login-box {
@@ -534,7 +575,7 @@ select:focus-visible {
     padding-inline: 10px;
   }
   .brand > div,
-  .nav span,
+  .sidebar .nav span,
   .sidebar-foot {
     display: none;
   }
@@ -658,5 +699,162 @@ select:focus-visible {
     scroll-behavior: auto !important;
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* Shared layout and touch behavior. Tables scroll within their own containers. */
+button,
+input,
+select,
+textarea {
+  color: inherit;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.85;
+}
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+fieldset,
+.field,
+.panel,
+.console-main,
+.workspace,
+.overview-grid,
+.metric {
+  min-width: 0;
+}
+.panel {
+  max-width: 100%;
+}
+.form-actions,
+.row-actions {
+  flex-wrap: wrap;
+}
+.btn.secondary:hover,
+.icon-btn:hover {
+  background: var(--surface-hover);
+}
+.btn.danger:hover {
+  background: var(--red-soft);
+}
+.table-wrap {
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.sidebar .brand,
+.sidebar-foot {
+  flex-shrink: 0;
+}
+.sidebar .nav {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.login-page {
+  position: relative;
+}
+.login-appearance {
+  position: absolute !important;
+  top: 24px;
+  right: 24px;
+  z-index: 25;
+}
+.recovery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.recovery-header .brand {
+  padding: 0;
+}
+@media (max-width: 620px) {
+  .sidebar {
+    height: calc(78px + env(safe-area-inset-bottom, 0px));
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid #35402f;
+  }
+  .sidebar .nav {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .sidebar .nav a {
+    flex: 0 0 76px;
+    min-height: 60px;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .sidebar .nav span {
+    display: block;
+    font-size: 10px;
+  }
+  .console-main {
+    margin-bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+    min-height: calc(100dvh - 78px - env(safe-area-inset-bottom, 0px));
+  }
+  .topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+  .topbar > div:first-child {
+    flex: 1;
+    min-width: 0;
+  }
+  .topbar h1 {
+    overflow-wrap: anywhere;
+  }
+  .top-actions {
+    gap: 6px;
+  }
+  .icon-btn,
+  .btn,
+  .check {
+    min-height: 44px;
+  }
+  .icon-btn {
+    min-width: 44px;
+  }
+  .field input,
+  .field select,
+  .field textarea {
+    font-size: 16px;
+  }
+  .login-appearance {
+    top: 16px;
+    right: 16px;
+  }
+  .login-panel {
+    padding-top: 84px;
+  }
+  .header-actions {
+    gap: 10px;
+  }
+  .user-page > header h1,
+  .developer-header h1 {
+    font-size: 23px;
+    overflow-wrap: anywhere;
+  }
+  .user-page > header p,
+  .developer-header p {
+    font-size: 13px;
+    line-height: 1.8;
+  }
+  .form-actions > .btn {
+    flex: 1;
+  }
+  .toast {
+    bottom: calc(94px + env(safe-area-inset-bottom, 0px));
   }
 }

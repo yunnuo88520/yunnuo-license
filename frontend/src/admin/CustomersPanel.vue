@@ -178,6 +178,6 @@ onMounted(() => run(load));
   margin: 22px 0;
 }
 .error {
-  color: #a23535;
+  color: var(--red);
 }
 </style>

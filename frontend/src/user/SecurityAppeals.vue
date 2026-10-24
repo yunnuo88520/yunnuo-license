@@ -126,7 +126,7 @@ onMounted(() => load().catch((e: any) => (error.value = e.message)));
 }
 article {
   padding: 20px 0;
-  border-bottom: 1px solid #d9e1dc;
+  border-bottom: 1px solid var(--line);
 }
 code {
   overflow-wrap: anywhere;

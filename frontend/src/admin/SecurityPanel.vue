@@ -268,20 +268,20 @@ form {
 }
 .review {
   margin-top: 28px;
-  border-top: 1px solid #d9e1dc;
+  border-top: 1px solid var(--line);
   padding-top: 20px;
 }
 .evidence {
   overflow-wrap: anywhere;
-  background: #f2f5f1;
+  background: var(--surface);
   padding: 18px;
 }
 .notice {
   padding: 18px;
-  background: #fae9e9;
+  background: var(--red-soft);
 }
 .error {
-  color: #9e3030;
+  color: var(--red);
 }
 textarea {
   min-height: 90px;
@@ -295,14 +295,14 @@ textarea {
 }
 .announcement-field small,
 .announcement-preview > p {
-  color: #71806e;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 400;
 }
 .announcement-preview {
   margin-top: 24px;
   padding-top: 24px;
-  border-top: 1px solid #e0e6dc;
+  border-top: 1px solid var(--line);
 }
 .announcement-preview h4 {
   margin: 0 0 8px;
@@ -312,9 +312,9 @@ textarea {
   width: 100%;
   height: 780px;
   margin-top: 18px;
-  border: 1px solid #dce1d8;
+  border: 1px solid var(--line);
   border-radius: 14px;
-  background: #f4f5f1;
+  background: var(--surface);
 }
 @media (max-width: 600px) {
   .announcement-preview iframe {

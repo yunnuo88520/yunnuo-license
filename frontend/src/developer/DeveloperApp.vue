@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import { onMounted, reactive, ref } from "vue";
 import { request, downloadText, ApiError } from "../shared/api";
 import { branding, loadBranding } from "../shared/branding";
@@ -140,9 +141,12 @@ onMounted(async () => {
         <h1>{{ branding.site_name }} · 开发者控制台</h1>
         <p>管理自己的产品、授权与升级版本</p>
       </div>
-      <button v-if="profile" class="btn secondary" @click="logout">
-        {{ profile.display_name || profile.username }} · 退出
-      </button>
+      <div class="header-actions">
+        <AppearanceMenu />
+        <button v-if="profile" class="btn secondary" @click="logout">
+          {{ profile.display_name || profile.username }} · 退出
+        </button>
+      </div>
     </header>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <section v-if="!profile" class="panel login-box">

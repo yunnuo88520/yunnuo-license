@@ -225,18 +225,18 @@ onMounted(load);
   display: inline-block;
   border-radius: 16px;
   padding: 4px 9px;
-  background: #e4eee6;
+  background: var(--green-soft);
   white-space: nowrap;
 }
 .error {
-  color: #a23535;
+  color: var(--red);
 }
 small {
   font-size: 11px;
   overflow-wrap: anywhere;
 }
 .hint {
-  color: #627568;
+  color: var(--muted);
   font-size: 13px;
 }
 code {

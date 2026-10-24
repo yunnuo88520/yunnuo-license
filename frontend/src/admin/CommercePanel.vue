@@ -548,15 +548,15 @@ select {
 }
 .notice {
   padding: 18px;
-  background: #e9f3ec;
+  background: var(--green-soft);
 }
 .error {
-  color: #a13434;
-  background: #faeaea;
+  color: var(--red);
+  background: var(--red-soft);
 }
 .balance {
   padding: 20px;
-  background: #edf5ef;
+  background: var(--green-soft);
 }
 .balance strong {
   font-size: 26px;

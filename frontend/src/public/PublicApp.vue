@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import { computed, onMounted, ref } from "vue";
 import {
   ArrowRight,
@@ -90,11 +91,12 @@ function selectQueryType(value: string) {
           branding.site_name
         }}</span></a
       >
-      <div>
+      <div class="query-links">
         <a href="/user-console/">用户中心</a>
         <a href="/agent-console/">代理入口 <ArrowRight :size="15" /></a
         ><a :href="entries.admin">管理控制台</a>
       </div>
+      <AppearanceMenu />
     </header>
     <section class="query-stage">
       <div class="stage-index mono">
@@ -107,54 +109,56 @@ function selectQueryType(value: string) {
         <h1>软件授权<br /><em>公开验真。</em></h1>
         <p>查询应用授权与代理身份，让正版使用和交易有据可查。</p>
       </div>
-      <div class="query-types" role="group" aria-label="验真对象">
-        <button
-          type="button"
-          :class="{ active: mode === 'license' }"
-          :aria-pressed="mode === 'license'"
-          @click="mode = 'license'"
-        >
-          授权验真</button
-        ><button
-          type="button"
-          :class="{ active: mode === 'agent' }"
-          :aria-pressed="mode === 'agent'"
-          @click="mode = 'agent'"
-        >
-          代理验真
-        </button>
-      </div>
-      <AgentVerify v-if="mode === 'agent'" />
-      <form v-else class="query-form" @submit.prevent="submit">
-        <label for="license-query">授权查询</label>
-        <div class="query-types" role="group" aria-label="查询类型">
+      <div class="lookup-panel">
+        <div class="query-types" role="group" aria-label="验真对象">
           <button
-            v-for="type in queryTypes"
-            :key="type.value"
             type="button"
-            :class="{ active: queryType === type.value }"
-            :aria-pressed="queryType === type.value"
-            @click="selectQueryType(type.value)"
+            :class="{ active: mode === 'license' }"
+            :aria-pressed="mode === 'license'"
+            @click="mode = 'license'"
           >
-            <component :is="type.icon" :size="15" />{{ type.label }}
+            授权验真</button
+          ><button
+            type="button"
+            :class="{ active: mode === 'agent' }"
+            :aria-pressed="mode === 'agent'"
+            @click="mode = 'agent'"
+          >
+            代理验真
           </button>
         </div>
-        <div class="query-input">
-          <Search :size="22" /><input
-            id="license-query"
-            v-model="query"
-            autocomplete="off"
-            :placeholder="placeholders[queryType]"
-            autofocus
-          /><button :disabled="loading || !query.trim()" aria-label="查询">
-            <RotateCcw v-if="loading" class="spin" :size="20" /><ArrowRight
-              v-else
-              :size="22"
-            />
-          </button>
-        </div>
-        <p class="error">{{ error }}</p>
-      </form>
+        <AgentVerify v-if="mode === 'agent'" />
+        <form v-else class="query-form" @submit.prevent="submit">
+          <label for="license-query">授权查询</label>
+          <div class="query-types" role="group" aria-label="查询类型">
+            <button
+              v-for="type in queryTypes"
+              :key="type.value"
+              type="button"
+              :class="{ active: queryType === type.value }"
+              :aria-pressed="queryType === type.value"
+              @click="selectQueryType(type.value)"
+            >
+              <component :is="type.icon" :size="15" />{{ type.label }}
+            </button>
+          </div>
+          <div class="query-input">
+            <Search :size="22" /><input
+              id="license-query"
+              v-model="query"
+              autocomplete="off"
+              :placeholder="placeholders[queryType]"
+              autofocus
+            /><button :disabled="loading || !query.trim()" aria-label="查询">
+              <RotateCcw v-if="loading" class="spin" :size="20" /><ArrowRight
+                v-else
+                :size="22"
+              />
+            </button>
+          </div>
+          <p class="error">{{ error }}</p>
+        </form>
+      </div>
       <div class="stage-rule">
         <span></span
         ><small class="mono">ENCRYPTED / TRACEABLE / VERIFIABLE</small>

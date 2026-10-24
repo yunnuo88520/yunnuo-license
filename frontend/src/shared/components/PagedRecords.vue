@@ -258,11 +258,11 @@ footer {
   align-items: center;
   flex-wrap: wrap;
   margin-top: 20px;
-  color: #72816c;
+  color: var(--muted);
   font-size: 12px;
 }
 .error {
-  color: #a1392d;
+  color: var(--red);
 }
 .paged-records {
   min-width: 0;

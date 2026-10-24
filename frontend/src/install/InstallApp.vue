@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import { onMounted, reactive, ref } from "vue";
 import {
   CheckCircle2,
@@ -69,7 +70,7 @@ async function install() {
     <header>
       <img src="/assets/yunnuo-mark.svg" alt="" />
       <div><strong>允诺云授权</strong><small>应用授权服务平台</small></div>
-      <span>安装向导</span>
+      <span>安装向导</span><AppearanceMenu />
     </header>
     <section v-if="!done" class="intro">
       <span class="eyebrow">首次运行</span>
@@ -228,19 +229,19 @@ header strong {
 }
 header small {
   display: block;
-  color: #72816c;
+  color: var(--muted);
   font-size: 11px;
 }
 header > span {
   margin-left: auto;
-  color: #72816c;
+  color: var(--muted);
   font-size: 12px;
 }
 .intro {
   margin-bottom: 32px;
 }
 .eyebrow {
-  color: #688c47;
+  color: var(--green);
   font-size: 12px;
   letter-spacing: 0.1em;
 }
@@ -251,7 +252,7 @@ h1 {
 }
 .intro p,
 .success > p {
-  color: #72816c;
+  color: var(--muted);
   line-height: 1.9;
 }
 fieldset {
@@ -261,8 +262,8 @@ fieldset {
   min-width: 0;
 }
 .setup-card {
-  border: 1px solid #dce3d6;
-  background: white;
+  border: 1px solid var(--line);
+  background: var(--paper);
   border-radius: 16px;
   padding: 30px;
   margin: 22px 0;
@@ -272,16 +273,16 @@ fieldset {
   align-items: flex-start;
   gap: 15px;
   margin-bottom: 25px;
-  color: #41613c;
+  color: var(--green);
 }
 .card-title h2 {
   margin: 0;
   font-size: 19px;
-  color: #233622;
+  color: var(--green);
 }
 .card-title p {
   margin: 8px 0 0;
-  color: #7b8675;
+  color: var(--muted);
   font-size: 13px;
 }
 .database-options {
@@ -292,12 +293,12 @@ fieldset {
 .database-options button {
   flex: 1;
   text-align: left;
-  background: #f8faf6;
-  border: 1px solid #dfe5db;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 9px;
   padding: 18px 22px;
   cursor: pointer;
-  color: #34462f;
+  color: var(--green);
 }
 .database-options strong,
 .database-options span {
@@ -305,13 +306,13 @@ fieldset {
 }
 .database-options span {
   font-size: 12px;
-  color: #819078;
+  color: var(--muted);
   margin-top: 5px;
 }
 .database-options .chosen {
-  border-color: #618344;
-  background: #edf5e7;
-  box-shadow: 0 0 0 1px #618344;
+  border-color: var(--green);
+  background: var(--green-soft);
+  box-shadow: 0 0 0 1px var(--green);
 }
 .install-grid {
   display: grid;
@@ -323,7 +324,7 @@ fieldset {
 }
 .field small {
   font-size: 11px;
-  color: #819078;
+  color: var(--muted);
   font-weight: 400;
 }
 .install-submit {
@@ -332,9 +333,9 @@ fieldset {
   justify-content: center;
 }
 .install-error {
-  border: 1px solid #eacbc5;
-  background: #fff1ed;
-  color: #8d342b;
+  border: 1px solid var(--red);
+  background: var(--red-soft);
+  color: var(--red);
   padding: 16px;
   border-radius: 9px;
 }
@@ -343,7 +344,7 @@ fieldset {
   margin: 65px 0 45px;
 }
 .success > svg {
-  color: #5a8148;
+  color: var(--green);
   display: block;
   margin: 0 auto 18px;
 }
@@ -358,8 +359,8 @@ fieldset {
   align-content: start;
   gap: 13px;
   text-align: left;
-  background: #fff;
-  border: 1px solid #dce3d6;
+  background: var(--paper);
+  border: 1px solid var(--line);
   border-radius: 14px;
   padding: 26px;
   min-height: 190px;
@@ -372,7 +373,7 @@ fieldset {
   font-size: 21px;
 }
 .entry-grid code {
-  color: #7b9566;
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 .entry-grid > a > span {
@@ -380,7 +381,7 @@ fieldset {
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: #819078;
+  color: var(--muted);
 }
 .extra-entries {
   display: flex;
@@ -391,7 +392,7 @@ fieldset {
 .success .locked,
 footer {
   font-size: 11px;
-  color: #88917f;
+  color: var(--muted);
 }
 footer {
   text-align: center;
