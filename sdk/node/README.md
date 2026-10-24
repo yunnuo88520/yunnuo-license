@@ -3,6 +3,9 @@
 官方 Node.js SDK，支持在线激活、验证、心跳、续费、解绑，以及在线缓存 token 和
 完全离线 `license.key` 的本地 RSA 验签。要求 Node.js 18+，无第三方运行时依赖。
 
+可选的产品升级服务支持 `checkUpdate` 和 `downloadUpdate`。后者使用预置信任公钥校验版本清单签名、产品归属、包长度与 SHA-256，成功后返回二进制内容；不会自动安装。
+调用示例见 [产品升级服务](../../docs/product-updates.md)。
+
 ## 本地安装
 
 ```bash

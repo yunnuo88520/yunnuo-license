@@ -34,7 +34,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	svc := service.New(st, cfg.CardPepper, cfg.DataKey)
+	svc := service.New(st, cfg.CardPepper, cfg.DataKey).WithReleaseDir(cfg.ReleaseDir)
 	defer svc.Close()
 	if err := svc.EnsureAgentLoginCodes(ctx); err != nil {
 		log.Fatal(err)

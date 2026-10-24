@@ -38,6 +38,7 @@ export const roleLabel = (value?: string) =>
     admin: "管理员",
     operator: "运营人员",
     auditor: "审计人员",
+    developer: "开发者",
     agent_owner: "主账号",
     agent_manager: "经理",
     agent_staff: "员工",

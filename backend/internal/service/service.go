@@ -23,6 +23,7 @@ type Service struct {
 	retired    []*store.Store
 	cardPepper []byte
 	dataKey    []byte
+	releaseDir string
 	now        func() time.Time
 }
 
@@ -68,6 +69,7 @@ func New(st *store.Store, cardPepper, dataKey []byte) *Service {
 }
 
 type CreateProductInput struct {
+	DeveloperID          string `json:"-"`
 	Name                 string `json:"name"`
 	Code                 string `json:"code"`
 	BindMode             string `json:"bind_mode"`
@@ -109,6 +111,7 @@ func (s *Service) CreateProduct(ctx context.Context, input CreateProductInput) (
 	}
 	now := s.now()
 	product := domain.Product{
+		DeveloperID:          input.DeveloperID,
 		ID:                   yncrypto.NewID("prod"),
 		Name:                 strings.TrimSpace(input.Name),
 		Code:                 strings.ToUpper(strings.TrimSpace(input.Code)),

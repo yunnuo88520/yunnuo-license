@@ -44,11 +44,13 @@ COPY docker/entrypoint.sh /usr/local/bin/yunnuo-entrypoint
 RUN chmod 0755 /usr/local/bin/yunnuo-server /usr/local/bin/yunnuo-healthcheck /usr/local/bin/yunnuo-entrypoint
 
 ENV YN_ADDR=:8080 \
+    YN_RELEASE_DIR=/var/lib/mysql/.yunnuo/releases \
     YN_DB_CONFIG_FILE=/var/lib/mysql/.yunnuo/database.json \
     YN_SQLITE_SETUP_DSN="file:/var/lib/mysql/.yunnuo/yn-license.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)" \
     YN_PUBLIC_STATIC_DIR=/opt/yunnuo/frontend \
     YN_ADMIN_STATIC_DIR=/opt/yunnuo/frontend/admin-console \
     YN_AGENT_STATIC_DIR=/opt/yunnuo/frontend/agent-console \
+    YN_DEVELOPER_STATIC_DIR=/opt/yunnuo/frontend/developer-console \
     MYSQL_DATABASE=yunnuo_license \
     MYSQL_USER=yunnuo
 

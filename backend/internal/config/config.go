@@ -26,6 +26,7 @@ type Config struct {
 	TrustProxyHeaders  bool
 	DatabaseConfigFile string
 	AdminExplicit      bool
+	ReleaseDir         string
 }
 
 func Load() (Config, error) {
@@ -43,6 +44,7 @@ func Load() (Config, error) {
 		TrustProxyHeaders:  envBool("YN_TRUST_PROXY_HEADERS", false),
 		DatabaseConfigFile: env("YN_DB_CONFIG_FILE", "yn-license-config.json"),
 		AdminExplicit:      os.Getenv("YN_ADMIN_USERNAME") != "" && os.Getenv("YN_ADMIN_PASSWORD") != "",
+		ReleaseDir:         env("YN_RELEASE_DIR", "yn-releases"),
 	}
 	if fileCfg, err := readDatabaseConfig(cfg.DatabaseConfigFile); err != nil {
 		return Config{}, err

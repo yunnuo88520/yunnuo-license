@@ -19,10 +19,12 @@ backend/yn-license-dev.db-*
 backend/yn-license.db
 backend/yn-license.db-*
 backend/yn-license-config.json
+backend/yn-releases/
 /yn-license.db
 /yn-license.db-*
 /yn-license-config.json
 docker/test-bin/
+docker/__pycache__/
 
 # Local env
 .env

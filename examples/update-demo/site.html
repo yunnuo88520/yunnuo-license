@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ebox · 在线升级验证</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f0f4f0;color:#182d24;font:16px/1.7 system-ui,sans-serif}main{max-width:1080px;margin:auto;padding:48px 32px}header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ccd8cf;padding-bottom:24px}.brand{font-size:25px;font-weight:750}.pill{padding:7px 16px;border-radius:24px;background:#d8e8dc;font-size:13px}h1{font-size:48px;margin:48px 0 10px;line-height:1.25}.intro{color:#5c7063}.grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin:32px 0}section{background:white;border:1px solid #d3ddd5;border-radius:14px;padding:26px}h2{font-size:21px;margin:0 0 18px}.version{font-size:40px;font-weight:700;color:#186348}.label{font-size:13px;color:#64796b}.metric{display:flex;justify-content:space-between;padding:13px 0;border-bottom:1px solid #edf0ed}button{background:#186348;color:white;border:0;border-radius:7px;padding:13px 20px;font:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:wait}.message{white-space:pre-wrap;padding-top:16px;color:#246448}.error{color:#a13d36}.events{font-size:14px;color:#596c60;white-space:pre-wrap}.footer{font-size:13px;color:#6f7e73;margin-top:24px}code{font-size:14px}@media(max-width:700px){.grid{grid-template-columns:1fr}h1{font-size:34px}main{padding:24px 18px}}
+  </style>
+</head>
+<body><main>
+  <header><div class="brand">Ebox 网站系统</div><span class="pill">真实服务 · 独立 Demo</span></header>
+  <h1>@@headline@@</h1><p class="intro">@@description@@</p>
+  <div class="grid">
+    <section><h2>当前运行版本</h2><div class="version" id="version">读取中…</div><p class="label">从已安装的网站文件读取，更新后立即生效</p><div class="metric"><span>数据库版本</span><strong id="schema">—</strong></div><div class="metric"><span>已有客户文章</span><strong id="count">—</strong></div><p id="note"></p></section>
+    <section><h2>授权与在线更新</h2><p>从允诺授权站检查版本，校验授权与签名后下载、备份并安装。检查失败时恢复原版本和数据库。</p><button id="update">检查并安装更新</button><div class="message" id="message" role="status"></div></section>
+  </div>
+  <section><h2>升级执行记录</h2><div id="events" class="events">尚未执行更新</div></section>
+  <p class="footer">用于验证授权站与产品升级器的完整联调。示例只监听回环地址，安装逻辑仅适用于此 Demo。</p>
+</main><script>
+async function refresh(){const r=await fetch('/api/status');const s=await r.json();document.querySelector('#version').textContent='v'+s.version;document.querySelector('#schema').textContent='Schema '+s.schema_version;document.querySelector('#count').textContent=s.notes.length+' 篇';document.querySelector('#note').textContent=s.notes[0]?.title||'';document.querySelector('#events').textContent=s.events.join('\n')||'尚未执行更新'}
+document.querySelector('#update').onclick=async()=>{const button=document.querySelector('#update'),message=document.querySelector('#message');button.disabled=true;message.className='message';message.textContent='正在检查授权与更新…';try{const r=await fetch('/api/update',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const result=await r.json();message.className=r.ok?'message':'message error';message.textContent=result.message;await refresh();if(result.updated)location.reload()}catch(e){message.textContent=e.message}finally{button.disabled=false}};refresh();
+</script></body></html>

@@ -186,6 +186,9 @@ func (s *Store) CreateProduct(ctx context.Context, p domain.Product) error {
 		_, err := tx.tx.ExecContext(ctx, `
 			INSERT INTO product_keys (product_id, key_version, public_key_pem, created_by, created_at)
 			VALUES (?, 1, ?, ?, ?)`, p.ID, p.PublicKeyPEM, "product.create", ts(p.CreatedAt))
+		if err == nil && p.DeveloperID != "" {
+			_, err = tx.tx.ExecContext(ctx, `INSERT INTO product_developers (product_id, user_id) VALUES (?, ?)`, p.ID, p.DeveloperID)
+		}
 		return err
 	})
 }
@@ -1071,7 +1074,7 @@ func (tx *Tx) InsertAudit(ctx context.Context, log domain.AuditLog) error {
 	return err
 }
 
-const productColumns = `id, name, code, app_key, public_key_pem, private_key_encrypted, COALESCE((SELECT MAX(key_version) FROM product_keys WHERE product_id = products.id), 1), bind_mode, max_bind_count, bind_conflict_strategy, offline_mode, offline_grace_days, expire_grace_days, unbind_limit, unbind_cooldown_hours, status, created_at, updated_at`
+const productColumns = `id, name, code, app_key, public_key_pem, private_key_encrypted, COALESCE((SELECT MAX(key_version) FROM product_keys WHERE product_id = products.id), 1), bind_mode, max_bind_count, bind_conflict_strategy, offline_mode, offline_grace_days, expire_grace_days, unbind_limit, unbind_cooldown_hours, status, created_at, updated_at, COALESCE((SELECT user_id FROM product_developers WHERE product_id = products.id), '')`
 const batchColumns = `id, product_id, agent_id, name, quantity, duration_days, is_permanent, source, status, export_count, created_by, created_at, updated_at`
 const cardColumns = `id, product_id, batch_id, agent_id, code_hash, code_encrypted, code_prefix, duration_days, is_permanent, status, order_no, activated_license_id, activated_at, consumed_at, voided_at, void_reason, created_by, created_at, updated_at`
 const licenseColumns = `id, license_no, product_id, card_id, agent_id, status, issued_at, activated_at, expired_at, last_verify_at, last_heartbeat_at, offline_token_version, created_at, updated_at`
@@ -1101,7 +1104,7 @@ func scanProduct(row scanner) (domain.Product, error) {
 		&p.KeyVersion,
 		&p.BindMode, &p.MaxBindCount, &p.BindConflictStrategy, &p.OfflineMode,
 		&p.OfflineGraceDays, &p.ExpireGraceDays, &p.UnbindLimit, &p.UnbindCooldownHours,
-		&p.Status, &createdAt, &updatedAt)
+		&p.Status, &createdAt, &updatedAt, &p.DeveloperID)
 	if err != nil {
 		return domain.Product{}, err
 	}

@@ -256,7 +256,7 @@ func (s *Service) adminTokenKey() []byte {
 
 func validAdminRole(role string) bool {
 	switch role {
-	case domain.AdminRoleSuperAdmin, domain.AdminRoleAdmin, domain.AdminRoleOperator, domain.AdminRoleAuditor:
+	case domain.AdminRoleSuperAdmin, domain.AdminRoleAdmin, domain.AdminRoleOperator, domain.AdminRoleAuditor, domain.AdminRoleDeveloper:
 		return true
 	default:
 		return false
