@@ -317,6 +317,9 @@ textarea {
   background: var(--surface);
 }
 @media (max-width: 600px) {
+  .panel {
+    padding: 18px;
+  }
   .announcement-preview iframe {
     height: 960px;
   }

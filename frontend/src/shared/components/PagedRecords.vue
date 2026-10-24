@@ -236,7 +236,7 @@ watch(
   margin: 20px 0;
 }
 .field {
-  min-width: 150px;
+  min-width: min(150px, 100%);
   flex: 1;
 }
 .buttons {
@@ -266,5 +266,14 @@ footer {
 }
 .paged-records {
   min-width: 0;
+}
+@media (max-width: 620px) {
+  .history-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .field {
+    min-width: 0;
+  }
 }
 </style>

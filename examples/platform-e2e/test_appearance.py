@@ -161,6 +161,17 @@ def main():
                     for label in ["产品", "产品升级", "代理", "套餐与结算", "用户", "账号恢复", "卡密", "授权", "风控", "盗版处置", "联调工具", "离线授权", "审计", "系统"]:
                         page.get_by_role("link", name=label, exact=True).click()
                         verify_layout(page, f"admin-{label}-{width}")
+                page.get_by_role("link", name="盗版处置", exact=True).click()
+                history = page.locator(".paged-records").first
+                history.get_by_label("开始时间", exact=True).fill("2026-01-01T00:00")
+                history.get_by_label("结束时间（不含）", exact=True).fill("2027-01-01T00:00")
+                with page.expect_response(lambda r: "/admin/history/cases?" in r.url and "from=" in r.url) as filtered:
+                    history.get_by_role("button", name="查询历史记录", exact=True).click()
+                assert filtered.value.status == 200
+                verify_layout(page, "admin-security-filled-dates-320")
+                if args.screenshots:
+                    page.screenshot(path=str(args.artifacts / "admin-security-small-mobile-date-filters.png"), full_page=True, animations="disabled")
+                report["checks"].append("Native date/time filters fit 320px phones with populated dates and submit successfully")
                 report["checks"].append("Seven entry pages adapt to desktop, 390px and 320px phones; mobile navigation and forms remain usable")
                 guest = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme="dark", locale="zh-CN")
                 guest_page = guest.new_page()

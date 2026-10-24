@@ -154,6 +154,8 @@ select:focus-visible {
 .field select,
 .field textarea {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 43px;
   padding: 10px 12px;
   border: 1px solid var(--line);
