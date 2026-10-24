@@ -25,6 +25,8 @@ func (api *API) registerReleaseRoutes(mux *http.ServeMux) {
 			return api.withAdmin(handler, roles...)
 		}
 		mux.HandleFunc("GET "+prefix+"/products/{productID}/updates", wrap(api.productUpdates, readRoles))
+		mux.HandleFunc("GET "+prefix+"/products/{productID}/license-policy", wrap(api.licensePolicy, readRoles))
+		mux.HandleFunc("POST "+prefix+"/products/{productID}/license-policy", wrap(api.configureLicensePolicy, writeRoles))
 		mux.HandleFunc("POST "+prefix+"/products/{productID}/updates", wrap(api.configureProductUpdates, writeRoles))
 		mux.HandleFunc("GET "+prefix+"/products/{productID}/releases", wrap(api.listReleases, readRoles))
 		mux.HandleFunc("POST "+prefix+"/products/{productID}/releases", wrap(api.uploadRelease, writeRoles))
@@ -36,6 +38,28 @@ func (api *API) registerReleaseRoutes(mux *http.ServeMux) {
 		w.Header().Set("Allow", "POST")
 		http.Error(w, "use authenticated POST to download", http.StatusMethodNotAllowed)
 	})
+}
+
+func (api *API) licensePolicy(w http.ResponseWriter, r *http.Request) {
+	result, err := api.service.LicensePolicy(r.Context(), r.PathValue("productID"))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, result)
+}
+
+func (api *API) configureLicensePolicy(w http.ResponseWriter, r *http.Request) {
+	var input service.LicensePolicy
+	if !decode(w, r, &input) {
+		return
+	}
+	result, err := api.service.SetLicensePolicy(r.Context(), r.PathValue("productID"), input, adminSessionFrom(r.Context()).UserID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, result)
 }
 
 func (api *API) productUpdates(w http.ResponseWriter, r *http.Request) {

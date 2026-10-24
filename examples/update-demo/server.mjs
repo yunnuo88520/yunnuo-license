@@ -70,6 +70,15 @@ async function update() {
 
 const server = createServer(async (request, response) => {
   try {
+    if (request.method === "GET" && (request.url === "/" || request.url === "/api/status")) {
+      // The product enforces usage; update expiry alone must never disable a perpetual installation.
+      try {
+        const rights = await client.verify(config.binding);
+        if (!rights.can_use) return json(response, 403, { code: "USAGE_DENIED", message: "当前授权不允许使用" });
+      } catch (error) {
+        return json(response, error.httpStatus || 503, { code: error.code || "LICENSE_CHECK_FAILED", message: "当前无法确认使用权限" });
+      }
+    }
     if (request.url === "/api/status" && request.method === "GET") {
       const { metadata } = await currentRelease();
       return json(response, 200, { version: metadata.version, ...(await install("status")), events });

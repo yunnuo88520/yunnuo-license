@@ -67,10 +67,10 @@ func TestDeveloperProductIsolationAndReleaseWorkflow(t *testing.T) {
 		t.Fatal("product listing leaked across developers")
 	}
 	base := "/developer/products/" + p.ID
-	for _, path := range []string{"/updates", "/releases", "/licenses"} {
+	for _, path := range []string{"/updates", "/releases", "/licenses", "/license-policy"} {
 		performJSONStatus(t, handler, http.MethodGet, base+path, li, nil, http.StatusNotFound)
 	}
-	for _, path := range []string{"/updates", "/card-batches", "/releases/missing/publish"} {
+	for _, path := range []string{"/updates", "/card-batches", "/releases/missing/publish", "/license-policy"} {
 		performJSONStatus(t, handler, http.MethodPost, base+path, li, map[string]any{"enabled": true}, http.StatusNotFound)
 	}
 	if response := releaseUploadRequest(t, handler, base+"/releases", li); response.Code != http.StatusNotFound {

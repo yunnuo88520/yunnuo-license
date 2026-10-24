@@ -20,9 +20,11 @@ const (
 	CardConsumedForRenewal = "consumed_for_renewal"
 	CardVoided             = "voided"
 
-	LicenseActive  = "active"
-	LicenseExpired = "expired"
-	LicenseRevoked = "revoked"
+	LicenseActive       = "active"
+	LicenseExpired      = "expired"
+	LicenseRevoked      = "revoked"
+	LicenseSubscription = "subscription"
+	LicensePerpetual    = "perpetual"
 
 	BindingActive  = "active"
 	BindingKicked  = "kicked"
@@ -62,6 +64,8 @@ const (
 )
 
 type Product struct {
+	LicenseMode          string    `json:"license_mode"`
+	UpdateDurationDays   int       `json:"update_duration_days"`
 	DeveloperID          string    `json:"developer_id,omitempty"`
 	ID                   string    `json:"id"`
 	Name                 string    `json:"name"`
@@ -138,6 +142,9 @@ type CardBatch struct {
 }
 
 type License struct {
+	LicenseMode         string     `json:"license_mode"`
+	UsageExpiredAt      *time.Time `json:"usage_expired_at"`
+	UpdatesExpiredAt    *time.Time `json:"updates_expired_at"`
 	ID                  string     `json:"id"`
 	LicenseNo           string     `json:"license_no"`
 	ProductID           string     `json:"product_id"`

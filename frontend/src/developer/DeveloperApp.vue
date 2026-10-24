@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from "vue";
 import { request, downloadText, ApiError } from "../shared/api";
 import { branding, loadBranding } from "../shared/branding";
 import ProductReleases from "../shared/components/ProductReleases.vue";
+import LicensePolicy from "../shared/components/LicensePolicy.vue";
 
 const token = ref(sessionStorage.getItem("yn.developer_token") || "");
 const profile = ref<any>(),
@@ -12,8 +13,16 @@ const error = ref(""),
   busy = ref(false),
   codes = ref<string[]>([]),
   licenses = ref<any>();
+const policyRevision = ref(0);
 const login = reactive({ username: "", password: "" });
-const product = reactive({ name: "", code: "", bind_mode: "domain" });
+const product = reactive({
+  name: "",
+  code: "",
+  bind_mode: "domain",
+  license_mode: "subscription",
+  update_duration_days: 0,
+  expire_grace_days: 0,
+});
 const cards = reactive({
   name: "",
   quantity: 1,
@@ -89,6 +98,7 @@ function createCards() {
       { method: "POST", body: JSON.stringify(cards) },
     );
     codes.value = result.codes;
+    policyRevision.value++;
   });
 }
 function showLicenses(page = 1) {
@@ -157,6 +167,28 @@ onMounted(async () => {
         <h2>我的产品</h2>
         <form class="developer-form" @submit.prevent="createProduct">
           <label class="field"
+            >授权模式<select v-model="product.license_mode">
+              <option value="subscription">订阅使用（到期停用）</option>
+              <option value="perpetual">永久使用、限期更新</option>
+            </select></label
+          >
+          <label class="field"
+            >更新天数（0 跟随卡密期限）<input
+              v-model.number="product.update_duration_days"
+              type="number"
+              min="0"
+              max="36500"
+              required
+          /></label>
+          <label v-if="product.license_mode === 'subscription'" class="field"
+            >使用到期宽限天数<input
+              v-model.number="product.expire_grace_days"
+              type="number"
+              min="0"
+              max="365"
+              required
+          /></label>
+          <label class="field"
             >产品名称<input
               v-model="product.name"
               maxlength="100"
@@ -203,6 +235,15 @@ onMounted(async () => {
             <pre class="wrap">{{ p.public_key_pem }}</pre>
           </details>
         </article>
+        <LicensePolicy
+          v-if="selected"
+          :key="'policy-' + selected + '-' + policyRevision"
+          :product-id="selected"
+          :api="api"
+          prefix="/developer"
+          :can-write="true"
+          @saved="refresh"
+        />
         <ProductReleases
           v-if="selected"
           :key="selected"
@@ -238,7 +279,7 @@ onMounted(async () => {
             ><input
               v-model="cards.is_permanent"
               type="checkbox"
-            />永久授权</label
+            />永久卡（更新期限另见产品规则）</label
           >
           <button class="btn" :disabled="busy">生成卡密</button>
         </form>
@@ -258,8 +299,10 @@ onMounted(async () => {
           ><p>共 {{ licenses.total }} 条授权</p>
           <div class="license-list">
             <p v-for="license in licenses.items" :key="license.id">
-              {{ license.license_no }} · {{ license.status }} ·
-              {{ license.expired_at || "永久" }}
+              {{ license.license_no }} · {{ license.status }} · 使用到期：{{
+                license.usage_expired_at || "永久使用"
+              }}
+              · 更新到期：{{ license.updates_expired_at || "永久更新" }}
             </p>
           </div>
           <button

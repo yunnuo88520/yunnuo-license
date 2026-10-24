@@ -62,6 +62,21 @@ func TestVerifyOfflineCacheToken(t *testing.T) {
 	}
 }
 
+func TestPerpetualOfflineUsageSurvivesUpdateExpiry(t *testing.T) {
+	key, publicPEM := testKeyPair(t)
+	now := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	expired := now.Add(-time.Hour)
+	claims := OfflineCacheClaims{Type: "offline_cache", LicenseNo: "lic_perpetual", ProductCode: "YN", LicenseMode: "perpetual", BindMode: "device", BindDigest: BindingDigest("device", "machine-A"), UpdatesExpiredAt: &expired, OfflineUntil: now.Add(time.Hour), IssuedAt: now, KeyVersion: 1}
+	verifier, err := NewOfflineVerifier(publicPEM, "YN", WithVerifierClock(func() time.Time { return now }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := verifier.VerifyOfflineToken(testSignJSON(t, key, claims), OfflineExpectation{BindMode: "device", BindValue: "machine-A"})
+	if err != nil || result.UsageExpiredAt != nil || !result.UpdatesExpiredAt.Equal(expired) {
+		t.Fatalf("maintenance expiry invalidated offline usage: %+v %v", result, err)
+	}
+}
+
 func TestVerifyOfflineLicenseFile(t *testing.T) {
 	privateKey, publicPEM := testKeyPair(t)
 	now := time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)

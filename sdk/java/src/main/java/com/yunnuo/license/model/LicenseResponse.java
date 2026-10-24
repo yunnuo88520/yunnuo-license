@@ -5,6 +5,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 
 public record LicenseResponse(
+		@JsonProperty("license_mode") String licenseMode,
+		@JsonProperty("can_use") boolean canUse,
+		@JsonProperty("can_update") boolean canUpdate,
+		@JsonProperty("usage_expired_at") Instant usageExpiredAt,
+		@JsonProperty("updates_expired_at") Instant updatesExpiredAt,
         @JsonProperty("license_no") String licenseNo,
         @JsonProperty("status") String status,
         @JsonProperty("expired_at") Instant expiredAt,

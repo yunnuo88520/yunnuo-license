@@ -80,6 +80,9 @@ type OfflineExpectation struct {
 }
 
 type OfflineCacheClaims struct {
+	LicenseMode      string     `json:"license_mode"`
+	UsageExpiredAt   *time.Time `json:"usage_expired_at"`
+	UpdatesExpiredAt *time.Time `json:"updates_expired_at"`
 	Type             string     `json:"type"`
 	LicenseNo        string     `json:"license_no"`
 	ProductCode      string     `json:"product_code"`

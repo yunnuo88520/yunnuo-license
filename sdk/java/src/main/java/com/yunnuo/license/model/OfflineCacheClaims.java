@@ -5,6 +5,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 
 public record OfflineCacheClaims(
+        @JsonProperty("license_mode") String licenseMode,
+        @JsonProperty("usage_expired_at") Instant usageExpiredAt,
+        @JsonProperty("updates_expired_at") Instant updatesExpiredAt,
         @JsonProperty("type") String type,
         @JsonProperty("license_no") String licenseNo,
         @JsonProperty("product_code") String productCode,

@@ -69,6 +69,8 @@ func New(st *store.Store, cardPepper, dataKey []byte) *Service {
 }
 
 type CreateProductInput struct {
+	LicenseMode          string `json:"license_mode"`
+	UpdateDurationDays   int    `json:"update_duration_days"`
 	DeveloperID          string `json:"-"`
 	Name                 string `json:"name"`
 	Code                 string `json:"code"`
@@ -83,6 +85,12 @@ type CreateProductInput struct {
 }
 
 func (s *Service) CreateProduct(ctx context.Context, input CreateProductInput) (domain.Product, error) {
+	if input.LicenseMode == "" {
+		input.LicenseMode = domain.LicenseSubscription
+	}
+	if !validLicensePolicy(input.LicenseMode, input.UpdateDurationDays, input.ExpireGraceDays) {
+		return domain.Product{}, ErrInvalidRequest
+	}
 	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.Code) == "" {
 		return domain.Product{}, ErrInvalidRequest
 	}
@@ -111,6 +119,8 @@ func (s *Service) CreateProduct(ctx context.Context, input CreateProductInput) (
 	}
 	now := s.now()
 	product := domain.Product{
+		LicenseMode:          input.LicenseMode,
+		UpdateDurationDays:   input.UpdateDurationDays,
 		DeveloperID:          input.DeveloperID,
 		ID:                   yncrypto.NewID("prod"),
 		Name:                 strings.TrimSpace(input.Name),
@@ -694,32 +704,38 @@ type PublicLicenseQueryInput struct {
 }
 
 type PublicLicenseQueryMatch struct {
-	ProductName   string     `json:"product_name"`
-	ProductCode   string     `json:"product_code"`
-	LicenseNo     string     `json:"license_no"`
-	LicenseStatus string     `json:"license_status"`
-	IsPermanent   bool       `json:"is_permanent"`
-	ActivatedAt   *time.Time `json:"activated_at,omitempty"`
-	ExpiredAt     *time.Time `json:"expired_at,omitempty"`
-	LastVerifyAt  *time.Time `json:"last_verify_at,omitempty"`
+	LicenseMode      string     `json:"license_mode"`
+	UsageExpiredAt   *time.Time `json:"usage_expired_at"`
+	UpdatesExpiredAt *time.Time `json:"updates_expired_at"`
+	ProductName      string     `json:"product_name"`
+	ProductCode      string     `json:"product_code"`
+	LicenseNo        string     `json:"license_no"`
+	LicenseStatus    string     `json:"license_status"`
+	IsPermanent      bool       `json:"is_permanent"`
+	ActivatedAt      *time.Time `json:"activated_at,omitempty"`
+	ExpiredAt        *time.Time `json:"expired_at,omitempty"`
+	LastVerifyAt     *time.Time `json:"last_verify_at,omitempty"`
 }
 
 type PublicLicenseQueryResult struct {
-	QueryType     string                    `json:"query_type"`
-	QueryMasked   string                    `json:"query_masked,omitempty"`
-	MatchCount    int                       `json:"match_count,omitempty"`
-	Results       []PublicLicenseQueryMatch `json:"results,omitempty"`
-	ProductName   string                    `json:"product_name"`
-	ProductCode   string                    `json:"product_code"`
-	CardStatus    string                    `json:"card_status,omitempty"`
-	LicenseNo     string                    `json:"license_no,omitempty"`
-	LicenseStatus string                    `json:"license_status,omitempty"`
-	DurationDays  int                       `json:"duration_days"`
-	IsPermanent   bool                      `json:"is_permanent"`
-	ActivatedAt   *time.Time                `json:"activated_at,omitempty"`
-	ExpiredAt     *time.Time                `json:"expired_at,omitempty"`
-	LastVerifyAt  *time.Time                `json:"last_verify_at,omitempty"`
-	ServerTime    time.Time                 `json:"server_time"`
+	LicenseMode      string                    `json:"license_mode,omitempty"`
+	UsageExpiredAt   *time.Time                `json:"usage_expired_at"`
+	UpdatesExpiredAt *time.Time                `json:"updates_expired_at"`
+	QueryType        string                    `json:"query_type"`
+	QueryMasked      string                    `json:"query_masked,omitempty"`
+	MatchCount       int                       `json:"match_count,omitempty"`
+	Results          []PublicLicenseQueryMatch `json:"results,omitempty"`
+	ProductName      string                    `json:"product_name"`
+	ProductCode      string                    `json:"product_code"`
+	CardStatus       string                    `json:"card_status,omitempty"`
+	LicenseNo        string                    `json:"license_no,omitempty"`
+	LicenseStatus    string                    `json:"license_status,omitempty"`
+	DurationDays     int                       `json:"duration_days"`
+	IsPermanent      bool                      `json:"is_permanent"`
+	ActivatedAt      *time.Time                `json:"activated_at,omitempty"`
+	ExpiredAt        *time.Time                `json:"expired_at,omitempty"`
+	LastVerifyAt     *time.Time                `json:"last_verify_at,omitempty"`
+	ServerTime       time.Time                 `json:"server_time"`
 }
 
 func (s *Service) QueryPublicLicense(ctx context.Context, input PublicLicenseQueryInput) (PublicLicenseQueryResult, error) {
@@ -851,6 +867,7 @@ func (s *Service) publicLicenseMatch(ctx context.Context, license domain.License
 	}
 	activatedAt := license.ActivatedAt
 	return PublicLicenseQueryMatch{
+		LicenseMode: license.LicenseMode, UsageExpiredAt: license.ExpiredAt, UpdatesExpiredAt: license.UpdatesExpiredAt,
 		ProductName: product.Name, ProductCode: product.Code, LicenseNo: license.LicenseNo,
 		LicenseStatus: status, IsPermanent: license.ExpiredAt == nil, ActivatedAt: &activatedAt,
 		ExpiredAt: license.ExpiredAt, LastVerifyAt: license.LastVerifyAt,
@@ -869,6 +886,7 @@ func (s *Service) publicLicenseResult(ctx context.Context, queryType string, car
 	}
 	activatedAt := license.ActivatedAt
 	result := PublicLicenseQueryResult{
+		LicenseMode: license.LicenseMode, UsageExpiredAt: license.ExpiredAt, UpdatesExpiredAt: license.UpdatesExpiredAt,
 		QueryType:     queryType,
 		ProductName:   product.Name,
 		ProductCode:   product.Code,
@@ -883,7 +901,7 @@ func (s *Service) publicLicenseResult(ctx context.Context, queryType string, car
 	if queryType == "card" {
 		result.CardStatus = card.Status
 		result.DurationDays = card.DurationDays
-		result.IsPermanent = card.IsPermanent
+		result.IsPermanent = license.ExpiredAt == nil
 	}
 	return result, nil
 }
@@ -900,13 +918,18 @@ type ActivateInput struct {
 }
 
 type LicenseResponse struct {
-	LicenseNo    string     `json:"license_no"`
-	Status       string     `json:"status"`
-	ExpiredAt    *time.Time `json:"expired_at,omitempty"`
-	GraceUntil   *time.Time `json:"grace_until,omitempty"`
-	LicenseToken string     `json:"license_token,omitempty"`
-	OfflineToken string     `json:"offline_token,omitempty"`
-	ServerTime   time.Time  `json:"server_time"`
+	LicenseMode      string     `json:"license_mode"`
+	CanUse           bool       `json:"can_use"`
+	CanUpdate        bool       `json:"can_update"`
+	UsageExpiredAt   *time.Time `json:"usage_expired_at"`
+	UpdatesExpiredAt *time.Time `json:"updates_expired_at"`
+	LicenseNo        string     `json:"license_no"`
+	Status           string     `json:"status"`
+	ExpiredAt        *time.Time `json:"expired_at,omitempty"`
+	GraceUntil       *time.Time `json:"grace_until,omitempty"`
+	LicenseToken     string     `json:"license_token,omitempty"`
+	OfflineToken     string     `json:"offline_token,omitempty"`
+	ServerTime       time.Time  `json:"server_time"`
 }
 
 func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseResponse, error) {
@@ -959,6 +982,9 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 			if err != nil {
 				return err
 			}
+		}
+		if err := s.ensureUsable(product, lic, now); err != nil {
+			return err
 		}
 		binding, err = tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
 		if err == nil {
@@ -1099,6 +1125,9 @@ func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]
 			}
 			return err
 		}
+		if lic.ProductID != product.ID {
+			return ErrLicenseNotFound
+		}
 		binding, err := tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
 		if err != nil {
 			if store.IsNotFound(err) {
@@ -1158,7 +1187,13 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 			}
 			return err
 		}
-		if lic.ExpiredAt == nil {
+		if lic.ProductID != product.ID {
+			return ErrLicenseNotFound
+		}
+		if lic.Status == domain.LicenseRevoked {
+			return ErrLicenseRevoked
+		}
+		if lic.ExpiredAt == nil && lic.UpdatesExpiredAt == nil {
 			return ErrLicensePermanent
 		}
 		binding, err = tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
@@ -1178,22 +1213,22 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 		if card.ProductID != product.ID || card.Status != domain.CardUnused {
 			return ErrCardInvalid
 		}
-		var newExpiry *time.Time
-		if !card.IsPermanent {
-			base := now
-			if lic.ExpiredAt != nil && lic.ExpiredAt.After(now) {
-				base = *lic.ExpiredAt
-			}
-			next := base.AddDate(0, 0, card.DurationDays)
-			newExpiry = &next
+		lic.ExpiredAt = extendExpiry(lic.ExpiredAt, card.DurationDays, card.IsPermanent, now)
+		updateDays := product.UpdateDurationDays
+		if updateDays == 0 {
+			updateDays = card.DurationDays
 		}
-		if err := tx.UpdateLicenseExpiry(ctx, lic.ID, newExpiry, now); err != nil {
+		lic.UpdatesExpiredAt = extendExpiry(lic.UpdatesExpiredAt, updateDays, card.IsPermanent && product.UpdateDurationDays == 0, now)
+		if lic.ExpiredAt != nil && (lic.UpdatesExpiredAt == nil || lic.UpdatesExpiredAt.After(*lic.ExpiredAt)) {
+			lic.UpdatesExpiredAt = lic.ExpiredAt
+		}
+		if err := tx.UpdateLicenseRights(ctx, lic, now); err != nil {
 			return err
 		}
 		if err := tx.UpdateCardConsumed(ctx, card.ID, now); err != nil {
 			return err
 		}
-		lic.ExpiredAt = newExpiry
+		lic.UsageExpiredAt = lic.ExpiredAt
 		lic.Status = domain.LicenseActive
 		return nil
 	})
@@ -1511,7 +1546,7 @@ func (s *Service) ensureUsable(product domain.Product, lic domain.License, now t
 		return nil
 	}
 	graceUntil := lic.ExpiredAt.AddDate(0, 0, product.ExpireGraceDays)
-	if now.After(graceUntil) {
+	if !now.Before(graceUntil) {
 		return ErrLicenseExpired
 	}
 	return nil
@@ -1527,30 +1562,29 @@ func (s *Service) licenseResponse(product domain.Product, lic domain.License, bi
 		return LicenseResponse{}, err
 	}
 	bindDigest := yncrypto.BindDigest(binding.BindMode, bindValue)
-	graceUntil := (*time.Time)(nil)
-	if lic.ExpiredAt != nil {
-		t := lic.ExpiredAt.AddDate(0, 0, product.ExpireGraceDays)
-		graceUntil = &t
-	}
+	graceUntil := usageGraceUntil(product, lic)
 	payload := map[string]any{
-		"type":         "license",
-		"license_no":   lic.LicenseNo,
-		"product_code": product.Code,
-		"bind_mode":    binding.BindMode,
-		"bind_hash":    binding.BindValueHash,
-		"bind_digest":  bindDigest,
-		"status":       lic.Status,
-		"issued_at":    now,
-		"expired_at":   lic.ExpiredAt,
-		"key_version":  product.KeyVersion,
+		"type":               "license",
+		"license_no":         lic.LicenseNo,
+		"product_code":       product.Code,
+		"bind_mode":          binding.BindMode,
+		"bind_hash":          binding.BindValueHash,
+		"bind_digest":        bindDigest,
+		"status":             lic.Status,
+		"issued_at":          now,
+		"expired_at":         lic.ExpiredAt,
+		"usage_expired_at":   lic.ExpiredAt,
+		"updates_expired_at": lic.UpdatesExpiredAt,
+		"license_mode":       lic.LicenseMode,
+		"key_version":        product.KeyVersion,
 	}
 	licenseToken, err := yncrypto.SignJSON(privatePEM, payload)
 	if err != nil {
 		return LicenseResponse{}, err
 	}
 	offlineUntil := now.AddDate(0, 0, product.OfflineGraceDays)
-	if lic.ExpiredAt != nil && lic.ExpiredAt.Before(offlineUntil) {
-		offlineUntil = *lic.ExpiredAt
+	if graceUntil != nil && graceUntil.Before(offlineUntil) {
+		offlineUntil = *graceUntil
 	}
 	offlinePayload := map[string]any{
 		"type":               "offline_cache",
@@ -1559,7 +1593,10 @@ func (s *Service) licenseResponse(product domain.Product, lic domain.License, bi
 		"bind_mode":          binding.BindMode,
 		"bind_hash":          binding.BindValueHash,
 		"bind_digest":        bindDigest,
-		"license_expired_at": lic.ExpiredAt,
+		"license_expired_at": graceUntil,
+		"usage_expired_at":   lic.ExpiredAt,
+		"updates_expired_at": lic.UpdatesExpiredAt,
+		"license_mode":       lic.LicenseMode,
 		"offline_until":      offlineUntil,
 		"issued_at":          now,
 		"key_version":        product.KeyVersion,
@@ -1569,13 +1606,18 @@ func (s *Service) licenseResponse(product domain.Product, lic domain.License, bi
 		return LicenseResponse{}, err
 	}
 	return LicenseResponse{
-		LicenseNo:    lic.LicenseNo,
-		Status:       lic.Status,
-		ExpiredAt:    lic.ExpiredAt,
-		GraceUntil:   graceUntil,
-		LicenseToken: licenseToken,
-		OfflineToken: offlineToken,
-		ServerTime:   now,
+		LicenseMode:      lic.LicenseMode,
+		CanUse:           s.ensureUsable(product, lic, now) == nil,
+		CanUpdate:        licenseCanUpdate(lic, now),
+		UsageExpiredAt:   lic.ExpiredAt,
+		UpdatesExpiredAt: lic.UpdatesExpiredAt,
+		LicenseNo:        lic.LicenseNo,
+		Status:           lic.Status,
+		ExpiredAt:        lic.ExpiredAt,
+		GraceUntil:       graceUntil,
+		LicenseToken:     licenseToken,
+		OfflineToken:     offlineToken,
+		ServerTime:       now,
 	}, nil
 }
 
@@ -1585,7 +1627,25 @@ func newLicense(product domain.Product, card domain.Card, now time.Time) domain.
 		t := now.AddDate(0, 0, card.DurationDays)
 		expiredAt = &t
 	}
+	updateExpiry := expiredAt
+	if product.UpdateDurationDays > 0 {
+		until := now.AddDate(0, 0, product.UpdateDurationDays)
+		updateExpiry = &until
+	}
+	if product.LicenseMode == domain.LicensePerpetual {
+		expiredAt = nil
+	}
+	if expiredAt != nil && (updateExpiry == nil || updateExpiry.After(*expiredAt)) {
+		updateExpiry = expiredAt
+	}
+	mode := product.LicenseMode
+	if mode == "" {
+		mode = domain.LicenseSubscription
+	}
 	return domain.License{
+		LicenseMode:         mode,
+		UpdatesExpiredAt:    updateExpiry,
+		UsageExpiredAt:      expiredAt,
 		ID:                  yncrypto.NewID("licid"),
 		LicenseNo:           yncrypto.NewID("lic"),
 		ProductID:           product.ID,

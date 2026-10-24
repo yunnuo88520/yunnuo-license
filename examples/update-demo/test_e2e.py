@@ -92,6 +92,7 @@ def main():
     parser.add_argument("--license-server", required=True, type=pathlib.Path)
     parser.add_argument("--artifacts", required=True, type=pathlib.Path)
     parser.add_argument("--screenshots", action="store_true", help="Requires Python Playwright and Chromium")
+    parser.add_argument("--license-mode", choices=["subscription", "perpetual"], default="subscription")
     args = parser.parse_args()
     binary = args.license_server.resolve(strict=True)
     artifacts = args.artifacts.resolve()
@@ -99,7 +100,7 @@ def main():
     node = shutil.which("node")
     if not node:
         raise RuntimeError("Node.js is required")
-    report = {"test": "independent Ebox website online update", "run_id": uuid.uuid4().hex, "started_at": datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat(), "result": "running", "cases": []}
+    report = {"test": "independent Ebox website online update", "license_mode":args.license_mode, "run_id": uuid.uuid4().hex, "started_at": datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat(), "result": "running", "cases": []}
     (artifacts / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
     with tempfile.TemporaryDirectory(prefix="yunnuo-update-demo-") as temporary:
         temporary = pathlib.Path(temporary)
@@ -123,7 +124,7 @@ def main():
                 admin = api(license_base, "/admin/login", {"username": "demo-root", "password": password})["access_token"]
                 api(license_base, "/admin/users", {"username": "demo-developer", "password": password, "role": "developer"}, admin)
                 developer = api(license_base, "/developer/login", {"username": "demo-developer", "password": password})["access_token"]
-                product = api(license_base, "/developer/products", {"name": "Ebox Website Demo", "code": "EBOX", "bind_mode": "domain", "expire_grace_days": 3}, developer)
+                product = api(license_base, "/developer/products", {"name": "Ebox Website Demo", "code": "EBOX", "bind_mode": "domain", "license_mode":args.license_mode,"expire_grace_days":0}, developer)
                 prefix = "/developer/products/" + product["id"]
                 api(license_base, prefix + "/updates", {"enabled": True}, developer)
                 batch = api(license_base, prefix + "/card-batches", {"name": "Website demo", "quantity": 1, "duration_days": 30}, developer)
@@ -157,15 +158,34 @@ def main():
                     page.screenshot(path=str(artifacts / "before-v1.png"), full_page=True)
                 publish(license_base, product, developer, "2.0.0", archive("2.0.0", 2))
                 with sqlite3.connect(license_db) as fixture:
-                    original_expiry = fixture.execute("SELECT expired_at FROM licenses WHERE license_no = ?", (license["license_no"],)).fetchone()[0]
+                    license_id, original_expiry = fixture.execute("SELECT id, expired_at FROM licenses WHERE license_no = ?", (license["license_no"],)).fetchone()
                     expired = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)).isoformat().replace("+00:00", "Z")
-                    fixture.execute("UPDATE licenses SET expired_at = ? WHERE license_no = ?", (expired, license["license_no"]))
+                    if args.license_mode=="perpetual":
+                        original_expiry=fixture.execute("SELECT updates_expired_at FROM license_entitlements WHERE license_id = ?",(license_id,)).fetchone()[0]
+                        fixture.execute("UPDATE license_entitlements SET updates_expired_at = ? WHERE license_id = ?",(expired,license_id))
+                    else:
+                        fixture.execute("UPDATE licenses SET expired_at = ? WHERE license_no = ?", (expired, license["license_no"]))
                 denied = http(site_base, "/api/update", {}, expected=403)
-                assert denied["code"] == "LICENSE_EXPIRED"
-                assert http(site_base, "/api/status")["version"] == "1.0.0" and http(site_base, "/") == before_html
-                report["cases"].append({"name": "Expired license rejects update and leaves installed files unchanged", "passed": True, "fixture": "Only the isolated test license expiry was moved to yesterday"})
+                assert denied["code"] == ("UPDATES_EXPIRED" if args.license_mode=="perpetual" else "LICENSE_EXPIRED")
+                credentials={**binding,"app_key":product["app_key"]}
+                if args.license_mode=="perpetual":
+                    rights=api(license_base,"/v1/licenses/verify",credentials)
+                    assert rights["can_use"] and not rights["can_update"] and rights["usage_expired_at"] is None
+                    assert api(license_base,"/v1/licenses/heartbeat",credentials)["accepted"]
+                    assert http(site_base,"/")==before_html
+                    assert http(site_base,"/api/status")["version"]=="1.0.0"
+                else:
+                    assert http(license_base,"/v1/licenses/verify",credentials,expected=403)["error"]["code"]=="LICENSE_EXPIRED"
+                    assert http(license_base,"/v1/licenses/heartbeat",credentials,expected=403)["error"]["code"]=="LICENSE_EXPIRED"
+                    assert http(site_base,"/",expected=403)["code"]=="LICENSE_EXPIRED"
+                    assert http(site_base,"/api/status",expected=403)["code"]=="LICENSE_EXPIRED"
+                assert (site_data/"current"/"index.html").read_bytes()==before_html
+                report["cases"].append({"name": "Expired update rights reject updates; perpetual website stays usable and expired subscription website denies access", "passed": True, "fixture": "Only the isolated test entitlement deadline was moved to yesterday"})
                 with sqlite3.connect(license_db) as fixture:
-                    fixture.execute("UPDATE licenses SET expired_at = ? WHERE license_no = ?", (original_expiry, license["license_no"]))
+                    if args.license_mode=="perpetual":
+                        fixture.execute("UPDATE license_entitlements SET updates_expired_at = ? WHERE license_id = ?",(original_expiry,license_id))
+                    else:
+                        fixture.execute("UPDATE licenses SET expired_at = ? WHERE license_no = ?", (original_expiry, license["license_no"]))
                 if args.screenshots:
                     page.get_by_role("button", name="检查并安装更新").click()
                     page.get_by_text("v2.0.0", exact=True).wait_for()

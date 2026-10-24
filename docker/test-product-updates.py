@@ -67,12 +67,23 @@ if mode == "prepare":
     assert not request("/v1/updates/check", check_input)["update_available"]
     request(prefix + "/releases/" + release["id"] + "/publish", {}, developer)
     assert request("/v1/updates/check", check_input)["release"]["id"] == release["id"]
-    state = {"binding": binding, "release": release, "prefix": prefix, "developer": developer}
+    perpetual = request("/developer/products", {"name": "Ebox perpetual", "code": "EBOXP", "bind_mode": "domain", "license_mode":"perpetual", "update_duration_days":7}, developer)
+    perpetual_batch = request("/developer/products/"+perpetual["id"]+"/card-batches", {"name":"maintenance", "quantity":2, "duration_days":30}, developer)
+    perpetual_binding = {"app_key":perpetual["app_key"],"bind_mode":"domain","bind_value":"perpetual.example.com"}
+    perpetual_license = request("/v1/licenses/activate", {**perpetual_binding,"card_code":perpetual_batch["codes"][0]})
+    assert perpetual_license["usage_expired_at"] is None and perpetual_license["updates_expired_at"] is not None
+    perpetual_binding["license_no"] = perpetual_license["license_no"]
+    renewed = request("/v1/licenses/renew", {**perpetual_binding,"renew_card_code":perpetual_batch["codes"][1]})
+    assert renewed["can_use"] and renewed["can_update"] and renewed["usage_expired_at"] is None
+    assert renewed["updates_expired_at"] > perpetual_license["updates_expired_at"]
+    state = {"binding": binding, "release": release, "prefix": prefix, "developer": developer,"perpetual_binding":perpetual_binding,"updates_expired_at":renewed["updates_expired_at"]}
     pathlib.Path(state_path).write_text(json.dumps(state))
     os.chmod(state_path, 0o600)
     print("Developer isolation and release publishing passed")
 elif mode == "verify":
     state = json.loads(pathlib.Path(state_path).read_text())
+    perpetual = request("/v1/licenses/verify",state["perpetual_binding"])
+    assert perpetual["license_mode"]=="perpetual" and perpetual["usage_expired_at"] is None and perpetual["updates_expired_at"]==state["updates_expired_at"]
     binding, release = state["binding"], state["release"]
     check_input = {**binding, "current_version": "1.0.0"}
     update = request("/v1/updates/check", check_input)

@@ -38,13 +38,18 @@ type UnbindRequest struct {
 }
 
 type LicenseResponse struct {
-	LicenseNo    string     `json:"license_no"`
-	Status       string     `json:"status"`
-	ExpiredAt    *time.Time `json:"expired_at,omitempty"`
-	GraceUntil   *time.Time `json:"grace_until,omitempty"`
-	LicenseToken string     `json:"license_token,omitempty"`
-	OfflineToken string     `json:"offline_token,omitempty"`
-	ServerTime   time.Time  `json:"server_time"`
+	LicenseMode      string     `json:"license_mode"`
+	CanUse           bool       `json:"can_use"`
+	CanUpdate        bool       `json:"can_update"`
+	UsageExpiredAt   *time.Time `json:"usage_expired_at"`
+	UpdatesExpiredAt *time.Time `json:"updates_expired_at"`
+	LicenseNo        string     `json:"license_no"`
+	Status           string     `json:"status"`
+	ExpiredAt        *time.Time `json:"expired_at,omitempty"`
+	GraceUntil       *time.Time `json:"grace_until,omitempty"`
+	LicenseToken     string     `json:"license_token,omitempty"`
+	OfflineToken     string     `json:"offline_token,omitempty"`
+	ServerTime       time.Time  `json:"server_time"`
 }
 
 type HeartbeatResponse struct {

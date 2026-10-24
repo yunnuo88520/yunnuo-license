@@ -189,6 +189,9 @@ func (s *Store) CreateProduct(ctx context.Context, p domain.Product) error {
 		if err == nil && p.DeveloperID != "" {
 			_, err = tx.tx.ExecContext(ctx, `INSERT INTO product_developers (product_id, user_id) VALUES (?, ?)`, p.ID, p.DeveloperID)
 		}
+		if err == nil {
+			_, err = tx.tx.ExecContext(ctx, `INSERT INTO product_license_policies (product_id, license_mode, update_duration_days) VALUES (?, ?, ?)`, p.ID, p.LicenseMode, p.UpdateDurationDays)
+		}
 		return err
 	})
 }
@@ -875,6 +878,9 @@ func (s *Store) ListAgentQuotaSummaries(ctx context.Context, agentID string) ([]
 }
 
 func (tx *Tx) CreateCardBatch(ctx context.Context, batch domain.CardBatch) error {
+	if err := tx.lockProduct(ctx, batch.ProductID); err != nil {
+		return err
+	}
 	_, err := tx.tx.ExecContext(ctx, `
 		INSERT INTO card_batches (
 		  id, product_id, agent_id, name, quantity, duration_days, is_permanent,
@@ -935,7 +941,14 @@ func (tx *Tx) CreateLicense(ctx context.Context, lic domain.License) error {
 		nullTime(lic.LastVerifyAt), nullTime(lic.LastHeartbeatAt), lic.OfflineTokenVersion,
 		ts(lic.CreatedAt), ts(lic.UpdatedAt),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if lic.LicenseMode == "" {
+		lic.LicenseMode = domain.LicenseSubscription
+		lic.UpdatesExpiredAt = lic.ExpiredAt
+	}
+	return tx.setEntitlements(ctx, lic.ID, lic.LicenseMode, lic.UpdatesExpiredAt)
 }
 
 func (tx *Tx) GetLicenseByID(ctx context.Context, id string) (domain.License, error) {
@@ -1074,10 +1087,10 @@ func (tx *Tx) InsertAudit(ctx context.Context, log domain.AuditLog) error {
 	return err
 }
 
-const productColumns = `id, name, code, app_key, public_key_pem, private_key_encrypted, COALESCE((SELECT MAX(key_version) FROM product_keys WHERE product_id = products.id), 1), bind_mode, max_bind_count, bind_conflict_strategy, offline_mode, offline_grace_days, expire_grace_days, unbind_limit, unbind_cooldown_hours, status, created_at, updated_at, COALESCE((SELECT user_id FROM product_developers WHERE product_id = products.id), '')`
+const productColumns = `id, name, code, app_key, public_key_pem, private_key_encrypted, COALESCE((SELECT MAX(key_version) FROM product_keys WHERE product_id = products.id), 1), bind_mode, max_bind_count, bind_conflict_strategy, offline_mode, offline_grace_days, expire_grace_days, unbind_limit, unbind_cooldown_hours, status, created_at, updated_at, COALESCE((SELECT user_id FROM product_developers WHERE product_id = products.id), ''), COALESCE((SELECT license_mode FROM product_license_policies WHERE product_id = products.id), 'subscription'), COALESCE((SELECT update_duration_days FROM product_license_policies WHERE product_id = products.id), 0)`
 const batchColumns = `id, product_id, agent_id, name, quantity, duration_days, is_permanent, source, status, export_count, created_by, created_at, updated_at`
 const cardColumns = `id, product_id, batch_id, agent_id, code_hash, code_encrypted, code_prefix, duration_days, is_permanent, status, order_no, activated_license_id, activated_at, consumed_at, voided_at, void_reason, created_by, created_at, updated_at`
-const licenseColumns = `id, license_no, product_id, card_id, agent_id, status, issued_at, activated_at, expired_at, last_verify_at, last_heartbeat_at, offline_token_version, created_at, updated_at`
+const licenseColumns = `id, license_no, product_id, card_id, agent_id, status, issued_at, activated_at, expired_at, last_verify_at, last_heartbeat_at, offline_token_version, created_at, updated_at, COALESCE((SELECT license_mode FROM license_entitlements WHERE license_id = licenses.id), 'subscription'), CASE WHEN EXISTS (SELECT 1 FROM license_entitlements WHERE license_id = licenses.id) THEN (SELECT updates_expired_at FROM license_entitlements WHERE license_id = licenses.id) ELSE expired_at END`
 const offlineLicenseColumns = `id, license_no, product_id, label, machine_code_hash, machine_code_encrypted, machine_code_masked, signed_token_encrypted, token_version, status, issued_at, expired_at, revoked_at, revoked_reason, created_by, created_at, updated_at`
 const bindingColumns = `id, license_id, product_id, bind_mode, bind_value_hash, bind_value_encrypted, display_name, status, first_seen_ip, last_seen_ip, user_agent, last_heartbeat_at, activated_at, created_at, updated_at`
 const agentColumns = `id, agent_no, parent_agent_id, name, contact_name, phone, email, level, status, settlement_mode, default_discount_rate, credit_limit, remark, created_by, created_at, updated_at, disabled_at`
@@ -1104,7 +1117,7 @@ func scanProduct(row scanner) (domain.Product, error) {
 		&p.KeyVersion,
 		&p.BindMode, &p.MaxBindCount, &p.BindConflictStrategy, &p.OfflineMode,
 		&p.OfflineGraceDays, &p.ExpireGraceDays, &p.UnbindLimit, &p.UnbindCooldownHours,
-		&p.Status, &createdAt, &updatedAt, &p.DeveloperID)
+		&p.Status, &createdAt, &updatedAt, &p.DeveloperID, &p.LicenseMode, &p.UpdateDurationDays)
 	if err != nil {
 		return domain.Product{}, err
 	}
@@ -1160,11 +1173,11 @@ func scanCard(row scanner) (domain.Card, error) {
 func scanLicense(row scanner) (domain.License, error) {
 	var l domain.License
 	var agentID sql.NullString
-	var expiredAt, lastVerifyAt, lastHeartbeatAt sql.NullString
+	var expiredAt, lastVerifyAt, lastHeartbeatAt, updatesExpiredAt sql.NullString
 	var issuedAt, activatedAt, createdAt, updatedAt string
 	err := row.Scan(&l.ID, &l.LicenseNo, &l.ProductID, &l.CardID, &agentID, &l.Status,
 		&issuedAt, &activatedAt, &expiredAt, &lastVerifyAt, &lastHeartbeatAt,
-		&l.OfflineTokenVersion, &createdAt, &updatedAt)
+		&l.OfflineTokenVersion, &createdAt, &updatedAt, &l.LicenseMode, &updatesExpiredAt)
 	if err != nil {
 		return domain.License{}, err
 	}
@@ -1172,6 +1185,8 @@ func scanLicense(row scanner) (domain.License, error) {
 	l.IssuedAt = parseTS(issuedAt)
 	l.ActivatedAt = parseTS(activatedAt)
 	l.ExpiredAt = timePtr(expiredAt)
+	l.UsageExpiredAt = l.ExpiredAt
+	l.UpdatesExpiredAt = timePtr(updatesExpiredAt)
 	l.LastVerifyAt = timePtr(lastVerifyAt)
 	l.LastHeartbeatAt = timePtr(lastHeartbeatAt)
 	l.CreatedAt = parseTS(createdAt)

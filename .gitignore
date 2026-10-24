@@ -25,6 +25,7 @@ backend/yn-releases/
 /yn-license-config.json
 docker/test-bin/
 docker/__pycache__/
+examples/update-demo/__pycache__/
 
 # Local env
 .env

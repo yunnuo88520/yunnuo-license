@@ -528,7 +528,8 @@ onMounted(async () => {
                   <th>产品</th>
                   <th>状态</th>
                   <th>激活时间</th>
-                  <th>到期时间</th>
+                  <th>使用到期</th>
+                  <th>更新到期</th>
                   <th>最近验证</th>
                 </tr>
               </thead>
@@ -543,6 +544,7 @@ onMounted(async () => {
                   <td>
                     {{ l.expired_at ? formatTime(l.expired_at) : "永久" }}
                   </td>
+                  <td>{{ l.updates_expired_at ? formatTime(l.updates_expired_at) : '永久更新' }}</td>
                   <td>{{ formatTime(l.last_verify_at) }}</td>
                 </tr>
               </tbody>

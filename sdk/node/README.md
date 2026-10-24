@@ -6,6 +6,10 @@
 可选的产品升级服务支持 `checkUpdate` 和 `downloadUpdate`。后者使用预置信任公钥校验版本清单签名、产品归属、包长度与 SHA-256，成功后返回二进制内容；不会自动安装。
 调用示例见 [产品升级服务](../../docs/product-updates.md)。
 
+授权响应分别返回 `can_use`、`can_update`、`usage_expired_at`、`updates_expired_at`。
+永久使用模式中，更新到期会使 `can_update=false`，已有版本的 `can_use` 仍为 true。
+更新权限必须在线校验；不要把更新截止时间用于离线停用已有版本。
+
 ## 本地安装
 
 ```bash

@@ -13,6 +13,14 @@ const now = new Date("2026-08-12T03:00:00Z");
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const publicKeyPem = publicKey.export({ type: "spki", format: "pem" });
 
+test("expired update entitlement does not expire perpetual offline usage", () => {
+  const token = signClaims({ type: "offline_cache", license_no: "lic_perpetual", product_code: "YN", license_mode: "perpetual", bind_mode: "device", bind_digest: bindingDigest("device", "machine-A"), license_expired_at: null, usage_expired_at: null, updates_expired_at: "2026-08-01T00:00:00Z", offline_until: "2026-08-13T00:00:00Z", issued_at: now.toISOString(), key_version: 1 });
+  const verifier = new OfflineVerifier({ publicKeyPem, productCode: "YN", clock: () => now });
+  const claims = verifier.verifyOfflineToken(token, { bindMode: "device", bindValue: "machine-A" });
+  assert.equal(claims.license_mode, "perpetual");
+  assert.equal(claims.usage_expired_at, null);
+});
+
 test("verifies online cache token and rejects wrong binding or tampering", () => {
   const claims = {
     type: "offline_cache",

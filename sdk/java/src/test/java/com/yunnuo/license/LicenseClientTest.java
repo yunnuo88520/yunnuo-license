@@ -2,6 +2,7 @@ package com.yunnuo.license;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yunnuo.license.model.LicenseResponse;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.yunnuo.license.model.ActivateRequest;
@@ -24,6 +25,20 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LicenseClientTest {
+    @Test
+    void parsesSeparateUsageAndUpdateEntitlements() throws Exception {
+        LicenseResponse response = LicenseClient.defaultObjectMapper().readValue("""
+                {"license_no":"lic_perpetual","status":"active","license_mode":"perpetual",
+                 "can_use":true,"can_update":false,"usage_expired_at":null,
+                 "updates_expired_at":"2026-08-01T00:00:00Z","server_time":"2026-08-12T00:00:00Z"}
+                """, LicenseResponse.class);
+        assertTrue(response.canUse());
+        assertEquals(false, response.canUpdate());
+        assertEquals("perpetual", response.licenseMode());
+        assertEquals(null, response.usageExpiredAt());
+        assertEquals(java.time.Instant.parse("2026-08-01T00:00:00Z"), response.updatesExpiredAt());
+    }
+
     private final ObjectMapper mapper = LicenseClient.defaultObjectMapper();
     private HttpServer server;
 

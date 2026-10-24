@@ -34,6 +34,7 @@ import { toast } from "../shared/useToast";
 import AppToast from "../shared/components/AppToast.vue";
 import StatusBadge from "../shared/components/StatusBadge.vue";
 import ProductReleases from "../shared/components/ProductReleases.vue";
+import LicensePolicy from "../shared/components/LicensePolicy.vue";
 import {
   applyBranding,
   branding,
@@ -102,7 +103,7 @@ async function create(
 }
 async function productCreate(e: Event) {
   await create("/admin/products", e, "产品已创建", (o) =>
-    ["max_bind_count", "offline_grace_days", "expire_grace_days"].forEach(
+    ["max_bind_count", "offline_grace_days", "expire_grace_days", "update_duration_days"].forEach(
       (k) => (o[k] = Number(o[k])),
     ),
   );
@@ -437,6 +438,8 @@ onMounted(async () => {
             class="form-grid"
             @submit.prevent="productCreate"
           >
+            <label class="field">授权模式<select name="license_mode"><option value="subscription">订阅使用（到期停用）</option><option value="perpetual">永久使用、限期更新</option></select></label>
+            <label class="field">更新天数（0 跟随卡密期限）<input name="update_duration_days" type="number" min="0" max="36500" value="0" required /></label>
             <label class="field">产品名称<input name="name" required /></label
             ><label class="field"
               >产品编码<input name="code" maxlength="6" required /></label
@@ -464,7 +467,7 @@ onMounted(async () => {
                 type="number"
                 value="15" /></label
             ><label class="field"
-              >过期宽限<input name="expire_grace_days" type="number" value="3"
+              >使用到期宽限天数<input name="expire_grace_days" type="number" min="0" max="365" value="0"
             /></label>
             <div class="form-actions">
               <button class="btn">确认新增</button>
@@ -480,6 +483,7 @@ onMounted(async () => {
                   <th>密钥版本</th>
                   <th>绑定</th>
                   <th>席位</th>
+                  <th>授权模式</th>
                   <th>状态</th>
                   <th>操作</th>
                 </tr>
@@ -494,6 +498,7 @@ onMounted(async () => {
                   <td>v{{ p.key_version || 1 }}</td>
                   <td>{{ p.bind_mode }}</td>
                   <td>{{ p.max_bind_count }}</td>
+                  <td>{{ p.license_mode === 'perpetual' ? '永久使用、限期更新' : '订阅使用' }}</td>
                   <td><StatusBadge :status="p.status" /></td>
                   <td>
                     <div class="row-actions">
@@ -541,6 +546,7 @@ onMounted(async () => {
           <label class="field">选择产品<select v-model="a.selected.product"><option value="" disabled>请选择产品</option><option v-for="p in a.data.products" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
           <p v-if="!a.data.products.length">请先创建产品。</p>
           <template v-if="a.selected.product">
+            <LicensePolicy :key="'policy-' + a.selected.product" :product-id="a.selected.product" :api="a.api" prefix="/admin" :can-write="a.isManager.value" @saved="a.refresh" />
             <form v-if="a.isSuper.value" class="form-grid" @submit.prevent="create(`/admin/products/${a.selected.product}/developer`, $event, '开发者归属已保存')">
               <label class="field">产品所属开发者<select name="developer_id" :key="a.selected.product + (a.data.products.find((p: any) => p.id === a.selected.product)?.developer_id || '')" :value="a.data.products.find((p: any) => p.id === a.selected.product)?.developer_id || ''"><option value="">仅由站点管理</option><option v-for="u in a.data.users.filter((u: any) => u.role === 'developer' && u.status === 'active')" :key="u.id" :value="u.id">{{ u.display_name || u.username }}</option></select></label>
               <button class="btn secondary">保存产品归属</button>
@@ -903,7 +909,8 @@ onMounted(async () => {
                   <th>授权号</th>
                   <th>产品</th>
                   <th>状态</th>
-                  <th>到期</th>
+                  <th>使用到期</th>
+                  <th>更新到期</th>
                   <th>最近验证</th>
                   <th>操作</th>
                 </tr>
@@ -918,6 +925,7 @@ onMounted(async () => {
                   <td>
                     {{ l.expired_at ? formatTime(l.expired_at) : "永久" }}
                   </td>
+                  <td>{{ l.updates_expired_at ? formatTime(l.updates_expired_at) : '永久更新' }}</td>
                   <td>{{ formatTime(l.last_verify_at) }}</td>
                   <td>
                     <div class="row-actions">

@@ -218,7 +218,9 @@ async function initialize() {
               </div>
               <div>
                 <dt>到期时间</dt>
-                <dd>{{ item.is_permanent ? "永久" : formatTime(item.expired_at) }}</dd>
+                <dd>{{ item.is_permanent ? "永久使用" : formatTime(item.expired_at) }}</dd>
+              </div>
+              <div v-if="item.license_no"><dt>更新服务到期</dt><dd>{{ item.updates_expired_at ? formatTime(item.updates_expired_at) : '永久更新' }}</dd>
               </div>
               <div>
                 <dt>最近验证</dt>

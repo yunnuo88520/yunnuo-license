@@ -198,6 +198,9 @@ func (s *Service) authorizeUpdate(ctx context.Context, input VerifyInput) (strin
 	if verified.ExpiredAt != nil && !s.now().Before(*verified.ExpiredAt) {
 		return "", ErrLicenseExpired
 	}
+	if !beforeExpiry(s.now(), verified.UpdatesExpiredAt) {
+		return "", forbidden("UPDATES_EXPIRED", "update entitlement expired; existing usage rights are unchanged")
+	}
 	p, err := s.productByAppKey(ctx, input.AppKey)
 	if err != nil {
 		return "", err
@@ -281,5 +284,12 @@ func (s *Service) DownloadRelease(ctx context.Context, releaseID string, input V
 		return domain.ProductRelease{}, nil, ErrReleaseNotFound
 	}
 	file, err := s.openRelease(result)
+	if err == nil {
+		// File hashing can take time. Recheck rights immediately before handing out the bytes.
+		if _, authErr := s.authorizeUpdate(ctx, input); authErr != nil {
+			file.Close()
+			return domain.ProductRelease{}, nil, authErr
+		}
+	}
 	return result, file, err
 }

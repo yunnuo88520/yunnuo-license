@@ -72,6 +72,11 @@ export interface UnbindRequest extends HeartbeatRequest {
 }
 
 export interface LicenseResponse {
+	license_mode: "subscription" | "perpetual";
+	can_use: boolean;
+	can_update: boolean;
+	usage_expired_at: string | null;
+	updates_expired_at: string | null;
   license_no: string;
   status: string;
   expired_at?: string;
@@ -143,6 +148,9 @@ export interface OfflineExpectation {
 }
 
 export interface OfflineCacheClaims {
+	license_mode?: "subscription" | "perpetual";
+	usage_expired_at?: string | null;
+	updates_expired_at?: string | null;
   type: "offline_cache";
   license_no: string;
   product_code: string;

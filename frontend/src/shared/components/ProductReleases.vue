@@ -114,7 +114,7 @@ function changeStatus(id: string, action: string) {
     </header>
     <p>
       当前状态：<strong>{{ enabled ? "已启用" : "未启用" }}</strong> ·
-      仅未到期且有效的授权可检查和下载更新
+      仅更新资格有效的授权可检查和下载更新
     </p>
     <form v-if="canWrite" class="release-upload" @submit.prevent="upload">
       <label class="field"

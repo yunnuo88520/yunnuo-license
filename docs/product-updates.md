@@ -30,9 +30,28 @@
 
 ## 授权规则
 
-检查更新及每次下载都使用现有在线授权校验：产品有效、卡密已激活、授权未吊销、绑定有效且匹配，并通过现有风控规则。
-临时授权到期时即停止更新资格；授权运行宽限期不延长更新权限。永久授权不受时间限制。
-续期后恢复资格。关闭升级服务后不再提供版本和下载。
+检查更新及每次下载都由服务端校验：产品有效、卡密已激活、授权未吊销、绑定有效且匹配，并通过现有风控规则。
+使用期限与更新期限分别记录，以服务端时间为准，截止时刻本身即视为到期。
+
+| 产品授权模式 | 使用到期后的行为 | 更新到期后的行为 |
+| --- | --- | --- |
+| `subscription` 订阅使用（默认） | 拒绝验证、心跳和重新激活；配置了使用宽限期时可在宽限期内使用 | 拒绝检查更新和下载，不受使用宽限期影响 |
+| `perpetual` 永久使用、限期更新 | 使用期限为 `null`，仍需遵守产品状态、绑定、风控和吊销规则 | 保留已有版本的使用权限，拒绝检查更新和下载；续期后恢复更新资格 |
+
+创建产品时选择 `license_mode`，`update_duration_days` 指定每次发卡或续期授予的更新天数，0 表示跟随卡密期限。
+订阅的卡密天数控制使用期限；永久使用模式的卡密只控制更新期限。
+订阅的更新期限最多到使用期限结束。永久卡配合 `update_duration_days=0` 包含永久更新，指定正数则仍只有该天数的更新服务。
+更新截止时间为 `null` 表示永久更新，使用截止时间为 `null` 表示永久使用，两者互不等同。
+
+验证、激活和续期响应增加 `can_use`、`can_update`、`license_mode`、`usage_expired_at`、`updates_expired_at`。
+`expired_at` 保持兼容，仍代表使用截止时间。`can_update` 表示授权具备更新资格，是否启用升级服务、是否有新版还需调用检查更新接口。
+应用以验证结果控制使用；禁止把更新资格到期误判为停止使用。离线缓存仍受 `offline_until` 限制，但不会因为永久使用模式的更新期限结束而失效。
+验证或心跳返回授权无效错误时，应用应拒绝继续使用；永久使用模式的更新到期只会让更新接口返回 `UPDATES_EXPIRED`，使用验证仍可成功。
+
+已有产品、已有授权迁移后保留订阅模式和原期限，不会自动变成永久使用或永久更新。
+产品未发卡前可在期限规则面板修改；发卡或创建授权后规则锁定，以保护已售权益，需要不同规则时创建新产品。
+续期在未到期时从原截止时间顺延，到期后从续期时间开始；永久使用模式只延长更新期限。吊销不能通过续期解除。
+关闭升级服务后不再提供版本和下载。
 
 必须先在线激活并持有 `license_no` 和绑定信息；独立的离线授权文件本身不能用于在线下载。
 采用 `none` 无绑定策略时，许可证号也是在线校验凭据，产品方应妥善保管。
@@ -50,12 +69,13 @@ API 沿用 `{ "success": true, "data": ... }` 响应格式。开发者管理接�
 | 发卡 | `POST /developer/products/{productID}/card-batches` |
 | 自己产品的授权 | `GET /developer/products/{productID}/licenses?page=1` |
 | 升级设置 | `GET/POST /developer/products/{productID}/updates`，POST 为 `{ "enabled": true }` |
+| 使用与更新规则 | `GET/POST /developer/products/{productID}/license-policy`，包含 `license_mode`、`update_duration_days`、`expire_grace_days`；GET 额外返回 `locked` |
 | 版本列表 / 上传 | `GET/POST /developer/products/{productID}/releases` |
 | 发布 / 下架 | `POST /developer/products/{productID}/releases/{releaseID}/publish` 或 `/withdraw` |
 | 管理员分配产品 | `POST /admin/products/{productID}/developer`，`{ "developer_id": "账号ID" }`，空字符串取消分配 |
 | 超级管理员启停开发者 | `POST /admin/developers/{userID}/enable` 或 `/disable` |
 
-管理员使用 `/admin/products/{productID}/updates` 和 `/admin/products/{productID}/releases` 对应接口管理所有产品。
+管理员使用 `/admin/products/{productID}/updates`、`license-policy` 和 `releases` 对应接口管理所有产品。
 上传使用 `multipart/form-data`，字段为 `version`、`notes` 和文件字段 `package`。
 开发者发卡的请求体沿用现有卡密接口，产品始终以路径为准。
 修改密码使用 `current_password` 和 `new_password`，成功后旧会话失效。
@@ -82,7 +102,9 @@ Content-Type: application/json
 成功返回二进制附件，禁止缓存。每次下载重新校验当前授权，不提供永久公开下载链接。
 GET 不提供下载。不支持断点续传。
 
-常见错误：`LICENSE_EXPIRED`、`LICENSE_REVOKED`、`BINDING_MISMATCH`、`PRODUCT_DISABLED`、`UPDATES_DISABLED`、`RELEASE_NOT_FOUND`、`RELEASE_INTEGRITY_FAILED`。
+常见错误：`LICENSE_EXPIRED`（使用期限结束）、`UPDATES_EXPIRED`（更新资格结束）、`LICENSE_REVOKED`、`BINDING_MISMATCH`、`PRODUCT_DISABLED`、`UPDATES_DISABLED`、`RELEASE_NOT_FOUND`、`RELEASE_INTEGRITY_FAILED`、`LICENSE_POLICY_LOCKED`。
+下载在准备文件后还会再次校验授权，避免校验文件期间已经到期仍开始分发。
+已经开始的传输或此前下载的文件无法远程撤回；需要限制安装时机的产品应在安装前重新在线校验。
 
 ## 安装前验签
 

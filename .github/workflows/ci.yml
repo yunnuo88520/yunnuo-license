@@ -38,7 +38,9 @@ jobs:
         working-directory: backend
         run: go build -o /tmp/yunnuo-demo-server ./cmd/server
       - name: Test independent website upgrade, expiry and rollback
-        run: python3 examples/update-demo/test_e2e.py --license-server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-update-demo"
+        run: |
+          python3 examples/update-demo/test_e2e.py --license-server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-update-demo/subscription"
+          python3 examples/update-demo/test_e2e.py --license-mode perpetual --license-server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-update-demo/perpetual"
 
   sdk:
     runs-on: ubuntu-latest

@@ -11,6 +11,11 @@
 python3 examples/update-demo/test_e2e.py \
   --license-server /tmp/yunnuo-demo-server \
   --artifacts /tmp/yunnuo-demo-results
+
+python3 examples/update-demo/test_e2e.py \
+  --license-mode perpetual \
+  --license-server /tmp/yunnuo-demo-server \
+  --artifacts /tmp/yunnuo-demo-perpetual-results
 ```
 
 安装了 Python Playwright 和 Chromium 时，加 `--screenshots` 可通过浏览器点击更新并生成前后截图。
@@ -18,7 +23,7 @@ python3 examples/update-demo/test_e2e.py \
 
 验证内容：
 
-1. 授权到期后拒绝更新，网站仍为 v1.0.0（仅修改隔离测试数据库中的授权到期时间）。
+1. 更新到期后拒绝更新，网站文件仍为 v1.0.0。订阅模式同时拒绝验证、心跳、网站页面与业务数据访问；永久使用模式继续允许验证、心跳和网站访问（仅修改隔离测试数据库中的截止时间）。
 2. 恢复有效授权后，网站由 v1.0.0 实际升级至 v2.0.0，HTML 文件摘要发生变化。
 3. 数据库从 Schema 1 迁移至 Schema 2，已有客户文章保留。
 4. 重启示例网站，版本和客户数据继续保留。
