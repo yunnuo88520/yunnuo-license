@@ -48,7 +48,7 @@ def main():
             http.http(base,"/admin",expected=404);assert b"\xe7\xae\xa1\xe7\x90\x86\xe6\x8e\xa7\xe5\x88\xb6\xe5\x8f\xb0" in http.http(base,"/company-panel")
             assert http.api(base,"/admin/profile",token=token)["username"]==setup["admin_username"]
             if args.screenshots:
-                page.goto(base+"/company-panel");page.get_by_label("账号",exact=True).fill(setup["admin_username"]);page.get_by_label("密码",exact=True).fill(password);page.get_by_role("button",name="安全登录",exact=True).click();page.get_by_role("link",name="业务概览",exact=True).wait_for();page.screenshot(path=str(args.artifacts/"custom-management-entry.png"),full_page=True);assert not errors,errors
+                page.goto(base+"/company-panel");page.get_by_label("账号",exact=True).fill(setup["admin_username"]);page.get_by_label("密码",exact=True).fill(password);page.get_by_role("button",name="安全登录",exact=True).click();page.get_by_role("link",name="仪表盘",exact=True).wait_for();page.screenshot(path=str(args.artifacts/"custom-management-entry.png"),full_page=True);assert not errors,errors
             report["checks"].append("Editing admin_path takes effect after restart, old entry stops serving management and the installed database and session remain valid")
             report["result"]="passed";print(json.dumps(report))
         finally:

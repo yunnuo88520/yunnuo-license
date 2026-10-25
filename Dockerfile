@@ -9,6 +9,7 @@ ARG BUILD_TIME=unknown
 FROM ${NODE_IMAGE} AS frontend-builder
 
 WORKDIR /src/frontend
+COPY VERSION /src/VERSION
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./

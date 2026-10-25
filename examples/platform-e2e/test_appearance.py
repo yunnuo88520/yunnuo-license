@@ -152,6 +152,7 @@ def main():
                 page.get_by_role("heading", name="账号密码恢复", exact=True).wait_for()
                 verify_layout(page, "mobile-account-recovery")
                 page.get_by_role("link", name="套餐与结算", exact=True).click()
+                page.get_by_role("tab", name="代理运营", exact=True).click()
                 page.get_by_role("heading", name="代理授权与资金", exact=True).wait_for()
                 verify_layout(page, "mobile-commerce")
                 if args.screenshots:

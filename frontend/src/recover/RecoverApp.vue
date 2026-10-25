@@ -202,14 +202,17 @@ h1 {
 }
 form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   margin: 22px 0 0;
 }
 .recover-step {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 16px 18px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   background: var(--field);
 }
@@ -231,6 +234,8 @@ form {
 }
 .recover-step-title {
   display: grid;
+  min-width: 0;
+  flex: 1;
   gap: 1px;
 }
 .recover-step-title b {
@@ -243,6 +248,7 @@ form {
 }
 .recover-request {
   display: flex;
+  min-width: 0;
   gap: 8px;
 }
 .recover-request input {
@@ -259,7 +265,7 @@ form {
 }
 .recover-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 .recover-submit {
@@ -299,8 +305,22 @@ p {
   line-height: 1.6;
 }
 @media (max-width: 560px) {
+  .recover-request {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  main {
+    margin: 24px auto 32px;
+    padding: 16px;
+  }
+  .panel {
+    padding: 20px;
+  }
+  .recover-step {
+    padding: 14px;
+  }
   .recover-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

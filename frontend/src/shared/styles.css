@@ -948,7 +948,9 @@ label.field:has([required])::before {
   .nav-group-toggle {
     display: none;
   }
-  .nav-group-items {
+  .nav-group,
+  .nav-group .nav-group-items,
+  .nav-group.collapsed .nav-group-items {
     display: contents;
   }
   .nav-group:first-child .nav-group-toggle {
