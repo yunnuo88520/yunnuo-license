@@ -1035,3 +1035,45 @@ func TestVoidCardBatchVoidsOnlyUnused(t *testing.T) {
 		t.Fatal("empty reason must be rejected")
 	}
 }
+
+func TestRestoreLicenseRevivesLicenseAndBindings(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	product := createTestProduct(t, ctx, svc, domain.ConflictReject)
+	code := createTestCard(t, ctx, svc, product.ID, 30)
+	resp, err := svc.Activate(ctx, ActivateInput{
+		AppKey: product.AppKey, CardCode: code, BindMode: domain.BindDevice, BindValue: "restore-device",
+	})
+	if err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+
+	if _, err := svc.RevokeLicense(ctx, RevokeLicenseInput{LicenseNo: resp.LicenseNo, Reason: "mistake", ActorID: "admin-test"}); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	_, err = svc.Activate(ctx, ActivateInput{
+		AppKey: product.AppKey, CardCode: code, BindMode: domain.BindDevice, BindValue: "restore-device",
+	})
+	assertCode(t, err, "LICENSE_REVOKED")
+
+	if _, err := svc.RestoreLicense(ctx, RestoreLicenseInput{LicenseNo: resp.LicenseNo}); err == nil {
+		t.Fatal("restore without reason must be rejected")
+	}
+	if _, err := svc.RestoreLicense(ctx, RestoreLicenseInput{LicenseNo: resp.LicenseNo, Reason: "appeal accepted", ActorID: "admin-test"}); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if _, err := svc.RestoreLicense(ctx, RestoreLicenseInput{LicenseNo: resp.LicenseNo, Reason: "again", ActorID: "admin-test"}); err == nil {
+		t.Fatal("restoring an active license must be rejected")
+	}
+
+	// 恢复后：绑定随之恢复，同卡同绑定可继续验证。
+	bindings, err := svc.ListLicenseBindings(ctx, resp.LicenseNo)
+	if err != nil || len(bindings) != 1 || bindings[0].Status != domain.BindingActive {
+		t.Fatalf("binding should be restored: bindings=%#v err=%v", bindings, err)
+	}
+	if _, err := svc.Activate(ctx, ActivateInput{
+		AppKey: product.AppKey, CardCode: code, BindMode: domain.BindDevice, BindValue: "restore-device",
+	}); err != nil {
+		t.Fatalf("verify after restore: %v", err)
+	}
+}

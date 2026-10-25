@@ -50,6 +50,7 @@ var (
 	ErrAuthorizationNotFound    = notFound("AUTHORIZATION_NOT_FOUND", "authorization not found")
 	ErrLicenseExpired           = forbidden("LICENSE_EXPIRED", "license expired")
 	ErrLicenseRevoked           = forbidden("LICENSE_REVOKED", "license revoked")
+	ErrLicenseNotRevoked        = forbidden("LICENSE_NOT_REVOKED", "license is not revoked")
 	ErrBindingRequired          = badRequest("BINDING_REQUIRED", "binding required")
 	ErrBindingMismatch          = forbidden("BINDING_MISMATCH", "binding mismatch")
 	ErrDeviceLimitExceeded      = forbidden("DEVICE_LIMIT_EXCEEDED", "device limit exceeded")

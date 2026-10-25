@@ -36,6 +36,7 @@ const (
 	EmailKindStatus   = "status_change"
 	EmailKindRecovery = "recovery_code"
 	EmailKindExpiry   = "license_expiry"
+	EmailKindRisk     = "risk_alert"
 )
 
 // 加密方式取值。

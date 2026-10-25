@@ -158,6 +158,13 @@ func (s *Service) DownloadOfflineLicense(ctx context.Context, id, actorID string
 	if license.ExpiredAt != nil && !s.now().Before(*license.ExpiredAt) {
 		return OfflineLicenseDownload{}, ErrOfflineLicenseExpired
 	}
+	// 产品停用后停止发放新的离线授权文件，与客户端接口的拦截口径保持一致；
+	// 已下载文件无法远程收回，只能从源头止损。
+	if product, err := s.currentStore().GetProduct(ctx, license.ProductID); err != nil {
+		return OfflineLicenseDownload{}, err
+	} else if product.Status != domain.ProductActive {
+		return OfflineLicenseDownload{}, ErrProductDisabled
+	}
 	token, err := yncrypto.DecryptString(s.dataKey, license.SignedTokenEncrypted)
 	if err != nil {
 		return OfflineLicenseDownload{}, err
@@ -224,4 +231,3 @@ func maskMachineCode(value string) string {
 	}
 	return string(runes[:4]) + strings.Repeat("*", len(runes)-8) + string(runes[len(runes)-4:])
 }
-

@@ -55,6 +55,7 @@ type API struct {
 	publicQueryFreeLimit *fixedWindowLimiter
 	setupLimit           *fixedWindowLimiter
 	clientWriteLimit     *fixedWindowLimiter
+	customerRebindLimit  *fixedWindowLimiter
 	clientReadLimit      *fixedWindowLimiter
 	activateFailLock     *failureLockout
 	verifyFailLock       *failureLockout
@@ -84,6 +85,7 @@ func New(svc *service.Service, publicStaticDir, adminStaticDir, agentStaticDir s
 		publicQueryFreeLimit: newFixedWindowLimiter(15, time.Minute),
 		setupLimit:           newFixedWindowLimiter(10, time.Hour),
 		clientWriteLimit:     newFixedWindowLimiter(envIntOr("YN_CLIENT_WRITE_RATE_LIMIT", 30), 5*time.Minute),
+		customerRebindLimit:  newFixedWindowLimiter(10, 5*time.Minute),
 		clientReadLimit:      newFixedWindowLimiter(envIntOr("YN_CLIENT_READ_RATE_LIMIT", 600), 5*time.Minute),
 		activateFailLock:     newFailureLockout(envIntOr("YN_CLIENT_ACTIVATE_FAIL_LOCK", 10), 10*time.Minute),
 		verifyFailLock:       newFailureLockout(envIntOr("YN_CLIENT_VERIFY_FAIL_LOCK", 30), 10*time.Minute),
@@ -140,6 +142,7 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/card-batches/{batchID}/void", api.withAdmin(api.voidCardBatch, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/licenses", api.withAdmin(api.listLicenses, adminReadRoles...))
 	mux.HandleFunc("POST /admin/licenses/revoke", api.withAdmin(api.revokeLicense, adminWriteRoles...))
+	mux.HandleFunc("POST /admin/licenses/restore", api.withAdmin(api.restoreLicense, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/licenses/unbind", api.withAdmin(api.adminUnbind, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/licenses/", api.withAdmin(api.licenseDetail, adminReadRoles...))
 	mux.HandleFunc("GET /admin/offline-licenses", api.withAdmin(api.listOfflineLicenses, adminReadRoles...))
@@ -956,7 +959,22 @@ func (api *API) revokeLicense(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &input) {
 		return
 	}
+	input.ActorID = adminSessionFrom(r.Context()).UserID
 	result, err := api.service.RevokeLicense(r.Context(), input)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, result)
+}
+
+func (api *API) restoreLicense(w http.ResponseWriter, r *http.Request) {
+	var input service.RestoreLicenseInput
+	if !decode(w, r, &input) {
+		return
+	}
+	input.ActorID = adminSessionFrom(r.Context()).UserID
+	result, err := api.service.RestoreLicense(r.Context(), input)
 	if err != nil {
 		writeError(w, r, err)
 		return

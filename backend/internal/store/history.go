@@ -198,6 +198,48 @@ func historyTimeKey(col string) string {
 	return `CONCAT(SUBSTR(` + col + `,1,19),'.',CASE WHEN SUBSTR(` + col + `,20,1)='.' THEN SUBSTR(CONCAT(REPLACE(SUBSTR(` + col + `,21),'Z',''),'000000000'),1,9) ELSE '000000000' END,'Z')`
 }
 
+// ensureRiskBlockExpiresAt 幂等地为风控封禁补充过期时间列（自动封禁 TTL 用）。
+func (s *Store) ensureRiskBlockExpiresAt(ctx context.Context) error {
+	table := "risk_blocks"
+	exists := false
+	if s.driver == "sqlite" {
+		rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notNull int
+			var dfltValue any
+			var pk int
+			if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
+				rows.Close()
+				return err
+			}
+			if name == "expires_at" {
+				exists = true
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	} else {
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? AND column_name='expires_at'`,
+			table).Scan(&exists); err != nil {
+			return err
+		}
+	}
+	if !exists {
+		if _, err := s.db.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN expires_at TEXT"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ensureAccountEmailColumns 幂等地为管理员与用户账号补充邮箱列
 // （ALTER TABLE 无法在重复执行的迁移文件中使用，因此放到启动逻辑里按需执行）。
 func (s *Store) ensureAccountEmailColumns(ctx context.Context) error {

@@ -225,6 +225,9 @@ type RiskBlock struct {
 	CreatedBy   string    `json:"created_by,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// ExpiresAt 非空表示临时封禁（风控自动封禁），到期后由访问路径惰性解除；
+	// 管理员手工封禁为空，永久生效直至手动解除。
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 type RiskAlert struct {

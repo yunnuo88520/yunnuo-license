@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"strings"
@@ -1413,6 +1414,52 @@ func (s *Service) RevokeLicense(ctx context.Context, input RevokeLicenseInput) (
 		return domain.License{}, err
 	}
 	_ = s.audit(ctx, "admin", input.ActorID, lic.ProductID, lic.ID, "", "license.revoke", "success", "")
+	return lic, nil
+}
+
+type RestoreLicenseInput struct {
+	LicenseNo string `json:"license_no"`
+	Reason    string `json:"reason"`
+	ActorID   string `json:"-"`
+}
+
+// RestoreLicense 解除吊销并恢复随授权一并吊销的绑定，用于误吊销补救与纠纷和解后的权益恢复。
+func (s *Service) RestoreLicense(ctx context.Context, input RestoreLicenseInput) (domain.License, error) {
+	input.Reason = strings.TrimSpace(input.Reason)
+	if strings.TrimSpace(input.LicenseNo) == "" || input.Reason == "" || len([]rune(input.Reason)) > 500 {
+		return domain.License{}, ErrInvalidRequest
+	}
+	now := s.now()
+	var lic domain.License
+	var restored int64
+	err := s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
+		var err error
+		lic, err = tx.GetLicenseByNo(ctx, input.LicenseNo)
+		if err != nil {
+			if store.IsNotFound(err) {
+				return ErrLicenseNotFound
+			}
+			return err
+		}
+		if lic.Status != domain.LicenseRevoked {
+			return ErrLicenseNotRevoked
+		}
+		if err := tx.RestoreLicense(ctx, lic.ID, now); err != nil {
+			return err
+		}
+		restored, err = tx.RestoreLicenseBindings(ctx, lic.ID, now)
+		if err != nil {
+			return err
+		}
+		return s.transactionAudit(ctx, tx, "admin", input.ActorID, lic.ProductID, lic.ID,
+			"license.restore", map[string]string{"reason": input.Reason, "bindings_restored": fmt.Sprintf("%d", restored)})
+	})
+	if err != nil {
+		return domain.License{}, err
+	}
+	lic.Status = domain.LicenseActive
+	lic.UpdatedAt = now
+	_ = s.audit(ctx, "admin", input.ActorID, lic.ProductID, lic.ID, "", "license.restore", "success", input.Reason)
 	return lic, nil
 }
 

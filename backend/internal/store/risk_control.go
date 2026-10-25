@@ -26,11 +26,12 @@ func (s *Store) CreateRiskBlock(ctx context.Context, block domain.RiskBlock) err
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO risk_blocks (
 		  id, product_id, kind, value_hash, value_masked, reason, status,
-		  created_by, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		  created_by, created_at, updated_at, expires_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`+upsertClause,
 		block.ID, block.ProductID, block.Kind, block.ValueHash, block.ValueMasked,
 		block.Reason, block.Status, nullString(block.CreatedBy), ts(block.CreatedAt), ts(block.UpdatedAt),
+		nullTime(block.ExpiresAt),
 	)
 	return err
 }
@@ -179,21 +180,23 @@ func (s *Store) RiskSummary(ctx context.Context, since time.Time) (domain.RiskSu
 	return summary, err
 }
 
-const riskBlockColumns = `id, product_id, kind, value_hash, value_masked, reason, status, created_by, created_at, updated_at`
+const riskBlockColumns = `id, product_id, kind, value_hash, value_masked, reason, status, created_by, created_at, updated_at, expires_at`
 const riskAlertColumns = `id, product_id, license_id, binding_id, alert_type, severity, status, subject_kind, subject_hash, subject_masked, detail, occurrence_count, first_seen_at, last_seen_at, resolved_at, resolved_by, created_at, updated_at`
 
 func scanRiskBlock(row scanner) (domain.RiskBlock, error) {
 	var block domain.RiskBlock
 	var createdBy sql.NullString
 	var createdAt, updatedAt string
+	var expiresAt sql.NullString
 	err := row.Scan(&block.ID, &block.ProductID, &block.Kind, &block.ValueHash,
-		&block.ValueMasked, &block.Reason, &block.Status, &createdBy, &createdAt, &updatedAt)
+		&block.ValueMasked, &block.Reason, &block.Status, &createdBy, &createdAt, &updatedAt, &expiresAt)
 	if err != nil {
 		return domain.RiskBlock{}, err
 	}
 	block.CreatedBy = str(createdBy)
 	block.CreatedAt = parseTS(createdAt)
 	block.UpdatedAt = parseTS(updatedAt)
+	block.ExpiresAt = timePtr(expiresAt)
 	return block, nil
 }
 

@@ -115,3 +115,22 @@ func (s *Store) EmailTaken(ctx context.Context, table, email string) (bool, erro
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE email = ?`, email).Scan(&count)
 	return count > 0, err
 }
+
+// AdminEmailRecipients 返回所有启用了邮箱的启用状态管理员地址（风控告警等平台级通知用）。
+func (s *Store) AdminEmailRecipients(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT email FROM admin_users WHERE status = 'active' AND email IS NOT NULL AND email != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		out = append(out, email)
+	}
+	return out, rows.Err()
+}

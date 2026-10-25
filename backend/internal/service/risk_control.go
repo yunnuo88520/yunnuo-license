@@ -129,9 +129,15 @@ func (s *Service) RiskSummary(ctx context.Context) (domain.RiskSummary, error) {
 
 func (s *Service) checkRiskAccess(ctx context.Context, productID, clientIP, bindMode, bindValue string) error {
 	if ip, err := normalizeRiskValue(domain.RiskBlockIP, clientIP); err == nil {
-		if _, err := s.currentStore().FindActiveRiskBlock(ctx, productID, domain.RiskBlockIP, s.riskHash(domain.RiskBlockIP, ip)); err == nil {
-			s.recordRiskAlert(ctx, productID, "", "", "blocked_ip", "critical", domain.RiskBlockIP, ip, "黑名单 IP 尝试访问授权接口")
-			return ErrRiskBlockedIP
+		block, err := s.currentStore().FindActiveRiskBlock(ctx, productID, domain.RiskBlockIP, s.riskHash(domain.RiskBlockIP, ip))
+		if err == nil {
+			// 自动封禁到期后惰性解除：本次请求放行，封禁记录置为 disabled。
+			if block.ExpiresAt != nil && !block.ExpiresAt.After(s.now()) {
+				_ = s.currentStore().DisableRiskBlock(ctx, block.ID, s.now())
+			} else {
+				s.recordRiskAlert(ctx, productID, "", "", "blocked_ip", "critical", domain.RiskBlockIP, ip, "黑名单 IP 尝试访问授权接口")
+				return riskBlockedError(block, ip)
+			}
 		} else if !store.IsNotFound(err) {
 			return err
 		}
@@ -173,6 +179,11 @@ func (s *Service) evaluateActivationRisk(ctx context.Context, productID string, 
 // product-scoped blocklist. It stays above the single-instance HTTP failure
 // lock so only sustained or multi-window probing reaches it.
 const activationAutoBlockThreshold = 12
+
+// riskAutoBlockTTL bounds an automatic block: sustained probing from the same
+// IP keeps re-blocking, while a false positive (shared egress IP) recovers
+// without manual intervention after the TTL.
+const riskAutoBlockTTL = 24 * time.Hour
 
 func (s *Service) evaluateFailedActivationRisk(ctx context.Context, productID, clientIP string, cause error) {
 	if !isCredentialProbeFailure(cause) {
@@ -220,6 +231,7 @@ func (s *Service) autoBlockIP(ctx context.Context, productID, ip, reason string)
 		return
 	}
 	now := s.now()
+	expiresAt := now.Add(riskAutoBlockTTL)
 	if err := s.currentStore().CreateRiskBlock(ctx, domain.RiskBlock{
 		ID:          yncrypto.NewID("rblock"),
 		ProductID:   productID,
@@ -231,11 +243,13 @@ func (s *Service) autoBlockIP(ctx context.Context, productID, ip, reason string)
 		CreatedBy:   "system:risk",
 		CreatedAt:   now,
 		UpdatedAt:   now,
+		ExpiresAt:   &expiresAt,
 	}); err != nil {
 		return
 	}
 	s.recordRiskAlert(ctx, productID, "", "", "activation_auto_blocked", "critical", domain.RiskBlockIP, ip, reason)
 	_ = s.audit(ctx, "system", "system:risk", productID, "", "", "risk_block.auto_create", "success", "")
+	s.notifyAdminRiskBlock(ip, reason, expiresAt)
 }
 
 func (s *Service) recordRiskAlert(ctx context.Context, productID, licenseID, bindingID, alertType, severity, subjectKind, subjectValue, detail string) {
@@ -319,4 +333,19 @@ func maskRiskValue(kind, value string) string {
 		return strings.Repeat("*", len(value))
 	}
 	return value[:4] + "..." + value[len(value)-4:]
+}
+
+// riskBlockedError 构造封禁拒绝错误：临时封禁在消息中携带自动解除时间，
+// 让接入方和最终用户知道何时可以重试；手工封禁保持固定文案。
+func riskBlockedError(block domain.RiskBlock, ip string) error {
+	if block.ExpiresAt == nil {
+		return ErrRiskBlockedIP
+	}
+	kind := "IP"
+	if block.Kind == domain.RiskBlockDevice {
+		kind = "device"
+	}
+	return forbidden("RISK_"+kind+"_BLOCKED", fmt.Sprintf(
+		"this %s address is blocked until %s (automatic release)",
+		strings.ToLower(kind), block.ExpiresAt.UTC().Format(time.RFC3339)))
 }

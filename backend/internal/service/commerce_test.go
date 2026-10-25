@@ -224,3 +224,49 @@ func TestPackageAuditFailureRollsBackBalanceCardsAndLedgers(t *testing.T) {
 		t.Fatal("failed request cannot be retried", err)
 	}
 }
+
+func TestVoidCardsRefundAgentQuota(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	p := createTestProduct(t, ctx, s, domain.ConflictReject)
+	a, err := s.CreateAgent(ctx, CreateAgentInput{Name: "回补代理"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 套餐消耗张数额度：30 天月卡。
+	if _, err := s.GrantAgentQuota(ctx, AgentQuotaInput{AgentID: a.ID, ProductID: p.ID, DurationDays: 30, Quantity: 5, Remark: "initial"}); err != nil {
+		t.Fatalf("grant quota: %v", err)
+	}
+	pkg := packageFixture(t, s, a.ID, p.ID, 100, true)
+	if _, err := s.AdjustAgentBalance(ctx, a.ID, "admin-test", AdjustBalanceInput{Amount: 100000, RequestID: "topup-0001", Reason: "充值"}); err != nil {
+		t.Fatalf("topup balance: %v", err)
+	}
+	unit := int64(100)
+	batch, err := s.AgentCreateCardBatch(ctx, AgentCreateCardBatchInput{
+		AgentID: a.ID, PackageID: pkg.ID, Quantity: 3, ExpectedUnitCost: &unit, RequestID: "quota-issue-1",
+	})
+	if err != nil {
+		t.Fatalf("agent issue: %v", err)
+	}
+	quotas, err := s.ListAgentQuotaSummaries(ctx, a.ID)
+	if err != nil || len(quotas) == 0 || quotas[0].Balance != 2 {
+		t.Fatalf("quota after issue should be 2: quotas=%#v err=%v", quotas, err)
+	}
+
+	// 整批作废：3 张 unused 卡全部回补，额度回到 5。
+	result, err := s.VoidCardBatch(ctx, batch.Batch.ID, VoidCardBatchInput{Reason: "leak", ActorID: "admin-test"})
+	if err != nil || result["voided"] != 3 || result["quota_refunded"] != 5 {
+		t.Fatalf("batch void should refund to 5: result=%#v err=%v", result, err)
+	}
+	quotas, _ = s.ListAgentQuotaSummaries(ctx, a.ID)
+	if quotas[0].Balance != 5 {
+		t.Fatalf("quota balance should be restored to 5: %#v", quotas)
+	}
+	ledgers, err := s.ListAgentQuotaLedgers(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ledgers) < 3 || ledgers[len(ledgers)-1].ChangeType != domain.QuotaRevoke || ledgers[len(ledgers)-1].BalanceAfter != 5 {
+		t.Fatalf("expected trailing revoke ledger with restored balance: %#v", ledgers)
+	}
+}

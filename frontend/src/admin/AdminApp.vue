@@ -178,6 +178,13 @@ const dashCards = computed(() => {
       icon: Mail,
       tone: "indigo",
     },
+    {
+      label: "临期未触达",
+      value: a.data.stats?.reminders?.missing_email ?? 0,
+      sub: `30 天内到期 ${a.data.stats?.reminders?.expiring ?? 0} 项`,
+      icon: BellRing,
+      tone: "amber",
+    },
   ];
 });
 const cardDonut = computed(() => {
@@ -866,6 +873,18 @@ async function revokeLicenseConfirm(l: any) {
     await a.mutate("/admin/licenses/revoke", { license_no: l.license_no, reason }, "授权已吊销");
   } catch {}
 }
+async function restoreLicenseConfirm(l: any) {
+  const reason = await askConfirm({
+    title: "恢复授权",
+    description: `恢复 ${l.license_no} 为有效授权，吊销时一并吊销的绑定将随之恢复，恢复原因将记入审计日志。`,
+    confirmText: "恢复授权",
+    requireReason: true,
+  });
+  if (reason == null) return;
+  try {
+    await a.mutate("/admin/licenses/restore", { license_no: l.license_no, reason }, "授权已恢复");
+  } catch {}
+}
 async function unbindBindingConfirm(b: any) {
   const reason = await askConfirm({
     title: "解绑绑定",
@@ -910,7 +929,7 @@ async function disableBlockConfirm(x: any) {
 async function rotateKeyConfirm(p: any) {
   const ok = await askConfirm({
     title: "轮换产品密钥",
-    description: `轮换「${p.name}」的签名密钥后密钥版本将升级，客户端需要获取新公钥才能继续验签。`,
+    description: `轮换「${p.name}」的签名密钥后密钥版本将升级：支持密钥环的 SDK 会按 token 的 key_version 自动选择公钥，旧版单公钥客户端需要更新内置公钥后才能验签新 token。`,
     confirmText: "轮换密钥",
   });
   if (ok == null) return;
@@ -2344,11 +2363,17 @@ onMounted(async () => {
                       >
                         绑定</button
                       ><button
-                        v-if="a.isManager.value"
+                        v-if="a.isManager.value && l.status !== 'revoked'"
                         class="btn danger small"
                         @click="revokeLicenseConfirm(l)"
                       >
-                        吊销
+                        吊销</button
+                      ><button
+                        v-if="a.isManager.value && l.status === 'revoked'"
+                        class="btn secondary small"
+                        @click="restoreLicenseConfirm(l)"
+                      >
+                        恢复
                       </button>
                     </div>
                   </td>

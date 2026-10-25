@@ -433,6 +433,51 @@ func (s *Service) notifyAgentEmail(kind, agentID, subject string, build func(bas
 	}()
 }
 
+// notifyAdminRiskBlock 异步向全部启用邮箱的管理员发送风控自动封禁通知：
+// 未启用邮件或无收件人时静默跳过；仅在封禁创建时触发一次，不会重复发送。
+func (s *Service) notifyAdminRiskBlock(ip, reason string, expiresAt time.Time) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("admin risk email notify panic: %v", r)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), emailSendTimeout)
+		defer cancel()
+		if s.currentStore() == nil {
+			return
+		}
+		r, err := s.emailRuntime(ctx)
+		if err != nil || !r.usable() {
+			return
+		}
+		to, err := s.currentStore().AdminEmailRecipients(ctx)
+		if err != nil || len(to) == 0 {
+			return
+		}
+		base := r.baseData(ctx, s)
+		base.Title = "风控自动封禁通知"
+		base.Preheader = base.SiteName + "风控自动封禁通知"
+		base.Greeting = "管理员您好："
+		base.Intro = "系统已自动封禁一个存在持续激活试探行为的 IP，请知悉并视情况处理："
+		base.Rows = []mailer.Row{
+			{Label: "封禁对象", Value: maskRiskValue(domain.RiskBlockIP, ip)},
+			{Label: "封禁原因", Value: reason},
+			{Label: "自动解除时间", Value: expiresAt.UTC().Format("2006-01-02 15:04 UTC")},
+			{Label: "处理方式", Value: "到期自动解除；确认为误伤可在管理后台「安全」中手动解除"},
+		}
+		base.Warning = "若为共享出口 IP 误伤，请尽快手动解除并评估调整防护策略。"
+		html, err := mailer.Render(mailer.TemplateNotification, base)
+		if err != nil {
+			log.Printf("admin risk email render failed: %v", err)
+			return
+		}
+		if err := s.deliverEmail(ctx, r, to, base.SiteName+"｜风控自动封禁通知", domain.EmailKindRisk, "", html); err != nil {
+			log.Printf("admin risk email notify failed: %v", err)
+		}
+	}()
+}
+
 func yuan(cents int64) string {
 	sign := ""
 	if cents < 0 {

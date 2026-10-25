@@ -10,13 +10,13 @@ import (
 // ExpiringLicense is one owner-held license whose usage or update window is
 // closing; collected by the expiry reminder scan.
 type ExpiringLicense struct {
-	LicenseID       string
-	LicenseNo       string
-	ProductName     string
-	UserID          string
-	Email           string
-	UsageExpiredAt  *time.Time
-	UpdatesExpired  *time.Time
+	LicenseID      string
+	LicenseNo      string
+	ProductName    string
+	UserID         string
+	Email          string
+	UsageExpiredAt *time.Time
+	UpdatesExpired *time.Time
 }
 
 // ListExpiringLicenses returns active licenses with an owner account and an

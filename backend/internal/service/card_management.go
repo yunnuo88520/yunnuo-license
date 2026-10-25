@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	yncrypto "github.com/yunnuo88520/yunnuo-license/backend/internal/crypto"
@@ -145,12 +146,34 @@ func (s *Service) VoidCardBatch(ctx context.Context, batchID string, input VoidC
 		return nil, err
 	}
 	// 批次状态与卡密状态独立维护：作废只改卡密，不改批次元数据。
-	voided, err := s.currentStore().VoidUnusedCardsInBatch(ctx, batchID, reason, s.now())
+	// 事务内同步回补代理额度，避免作废成功而回补失败的账目不一致。
+	now := s.now()
+	voided, refunded := 0, 0
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
+		var err error
+		groups, err := tx.UnusedCardQuotaGroups(ctx, batchID)
+		if err != nil {
+			return err
+		}
+		voided, err = tx.VoidUnusedCardsInBatch(ctx, batchID, reason, now)
+		if err != nil {
+			return err
+		}
+		for _, g := range groups {
+			refunded, err = tx.RefundAgentQuota(ctx, g.AgentID, g.ProductID, g.DurationDays, g.IsPermanent,
+				g.Count, batchID, "", "批量作废未使用卡密，回补代理额度", now)
+			if err != nil {
+				return err
+			}
+		}
+		return s.transactionAudit(ctx, tx, "admin", input.ActorID, batch.ProductID, "", "card_batch.void_unused",
+			map[string]string{"batch_id": batchID, "reason": reason, "voided": fmt.Sprintf("%d", voided)})
+	})
 	if err != nil {
 		return nil, err
 	}
 	_ = s.audit(ctx, "admin", input.ActorID, batch.ProductID, "", batchID, "card_batch.void_unused", "success", reason)
-	return map[string]any{"voided": voided, "batch_id": batchID}, nil
+	return map[string]any{"voided": voided, "batch_id": batchID, "quota_refunded": refunded}, nil
 }
 
 func (s *Service) VoidCard(ctx context.Context, cardID, reason, actorID string) (domain.Card, error) {
@@ -174,10 +197,26 @@ func (s *Service) VoidCard(ctx context.Context, cardID, reason, actorID string) 
 		return domain.Card{}, ErrCardCannotVoid
 	}
 	now := s.now()
-	if err := s.currentStore().UpdateCardVoided(ctx, cardID, reason, now); err != nil {
-		if store.IsNotFound(err) {
-			return domain.Card{}, ErrCardCannotVoid
+	quotaBalance := -1
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
+		voided, err := tx.VoidUnusedCard(ctx, cardID, reason, now)
+		if err != nil {
+			return err
 		}
+		if !voided {
+			return ErrCardCannotVoid
+		}
+		if card.AgentID != "" {
+			quotaBalance, err = tx.RefundAgentQuota(ctx, card.AgentID, card.ProductID, card.DurationDays, card.IsPermanent,
+				1, card.BatchID, card.ID, "作废未使用卡密，回补代理额度", now)
+			if err != nil {
+				return err
+			}
+		}
+		return s.transactionAudit(ctx, tx, "admin", actorID, card.ProductID, "", "card.void",
+			map[string]string{"card_id": card.ID, "reason": reason})
+	})
+	if err != nil {
 		return domain.Card{}, err
 	}
 	card.Status = domain.CardVoided
@@ -185,5 +224,6 @@ func (s *Service) VoidCard(ctx context.Context, cardID, reason, actorID string) 
 	card.VoidedAt = &now
 	card.UpdatedAt = now
 	_ = s.audit(ctx, "admin", actorID, card.ProductID, "", card.ID, "card.void", "success", "")
+	_ = quotaBalance
 	return card, nil
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yunnuo88520/yunnuo-license/backend/internal/crypto"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -155,7 +156,10 @@ func (s *Store) Migrate(ctx context.Context, dir string) error {
 	if err := s.ensureHistoryIndexes(ctx); err != nil {
 		return err
 	}
-	return s.ensureAccountEmailColumns(ctx)
+	if err := s.ensureAccountEmailColumns(ctx); err != nil {
+		return err
+	}
+	return s.ensureRiskBlockExpiresAt(ctx)
 }
 
 func (s *Store) WithTx(ctx context.Context, fn func(*Tx) error) error {
@@ -446,9 +450,40 @@ func (s *Store) GetCard(ctx context.Context, cardID string) (domain.Card, error)
 	return scanCard(s.db.QueryRowContext(ctx, `SELECT `+cardColumns+` FROM cards WHERE id = ?`, cardID))
 }
 
+// CardQuotaGroup 是批次内未使用卡密按额度维度（代理×产品×时长）的分组数量。
+type CardQuotaGroup struct {
+	AgentID      string
+	ProductID    string
+	DurationDays int
+	IsPermanent  bool
+	Count        int
+}
+
+// UnusedCardQuotaGroups 汇总批次内未使用卡密的额度分组，供作废时回补代理额度。
+func (tx *Tx) UnusedCardQuotaGroups(ctx context.Context, batchID string) ([]CardQuotaGroup, error) {
+	rows, err := tx.tx.QueryContext(ctx, `
+		SELECT agent_id, product_id, duration_days, is_permanent, COUNT(*)
+		FROM cards
+		WHERE batch_id = ? AND status = ? AND agent_id IS NOT NULL AND agent_id != ''
+		GROUP BY agent_id, product_id, duration_days, is_permanent`, batchID, domain.CardUnused)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CardQuotaGroup
+	for rows.Next() {
+		var g CardQuotaGroup
+		if err := rows.Scan(&g.AgentID, &g.ProductID, &g.DurationDays, &g.IsPermanent, &g.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
 // VoidUnusedCardsInBatch 将批次内全部未使用卡密作废，返回作废数量。
-func (s *Store) VoidUnusedCardsInBatch(ctx context.Context, batchID, reason string, now time.Time) (int, error) {
-	result, err := s.db.ExecContext(ctx, `
+func (tx *Tx) VoidUnusedCardsInBatch(ctx context.Context, batchID, reason string, now time.Time) (int, error) {
+	result, err := tx.tx.ExecContext(ctx, `
 		UPDATE cards
 		SET status = ?, voided_at = ?, void_reason = ?, updated_at = ?
 		WHERE batch_id = ? AND status = ?`, domain.CardVoided, ts(now), reason, ts(now), batchID, domain.CardUnused)
@@ -460,6 +495,52 @@ func (s *Store) VoidUnusedCardsInBatch(ctx context.Context, batchID, reason stri
 		return 0, err
 	}
 	return int(affected), nil
+}
+
+// VoidUnusedCard 作废单张未使用卡密，未命中（已激活/已作废）返回 false。
+func (tx *Tx) VoidUnusedCard(ctx context.Context, cardID, reason string, now time.Time) (bool, error) {
+	result, err := tx.tx.ExecContext(ctx, `
+		UPDATE cards
+		SET status = ?, voided_at = ?, void_reason = ?, updated_at = ?
+		WHERE id = ? AND status = ?`, domain.CardVoided, ts(now), reason, ts(now), cardID, domain.CardUnused)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected > 0, nil
+}
+
+// RefundAgentQuota 作废卡密时回补代理张数额度并记 revoke 流水。
+// 不要求代理处于启用状态：停用代理名下库存被清理时额度同样应当回账。
+func (tx *Tx) RefundAgentQuota(ctx context.Context, agentID, productID string, durationDays int, isPermanent bool,
+	quantity int, relatedBatchID, relatedCardID, remark string, now time.Time) (int, error) {
+	if quantity <= 0 {
+		return 0, nil
+	}
+	if err := tx.LockAgent(ctx, agentID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.GetAgent(ctx, agentID); err != nil {
+		return 0, err
+	}
+	balance, err := tx.AgentQuotaBalance(ctx, agentID, productID, durationDays, isPermanent)
+	if err != nil {
+		return 0, err
+	}
+	ledger := domain.AgentQuotaLedger{
+		ID: crypto.NewID("quota"), AgentID: agentID, ProductID: productID,
+		DurationDays: durationDays, IsPermanent: isPermanent,
+		ChangeType: domain.QuotaRevoke, ChangeQuantity: quantity, BalanceAfter: balance + quantity,
+		RelatedBatchID: relatedBatchID, RelatedCardID: relatedCardID,
+		OperatorType: "admin", Remark: remark, CreatedAt: now,
+	}
+	if err := tx.InsertAgentQuotaLedger(ctx, ledger); err != nil {
+		return 0, err
+	}
+	return balance + quantity, nil
 }
 
 func (s *Store) UpdateCardVoided(ctx context.Context, cardID, reason string, now time.Time) error {
@@ -1085,6 +1166,34 @@ func (tx *Tx) RevokeLicense(ctx context.Context, licenseID, reason string, now t
 		domain.BindingRevoked, ts(now), ts(now), licenseID, domain.BindingActive,
 	)
 	return err
+}
+
+// RestoreLicense 将吊销的授权恢复为有效，清除吊销标记。
+func (tx *Tx) RestoreLicense(ctx context.Context, licenseID string, now time.Time) error {
+	result, err := tx.tx.ExecContext(ctx, `
+		UPDATE licenses SET status = ?, revoked_at = NULL, revoked_reason = NULL, updated_at = ?
+		WHERE id = ? AND status = ?`,
+		domain.LicenseActive, ts(now), licenseID, domain.LicenseRevoked)
+	if err != nil {
+		return err
+	}
+	return requireAffected(result)
+}
+
+// RestoreLicenseBindings 恢复随授权一并吊销的绑定（吊销时 active → revoked 的反向操作）。
+func (tx *Tx) RestoreLicenseBindings(ctx context.Context, licenseID string, now time.Time) (int64, error) {
+	result, err := tx.tx.ExecContext(ctx, `
+		UPDATE license_bindings SET status = ?, revoked_at = NULL, updated_at = ?
+		WHERE license_id = ? AND status = ?`,
+		domain.BindingActive, ts(now), licenseID, domain.BindingRevoked)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return affected, nil
 }
 
 func (tx *Tx) CreateBinding(ctx context.Context, binding domain.Binding) error {
