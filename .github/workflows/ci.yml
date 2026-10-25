@@ -89,7 +89,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install, typecheck, and build Vue frontend
         working-directory: frontend
-        run: npm ci && npm run check && npm run build
+        run: npm ci && npm run check && npm run check:sdk && npm run build
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'
@@ -97,6 +97,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
       - name: Test desktop and mobile appearance in a real browser
         run: |
           pip install playwright==1.62.0
@@ -104,11 +109,18 @@ jobs:
           sudo apt-get install -y fonts-noto-cjk
           go -C backend build -o /tmp/yunnuo-appearance-server ./cmd/server
           python .github/scripts/check-command.py "Appearance browser acceptance" python examples/platform-e2e/test_appearance.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-appearance"
+      - name: Compile and run the projects downloaded from the integration guide
+        run: python .github/scripts/check-command.py "Developer integration acceptance" python examples/platform-e2e/test_integration.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-integration"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: appearance-browser-evidence
           path: ${{ runner.temp }}/yunnuo-appearance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-browser-evidence
+          path: ${{ runner.temp }}/yunnuo-integration
 
   docker:
     runs-on: ubuntu-latest

@@ -25,6 +25,7 @@ func (api *API) registerReleaseRoutes(mux *http.ServeMux) {
 			return api.withAdmin(handler, roles...)
 		}
 		mux.HandleFunc("GET "+prefix+"/products/{productID}/updates", wrap(api.productUpdates, readRoles))
+		mux.HandleFunc("GET "+prefix+"/products/{productID}/integration-kit", wrap(api.integrationKit, readRoles))
 		mux.HandleFunc("GET "+prefix+"/products/{productID}/license-policy", wrap(api.licensePolicy, readRoles))
 		mux.HandleFunc("POST "+prefix+"/products/{productID}/license-policy", wrap(api.configureLicensePolicy, writeRoles))
 		mux.HandleFunc("POST "+prefix+"/products/{productID}/updates", wrap(api.configureProductUpdates, writeRoles))

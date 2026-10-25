@@ -1,0 +1,181 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	ynlicense "github.com/yunnuo88520/yunnuo-license/sdk/go"
+	"net"
+	"net/http"
+	"os"
+	"time"
+)
+
+type config struct {
+	BaseURL   string `json:"base_url"`
+	AppKey    string `json:"app_key"`
+	BindMode  string `json:"bind_mode"`
+	BindValue string `json:"bind_value"`
+}
+
+var notLicensed = errors.New("LICENSE_REQUIRED_OR_UNUSABLE")
+
+func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+func run() error {
+	raw, err := os.ReadFile("config.json")
+	if err != nil {
+		return err
+	}
+	var cfg config
+	if err = json.Unmarshal(raw, &cfg); err != nil {
+		return err
+	}
+	client, err := ynlicense.NewClient(cfg.BaseURL, cfg.AppKey)
+	if err != nil {
+		return err
+	}
+	var state ynlicense.LicenseResponse
+	if raw, err = os.ReadFile(".license.json"); err == nil {
+		if err = json.Unmarshal(raw, &state); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	credentials := func() (ynlicense.VerifyRequest, error) {
+		if state.LicenseNo == "" {
+			return ynlicense.VerifyRequest{}, notLicensed
+		}
+		return ynlicense.VerifyRequest{LicenseNo: state.LicenseNo, BindMode: cfg.BindMode, BindValue: cfg.BindValue}, nil
+	}
+	save := func(result ynlicense.LicenseResponse) error {
+		if !result.CanUse {
+			return notLicensed
+		}
+		content, e := json.MarshalIndent(result, "", "  ")
+		if e != nil {
+			return e
+		}
+		if e = os.WriteFile(".license.json.tmp", content, 0600); e != nil {
+			return e
+		}
+		if e = os.Rename(".license.json.tmp", ".license.json"); e != nil {
+			return e
+		}
+		state = result
+		return nil
+	}
+	output := func(v any) error { return json.NewEncoder(os.Stdout).Encode(v) }
+	summary := func(v ynlicense.LicenseResponse) error {
+		return output(map[string]any{"license_no": v.LicenseNo, "can_use": v.CanUse, "can_update": v.CanUpdate, "usage_expired_at": v.UsageExpiredAt, "updates_expired_at": v.UpdatesExpiredAt})
+	}
+	command, value := "verify", ""
+	if len(os.Args) > 1 {
+		command = os.Args[1]
+	}
+	if len(os.Args) > 2 {
+		value = os.Args[2]
+	}
+	ctx := context.Background()
+	if command == "activate" || command == "attach" {
+		if value == "" {
+			return errors.New("需要 CARD_CODE 或 LICENSE_NO")
+		}
+		var result ynlicense.LicenseResponse
+		if command == "activate" {
+			result, err = client.Activate(ctx, ynlicense.ActivateRequest{CardCode: value, BindMode: cfg.BindMode, BindValue: cfg.BindValue, DeviceName: "integration-demo", ClientVersion: "1.0.0"})
+		} else {
+			result, err = client.Verify(ctx, ynlicense.VerifyRequest{LicenseNo: value, BindMode: cfg.BindMode, BindValue: cfg.BindValue})
+		}
+		if err != nil {
+			return err
+		}
+		if err = save(result); err != nil {
+			return err
+		}
+		return summary(result)
+	}
+	if command == "serve" {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			if r.URL.Path != "/protected" {
+				w.WriteHeader(404)
+				return
+			}
+			input, e := credentials()
+			var result ynlicense.LicenseResponse
+			if e == nil {
+				result, e = client.Verify(r.Context(), input)
+				if e == nil && !result.CanUse {
+					e = notLicensed
+				}
+			}
+			if e != nil {
+				code, requestID, status := "AUTHORIZATION_UNAVAILABLE", "", 503
+				var api *ynlicense.APIError
+				if errors.Is(e, notLicensed) {
+					code, status = "LICENSE_REQUIRED_OR_UNUSABLE", 403
+				} else if errors.As(e, &api) {
+					code, requestID = api.Code, api.RequestID
+					if api.HTTPStatus == 400 || api.HTTPStatus == 401 || api.HTTPStatus == 403 || api.HTTPStatus == 404 {
+						status = 403
+					}
+				}
+				w.WriteHeader(status)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "request_id": requestID})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"message": "已进入受保护业务", "can_use": true, "can_update": result.CanUpdate})
+		})
+		port := os.Getenv("DEMO_PORT")
+		if port == "" {
+			port = "3000"
+		}
+		address := net.JoinHostPort("127.0.0.1", port)
+		fmt.Println("http://" + address + "/protected")
+		server := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+		return server.ListenAndServe()
+	}
+	input, err := credentials()
+	if err != nil {
+		return err
+	}
+	switch command {
+	case "verify":
+		result, e := client.Verify(ctx, input)
+		if e != nil {
+			return e
+		}
+		if e = save(result); e != nil {
+			return e
+		}
+		return summary(result)
+	case "heartbeat":
+		result, e := client.Heartbeat(ctx, ynlicense.HeartbeatRequest{LicenseNo: input.LicenseNo, BindMode: cfg.BindMode, BindValue: cfg.BindValue})
+		if e != nil {
+			return e
+		}
+		return output(result)
+	case "renew":
+		if value == "" {
+			return errors.New("需要 RENEW_CARD_CODE")
+		}
+		result, e := client.Renew(ctx, ynlicense.RenewRequest{LicenseNo: input.LicenseNo, RenewCardCode: value, BindMode: cfg.BindMode, BindValue: cfg.BindValue})
+		if e != nil {
+			return e
+		}
+		if e = save(result); e != nil {
+			return e
+		}
+		return summary(result)
+	default:
+		return errors.New("命令：activate、attach、verify、heartbeat、renew、serve")
+	}
+}

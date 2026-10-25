@@ -7,6 +7,7 @@ import { friendlyError } from "../shared/errors";
 import { branding, loadBranding } from "../shared/branding";
 import ProductReleases from "../shared/components/ProductReleases.vue";
 import LicensePolicy from "../shared/components/LicensePolicy.vue";
+import IntegrationGuide from "../shared/components/IntegrationGuide.vue";
 
 const token = ref(sessionStorage.getItem("yn.developer_token") || "");
 const profile = ref<any>(),
@@ -17,7 +18,12 @@ const error = ref(""),
   codes = ref<string[]>([]),
   licenses = ref<any>();
 const policyRevision = ref(0);
-const login = reactive({ username: "", password: "", captcha_id: "", captcha_code: "" });
+const login = reactive({
+  username: "",
+  password: "",
+  captcha_id: "",
+  captcha_code: "",
+});
 const captchaField = ref<any>(null);
 const product = reactive({
   name: "",
@@ -241,14 +247,7 @@ onMounted(async () => {
           v-for="p in products.filter((p) => p.id === selected)"
           :key="p.id"
         >
-          <p>
-            App Key：<code class="wrap">{{ p.app_key }}</code>
-          </p>
-          <p>绑定方式：{{ p.bind_mode }}</p>
-          <details>
-            <summary>产品验签公钥</summary>
-            <pre class="wrap">{{ p.public_key_pem }}</pre>
-          </details>
+          <IntegrationGuide :product="p" prefix="/developer" :token="token" />
         </article>
         <LicensePolicy
           v-if="selected"

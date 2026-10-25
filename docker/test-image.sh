@@ -8,10 +8,12 @@ volume="yunnuo-license-test-$$"
 port="${YN_DOCKER_TEST_PORT:-18083}"
 admin_password="docker-test-admin-password"
 update_state="$(mktemp)"
+kit_archive="$(mktemp)"
 platform_artifacts="$(mktemp -d)"
 
 cleanup() {
   rm -f "$update_state"
+  rm -f "$kit_archive"
   rm -r "$platform_artifacts"
   docker rm -f "$container" >/dev/null 2>&1 || true
   docker volume rm "$volume" >/dev/null 2>&1 || true
@@ -102,6 +104,22 @@ product_response="$(curl --fail --silent --show-error -X POST "$base/admin/produ
   -d '{"name":"Docker 测试产品","code":"DCK","bind_mode":"device","max_bind_count":1,"bind_conflict_strategy":"reject","offline_grace_days":15,"expire_grace_days":3}')"
 product_id="$(json_get 'data["data"]["id"]' <<<"$product_response")"
 app_key="$(json_get 'data["data"]["app_key"]' <<<"$product_response")"
+
+for language in node go java; do
+  curl --fail --silent --show-error --get "$base/admin/products/$product_id/integration-kit" \
+    -H "Authorization: Bearer $admin_token" \
+    --data-urlencode "base_url=$base" --data-urlencode "language=$language" \
+    --data-urlencode 'bind_value=docker-integration-instance' -o "$kit_archive"
+  python3 - "$kit_archive" "$language" <<'PY'
+import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    expected={'node':'sdk/src/index.js','go':'sdk/client.go','java':'src/main/java/com/yunnuo/license/LicenseClient.java'}[sys.argv[2]]
+    assert expected in archive.namelist() and 'LICENSE' in archive.namelist()
+    config=json.loads(archive.read('config.json'))
+    assert config['bind_mode']=='device' and config['bind_value']=='docker-integration-instance'
+    assert config['product_code']=='DCK' and config['public_keys']
+PY
+done
 
 risk_block_response="$(curl --fail --silent --show-error -X POST "$base/admin/risk/blocks" \
   -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import IntegrationGuide from "../shared/components/IntegrationGuide.vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import {
   Activity,
   BadgeCheck,
@@ -59,6 +60,14 @@ import {
   logoSource,
 } from "../shared/branding";
 const a = useAdmin();
+const integrationProductID = ref("");
+const integrationProduct = computed(() => a.data.products.find((p:any) => p.id === integrationProductID.value));
+const integrationAnchor = ref<HTMLElement>();
+async function openIntegration(id:string) {
+  integrationProductID.value=id;
+  await nextTick();
+  integrationAnchor.value?.scrollIntoView({behavior:"smooth",block:"start"});
+}
 const page = ref(location.hash.slice(1) || "overview"),
   action = ref("");
 const settingsTab = ref("branding");
@@ -403,7 +412,7 @@ async function create(
   return r;
 }
 async function productCreate(e: Event) {
-  await create("/admin/products", e, "产品已创建", (o) =>
+  const result = await create("/admin/products", e, "产品已创建", (o) =>
     [
       "max_bind_count",
       "offline_grace_days",
@@ -411,6 +420,7 @@ async function productCreate(e: Event) {
       "update_duration_days",
     ].forEach((k) => (o[k] = Number(o[k]))),
   );
+  if (result?.id) await openIntegration(result.id);
 }
 async function agentTask(kind: string, e: Event) {
   const o = values(e);
@@ -1567,6 +1577,7 @@ onMounted(async () => {
                   <td><StatusBadge :status="p.status" /></td>
                   <td>
                     <div class="row-actions">
+                      <button class="btn secondary small" @click="openIntegration(p.id)">接入授权</button>
                       <button
                         v-if="a.isManager.value"
                         class="btn secondary small"
@@ -1598,6 +1609,9 @@ onMounted(async () => {
             </table>
           </div>
         </section>
+        <div v-if="page === 'products' && integrationProduct" ref="integrationAnchor">
+          <IntegrationGuide :key="integrationProduct.id" :product="integrationProduct" prefix="/admin" :token="a.token.value" />
+        </div>
         <RecoveryPanel
           v-if="page === 'recovery' && a.isManager.value"
           :api="a.api"

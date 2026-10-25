@@ -1,5 +1,7 @@
 # 平台分阶段真实服务验收
 
+开发者接入验收：先构建前端和后端，再运行 `python3 examples/platform-e2e/test_integration.py --server <二进制> --artifacts <目录> --screenshots`。需要 Node.js 18+、Go 1.22+、Java 17+、Maven 3 与 Playwright。脚本从页面创建应用、下载三种 SDK 接入包，并实际编译运行；覆盖 HTTP 示例、业务接口拒绝路径、使用/更新期限分离与 Node 签名升级下载。使用 Playwright 自带浏览器可传 `--chromium bundled`。
+
 在仓库根目录执行：
 
 ```bash

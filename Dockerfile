@@ -41,12 +41,15 @@ LABEL org.opencontainers.image.title="Yunnuo License" \
 COPY --from=builder /out/yunnuo-server /usr/local/bin/yunnuo-server
 COPY --from=builder /out/yunnuo-healthcheck /usr/local/bin/yunnuo-healthcheck
 COPY backend/migrations /opt/yunnuo/backend/migrations
+COPY LICENSE /opt/yunnuo/LICENSE
+COPY sdk /opt/yunnuo/sdk
 COPY --from=frontend-builder /src/frontend/dist /opt/yunnuo/frontend
 COPY docker/entrypoint.sh /usr/local/bin/yunnuo-entrypoint
 
 RUN chmod 0755 /usr/local/bin/yunnuo-server /usr/local/bin/yunnuo-healthcheck /usr/local/bin/yunnuo-entrypoint
 
 ENV YN_ADDR=:8080 \
+    YN_SDK_DIR=/opt/yunnuo/sdk \
     YN_RELEASE_DIR=/var/lib/mysql/.yunnuo/releases \
     YN_DB_CONFIG_FILE=/var/lib/mysql/.yunnuo/database.json \
     YN_SQLITE_SETUP_DSN="file:/var/lib/mysql/.yunnuo/yn-license.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)" \

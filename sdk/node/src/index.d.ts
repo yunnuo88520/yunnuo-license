@@ -100,6 +100,7 @@ export interface UnbindResponse {
 
 export class LicenseClient {
   constructor(options: ClientOptions);
+  productKeys(appKey?: string, options?: RequestOptions): Promise<ProductKeyRing>;
   securityDecision(input: VerifyRequest, options?: RequestOptions): Promise<SecurityDecision>;
   reportIntegrity(input: VerifyRequest & {release_id:string;observed_sha256:string}, options?: RequestOptions): Promise<{id:string;status:string}>;
   activate(input: ActivateRequest, options?: RequestOptions): Promise<LicenseResponse>;
@@ -135,14 +136,27 @@ export const VerificationCode: Readonly<{
   OFFLINE_WINDOW_EXPIRED: "OFFLINE_WINDOW_EXPIRED";
   ISSUED_IN_FUTURE: "ISSUED_IN_FUTURE";
   CLOCK_ROLLBACK: "CLOCK_ROLLBACK";
+  KEY_VERSION_UNKNOWN: "KEY_VERSION_UNKNOWN";
 }>;
 
-export interface OfflineVerifierOptions {
-  publicKeyPem: string | Uint8Array;
+export interface ProductKeyRing {
+  product_id: string;
+  product_code: string;
+  app_key: string;
+  current_version: number;
+  keys: Array<{product_id:string; key_version:number; public_key_pem:string; created_at:string}>;
+}
+
+export interface OfflineVerifierCommonOptions {
   productCode: string;
   clock?: () => Date;
   clockSkewMs?: number;
 }
+
+export type OfflineVerifierOptions = OfflineVerifierCommonOptions & (
+  {publicKeyPem: string | Uint8Array; publicKeys?: Record<number, string | Uint8Array>} |
+  {publicKeys: Record<number, string | Uint8Array>; publicKeyPem?: string | Uint8Array}
+);
 
 export interface OfflineExpectation {
   licenseNo?: string;
@@ -186,6 +200,8 @@ export class OfflineVerifier {
   verifyOfflineToken(token: string, expected: OfflineExpectation): OfflineCacheClaims;
   verifyLicenseFile(content: string | Uint8Array | object, machineCode: string): OfflineLicenseClaims;
 }
+
+export function offlineVerifierFromKeyRing(client: LicenseClient, options: RequestOptions & {appKey:string; productCode?:string; clock?:()=>Date; clockSkewMs?:number}): Promise<OfflineVerifier>;
 
 export function bindingDigest(bindMode: string, bindValue: string): string;
 

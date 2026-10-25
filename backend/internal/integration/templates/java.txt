@@ -1,0 +1,75 @@
+package demo;
+
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.sun.net.httpserver.HttpServer;
+import com.yunnuo.license.*;
+import com.yunnuo.license.model.*;
+import java.net.InetSocketAddress;
+import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.*;
+import java.util.concurrent.CountDownLatch;
+
+public final class Main {
+ private static final ObjectMapper JSON=new ObjectMapper().registerModule(new JavaTimeModule()).disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+ private static LicenseResponse state;
+ private static final Path STATE=Path.of(".license.json");
+ private static void save(LicenseResponse result)throws Exception {
+  if(!result.canUse())throw new IllegalStateException("LICENSE_REQUIRED_OR_UNUSABLE");
+  Path temp=Files.createTempFile(STATE.toAbsolutePath().getParent(),".license-",".tmp");
+  try {
+   Files.writeString(temp,JSON.writeValueAsString(result),StandardCharsets.UTF_8);
+   try {Files.setPosixFilePermissions(temp,PosixFilePermissions.fromString("rw-------"));} catch(UnsupportedOperationException ignored){}
+   try {Files.move(temp,STATE.toAbsolutePath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);} catch(AtomicMoveNotSupportedException e){Files.move(temp,STATE.toAbsolutePath(),StandardCopyOption.REPLACE_EXISTING);}
+   state=result;
+  } finally {Files.deleteIfExists(temp);}
+ }
+ private static VerifyRequest credentials(String mode,String binding){
+  if(state==null||state.licenseNo()==null||state.licenseNo().isBlank())throw new IllegalStateException("LICENSE_REQUIRED_OR_UNUSABLE");
+  return new VerifyRequest(state.licenseNo(),mode,binding,null);
+ }
+ public static void main(String[] args)throws Exception {
+  try {run(args);} catch(APIException e){System.err.println(e.code()+" "+e.requestId());System.exit(1);} catch(Exception e){System.err.println(e.getMessage());System.exit(1);}
+ }
+ private static void summary(LicenseResponse r)throws Exception {
+  Map<String,Object> value=new LinkedHashMap<>();value.put("license_no",r.licenseNo());value.put("can_use",r.canUse());value.put("can_update",r.canUpdate());value.put("usage_expired_at",r.usageExpiredAt());value.put("updates_expired_at",r.updatesExpiredAt());System.out.println(JSON.writeValueAsString(value));
+ }
+ private static void run(String[] args)throws Exception {
+  JsonNode config=JSON.readTree(Files.readString(Path.of("config.json")));
+  String mode=config.path("bind_mode").asText(),binding=config.path("bind_value").asText();
+  LicenseClient client=new LicenseClient(config.path("base_url").asText(),config.path("app_key").asText());
+  if(Files.exists(STATE))state=JSON.readValue(Files.readString(STATE),LicenseResponse.class);
+  String command=args.length>0?args[0]:"verify",value=args.length>1?args[1]:"";
+  if(command.equals("activate")||command.equals("attach")) {
+   if(value.isBlank())throw new IllegalArgumentException("需要 CARD_CODE 或 LICENSE_NO");
+   LicenseResponse result=command.equals("activate")?client.activate(new ActivateRequest(value,mode,binding,"integration-demo","1.0.0")):client.verify(new VerifyRequest(value,mode,binding,null));
+   save(result);summary(result);return;
+  }
+  if(command.equals("serve")) {
+   int port=Integer.parseInt(System.getenv().getOrDefault("DEMO_PORT","3000"));
+   HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",port),0);
+   server.createContext("/protected",exchange->{
+    int status=200;Map<String,Object> body=new LinkedHashMap<>();
+    try {
+     if(!exchange.getRequestURI().getPath().equals("/protected")){exchange.sendResponseHeaders(404,-1);exchange.close();return;}
+     LicenseResponse result=client.verify(credentials(mode,binding));
+     if(!result.canUse())throw new IllegalStateException("LICENSE_REQUIRED_OR_UNUSABLE");
+     body.put("message","已进入受保护业务");body.put("can_use",true);body.put("can_update",result.canUpdate());
+    }catch(APIException e){status=Set.of(400,401,403,404).contains(e.httpStatus())?403:503;body.put("error",e.code());body.put("request_id",e.requestId());}
+    catch(IllegalStateException e){status=403;body.put("error","LICENSE_REQUIRED_OR_UNUSABLE");}
+    catch(Exception e){status=503;body.put("error","AUTHORIZATION_UNAVAILABLE");}
+    byte[] bytes=JSON.writeValueAsBytes(body);exchange.getResponseHeaders().set("Content-Type","application/json; charset=utf-8");exchange.getResponseHeaders().set("Cache-Control","no-store");exchange.sendResponseHeaders(status,bytes.length);exchange.getResponseBody().write(bytes);exchange.close();
+   });
+   server.start();System.out.println("http://127.0.0.1:"+port+"/protected");new CountDownLatch(1).await();return;
+  }
+  VerifyRequest input=credentials(mode,binding);
+  switch(command) {
+   case "verify" -> {LicenseResponse result=client.verify(input);save(result);summary(result);}
+   case "heartbeat" -> System.out.println(JSON.writeValueAsString(client.heartbeat(new HeartbeatRequest(input.licenseNo(),mode,binding))));
+   case "renew" -> {if(value.isBlank())throw new IllegalArgumentException("需要 RENEW_CARD_CODE");LicenseResponse result=client.renew(new RenewRequest(input.licenseNo(),value,mode,binding));save(result);summary(result);}
+   default -> throw new IllegalArgumentException("命令：activate、attach、verify、heartbeat、renew、serve");
+  }
+ }
+}

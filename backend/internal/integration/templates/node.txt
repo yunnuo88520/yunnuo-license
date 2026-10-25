@@ -1,0 +1,51 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { LicenseClient, enforceWebLicense } from "./sdk/src/index.js";
+
+const config = JSON.parse(await readFile("config.json", "utf8"));
+const client = new LicenseClient({baseUrl: config.base_url, appKey: config.app_key, timeoutMs: 10000});
+const binding = {bind_mode: config.bind_mode, bind_value: config.bind_value};
+let state;
+try { state = JSON.parse(await readFile(".license.json", "utf8")); } catch (error) { if (error.code !== "ENOENT") throw error; }
+const credentials = () => {
+  if (!state?.license_no) throw Object.assign(new Error("请先 activate 或 attach"), {httpStatus:403, code:"LICENSE_REQUIRED"});
+  return {...binding, license_no:state.license_no};
+};
+async function save(result) {
+  if (result.can_use !== true) throw Object.assign(new Error("当前授权不可使用"), {httpStatus:403});
+  await writeFile(".license.json",JSON.stringify(result,null,2)+"\n",{mode:0o600});state=result;
+}
+const output = (result) => console.log(JSON.stringify({license_no:result.license_no, can_use:result.can_use, can_update:result.can_update, usage_expired_at:result.usage_expired_at, updates_expired_at:result.updates_expired_at, accepted:result.accepted}));
+const [command="verify", value] = process.argv.slice(2);
+try {
+  if (command === "activate") { if (!value) throw Error("需要 CARD_CODE"); const result=await client.activate({...binding,card_code:value,device_name:"integration-demo",client_version:"1.0.0"});await save(result);output(result); }
+  else if (command === "attach") { if (!value) throw Error("需要 LICENSE_NO");const result=await client.verify({...binding,license_no:value});await save(result);output(result); }
+  else if (command === "verify") { const result=await client.verify(credentials());await save(result);output(result); }
+  else if (command === "heartbeat") output(await client.heartbeat(credentials()));
+  else if (command === "renew") { if (!value) throw Error("需要 RENEW_CARD_CODE");const result=await client.renew({...credentials(),renew_card_code:value});await save(result);output(result); }
+  else if (command === "updates" || command === "download") {
+    if (!value) throw Error("需要当前版本，例如 1.0.0");
+    const result=await client.checkUpdate({...credentials(),current_version:value});
+    if (command === "download" && result.update_available && result.release) {
+      const release=result.release, publicKeyPem=config.public_keys[String(release.key_version)];
+      if (!publicKeyPem) throw Error("未知 key_version，请从可信授权站刷新公钥环后重试");
+      const bytes=await client.downloadUpdate(release,credentials(),{publicKeyPem,productId:config.product_id});
+      await writeFile("update.zip",bytes,{mode:0o600});console.log(JSON.stringify({downloaded:true,filename:"update.zip",version:release.version}));
+    } else console.log(JSON.stringify(result));
+  } else if (command === "serve") {
+    createServer(async (req,res) => {
+      if (req.url !== "/protected") {res.writeHead(404);res.end();return;}
+      try {
+        const input=credentials();
+        if (await enforceWebLicense(client,input,res)) return;
+        const result=await client.verify(input);
+        if (result.can_use !== true) throw Object.assign(Error("授权不可使用"),{httpStatus:403});
+        res.writeHead(200,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"});
+        res.end(JSON.stringify({message:"已进入受保护业务",can_use:true,can_update:result.can_update}));
+      } catch(error) {
+        res.writeHead([400,401,403,404].includes(error.httpStatus)?403:503,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"});
+        res.end(JSON.stringify({error:error.code||"AUTHORIZATION_UNAVAILABLE",request_id:error.requestId||""}));
+      }
+    }).listen(Number(process.env.DEMO_PORT||3000),"127.0.0.1",()=>console.log("http://127.0.0.1:"+(process.env.DEMO_PORT||3000)+"/protected"));
+  } else throw Error("命令：activate、attach、verify、heartbeat、renew、serve、updates、download");
+} catch(error) { console.error(error.code||error.message, error.requestId||"");process.exitCode=1; }

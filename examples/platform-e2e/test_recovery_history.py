@@ -10,6 +10,7 @@ import pathlib
 import secrets
 import subprocess
 import tempfile
+import urllib.parse
 import uuid
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
@@ -102,7 +103,9 @@ def main():
             last = http.api(base, "/agent/history/money?page=6&page_size=100&agent_id=" + other["id"], token=token)
             assert last["total"] == 505 and len(last["items"]) == 5 and all(r["agent_id"] == agent["id"] for r in last["items"])
             assert http.api(base, "/agent/history/money?agent_id=" + agent["id"], token=other_token)["total"] == 0
-            found = http.api(base, "/agent/history/money?q=0001", token=token)
+            # Short digits also match random ledger/request IDs. Search the full
+            # remark so this assertion covers filtering without a random collision.
+            found = http.api(base, "/agent/history/money?q=" + urllib.parse.quote("历史流水 0001"), token=token)
             assert found["total"] == 1 and found["items"][0]["remark"] == "历史流水 0001"
             exported = list(csv.reader(io.StringIO(http.http(base, "/agent/history/money/export?page=99&agent_id=" + other["id"], token=token).decode())))
             assert len(exported) == 506 and all(r[2] == agent["id"] for r in exported[1:]) and any(r[10] == "'=历史导出公式验证" for r in exported[1:])
@@ -121,7 +124,7 @@ def main():
                 agent_page.get_by_role("button", name="下一页", exact=True).click()
                 agent_page.get_by_text("第 2 / 26 页", exact=False).wait_for()
                 agent_page.screenshot(path=str(args.artifacts / "agent-history-pagination.png"), full_page=True)
-                agent_page.get_by_label("搜索历史记录", exact=True).fill("0001")
+                agent_page.get_by_label("搜索历史记录", exact=True).fill("历史流水 0001")
                 agent_page.get_by_role("button", name="查询历史记录", exact=True).click()
                 agent_page.get_by_role("cell", name="历史流水 0001", exact=True).wait_for()
                 with agent_page.expect_download() as download:
