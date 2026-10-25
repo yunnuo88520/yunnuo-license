@@ -446,6 +446,22 @@ func (s *Store) GetCard(ctx context.Context, cardID string) (domain.Card, error)
 	return scanCard(s.db.QueryRowContext(ctx, `SELECT `+cardColumns+` FROM cards WHERE id = ?`, cardID))
 }
 
+// VoidUnusedCardsInBatch 将批次内全部未使用卡密作废，返回作废数量。
+func (s *Store) VoidUnusedCardsInBatch(ctx context.Context, batchID, reason string, now time.Time) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE cards
+		SET status = ?, voided_at = ?, void_reason = ?, updated_at = ?
+		WHERE batch_id = ? AND status = ?`, domain.CardVoided, ts(now), reason, ts(now), batchID, domain.CardUnused)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(affected), nil
+}
+
 func (s *Store) UpdateCardVoided(ctx context.Context, cardID, reason string, now time.Time) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE cards

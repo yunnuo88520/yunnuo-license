@@ -3,6 +3,7 @@ import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import CaptchaField from "../shared/components/CaptchaField.vue";
 import { onMounted, reactive, ref } from "vue";
 import { request, downloadText, ApiError } from "../shared/api";
+import { friendlyError } from "../shared/errors";
 import { branding, loadBranding } from "../shared/branding";
 import ProductReleases from "../shared/components/ProductReleases.vue";
 import LicensePolicy from "../shared/components/LicensePolicy.vue";
@@ -59,7 +60,7 @@ async function run(action: () => Promise<unknown>) {
   try {
     await action();
   } catch (e: any) {
-    error.value = e.message;
+    error.value = friendlyError(e);
   } finally {
     busy.value = false;
   }

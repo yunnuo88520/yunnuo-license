@@ -36,7 +36,7 @@ import {
   X,
 } from "lucide-vue-next";
 import { useAdmin } from "./useAdmin";
-import { formatTime, roleLabel, shortId } from "../shared/format";
+import { formatTime, roleLabel, shortId, expiryInfo, onlineStateLabel } from "../shared/format";
 import { toast } from "../shared/useToast";
 import AppToast from "../shared/components/AppToast.vue";
 import StatusBadge from "../shared/components/StatusBadge.vue";
@@ -49,6 +49,7 @@ import CommercePanel from "./CommercePanel.vue";
 import RecoveryPanel from "./RecoveryPanel.vue";
 import SecurityPanel from "./SecurityPanel.vue";
 import FormDialog from "../shared/components/FormDialog.vue";
+import ConfirmDialog from "../shared/components/ConfirmDialog.vue";
 import CaptchaField from "../shared/components/CaptchaField.vue";
 import UserMenu from "../shared/components/UserMenu.vue";
 import {
@@ -449,6 +450,54 @@ async function exportBatch() {
   );
   codes.value = r.codes || [];
 }
+const batchFilter = reactive({ product: "", keyword: "" });
+const filteredBatches = computed(() =>
+  (a.data.batches as any[]).filter((b) => {
+    if (batchFilter.product && b.product_id !== batchFilter.product) return false;
+    const kw = batchFilter.keyword.trim().toLowerCase();
+    if (kw && !`${b.name} ${b.id}`.toLowerCase().includes(kw)) return false;
+    return true;
+  }),
+);
+async function voidBatchConfirm(b: any) {
+  const reason = await askConfirm({
+    title: "批量作废未使用卡密",
+    description: `将作废批次「${b.name}」内全部未使用卡密（已激活卡不受影响），操作不可恢复。`,
+    confirmText: "批量作废",
+    requireReason: true,
+  });
+  if (reason == null) return;
+  try {
+    const r = await a.mutate(`/admin/card-batches/${b.id}/void`, { reason }, "批次未使用卡密已作废", false);
+    toast(`已作废 ${r?.voided ?? 0} 张未使用卡密`);
+    await a.refresh();
+  } catch {}
+}
+function exportBatchesCSV() {
+  const rows = [
+    ["批次ID", "批次名", "产品", "数量", "时长", "导出次数", "创建时间"],
+    ...filteredBatches.value.map((b: any) => [
+      b.id,
+      b.name,
+      pname(b.product_id),
+      String(b.quantity),
+      b.is_permanent ? "永久" : `${b.duration_days} 天`,
+      String(b.export_count),
+      formatTime(b.created_at),
+    ]),
+  ];
+  const csv =
+    "\uFEFF" +
+    rows
+      .map((r) => r.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(","))
+      .join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "card-batches.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
 const productEdit = reactive({
   id: "",
   name: "",
@@ -747,6 +796,183 @@ async function downloadOffline(id: string) {
   l.download = "license.key";
   l.click();
   URL.revokeObjectURL(url);
+}
+
+const confirmState = reactive({
+  open: false,
+  title: "",
+  description: "",
+  confirmText: "确认执行",
+  requireReason: false,
+  reasonLabel: "操作原因",
+  reasonPlaceholder: "请填写原因，将记入审计日志",
+  resolve: null as ((reason: string | null) => void) | null,
+});
+function askConfirm(options: {
+  title: string;
+  description?: string;
+  confirmText?: string;
+  requireReason?: boolean;
+  reasonLabel?: string;
+  reasonPlaceholder?: string;
+}): Promise<string | null> {
+  return new Promise((resolve) => {
+    Object.assign(confirmState, {
+      open: true,
+      title: options.title,
+      description: options.description || "",
+      confirmText: options.confirmText || "确认执行",
+      requireReason: options.requireReason ?? false,
+      reasonLabel: options.reasonLabel || "操作原因",
+      reasonPlaceholder: options.reasonPlaceholder || "请填写原因，将记入审计日志",
+      resolve,
+    });
+  });
+}
+function closeConfirm() {
+  confirmState.open = false;
+  confirmState.resolve?.(null);
+  confirmState.resolve = null;
+}
+function acceptConfirm(reason: string) {
+  const resolve = confirmState.resolve;
+  confirmState.open = false;
+  confirmState.resolve = null;
+  resolve?.(reason);
+}
+
+async function voidCardConfirm(c: any) {
+  const reason = await askConfirm({
+    title: "作废卡密",
+    description: `卡密 ${shortId(c.id)} 作废后将无法激活，且不可恢复。`,
+    confirmText: "作废",
+    requireReason: true,
+  });
+  if (reason == null) return;
+  try {
+    await a.mutate("/admin/cards/void", { card_id: c.id, reason }, "卡密已作废", false);
+    await a.showBatch(a.selected.batch);
+  } catch {}
+}
+async function revokeLicenseConfirm(l: any) {
+  const reason = await askConfirm({
+    title: "吊销授权",
+    description: `授权 ${l.license_no} 吊销后立即失效，全部绑定一并吊销，且无法恢复。`,
+    confirmText: "吊销",
+    requireReason: true,
+  });
+  if (reason == null) return;
+  try {
+    await a.mutate("/admin/licenses/revoke", { license_no: l.license_no, reason }, "授权已吊销");
+  } catch {}
+}
+async function unbindBindingConfirm(b: any) {
+  const reason = await askConfirm({
+    title: "解绑绑定",
+    description: `解绑该 ${b.bind_mode} 绑定后，对应客户端将无法再通过验证。`,
+    confirmText: "解绑",
+    requireReason: true,
+  });
+  if (reason == null) return;
+  try {
+    await a.mutate(
+      "/admin/licenses/unbind",
+      { license_no: a.selected.license, binding_id: b.id, reason },
+      "绑定已解绑",
+      false,
+    );
+    await a.showBindings(a.selected.license);
+  } catch {}
+}
+async function revokeOfflineConfirm(l: any) {
+  const reason = await askConfirm({
+    title: "吊销离线授权",
+    description: "吊销后系统将停止该离线授权文件的再次下载；已下载到客户本地的文件无法远程收回。",
+    confirmText: "吊销",
+    requireReason: true,
+  });
+  if (reason == null) return;
+  try {
+    await a.mutate(`/admin/offline-licenses/${l.id}/revoke`, { reason }, "离线授权已吊销");
+  } catch {}
+}
+async function disableBlockConfirm(x: any) {
+  const ok = await askConfirm({
+    title: "解除封禁",
+    description: `解除 ${x.kind === "ip" ? "IP" : "设备"} ${x.value_masked} 的封禁后，该对象可重新访问授权接口。`,
+    confirmText: "解除封禁",
+  });
+  if (ok == null) return;
+  try {
+    await a.mutate(`/admin/risk/blocks/${x.id}/disable`, undefined, "封禁已解除");
+  } catch {}
+}
+async function rotateKeyConfirm(p: any) {
+  const ok = await askConfirm({
+    title: "轮换产品密钥",
+    description: `轮换「${p.name}」的签名密钥后密钥版本将升级，客户端需要获取新公钥才能继续验签。`,
+    confirmText: "轮换密钥",
+  });
+  if (ok == null) return;
+  try {
+    await a.mutate(`/admin/products/${p.id}/keys/rotate`, undefined, "密钥已轮换");
+    await a.showKeys(p.id);
+  } catch {}
+}
+async function toggleProductConfirm(p: any) {
+  if (p.status !== "active") {
+    try {
+      await a.mutate(`/admin/products/${p.id}/enable`, undefined, "产品已恢复");
+    } catch {}
+    return;
+  }
+  const ok = await askConfirm({
+    title: "停用产品",
+    description: `停用「${p.name}」后，该产品的激活、验证、心跳、续期接口将全部拒绝请求。`,
+    confirmText: "停用",
+  });
+  if (ok == null) return;
+  try {
+    await a.mutate(`/admin/products/${p.id}/disable`, undefined, "产品已停用");
+  } catch {}
+}
+async function suspendAgentConfirm(x: any) {
+  if (x.status !== "active") {
+    try {
+      await a.mutate(`/admin/agents/${x.id}/enable`, undefined, "代理状态已更新");
+    } catch {}
+    return;
+  }
+  const ok = await askConfirm({
+    title: "暂停代理",
+    description: `暂停「${x.name || x.id}」后，该代理及其账号将无法登录和发卡。`,
+    confirmText: "暂停",
+  });
+  if (ok == null) return;
+  try {
+    await a.mutate(`/admin/agents/${x.id}/suspend`, undefined, "代理状态已更新");
+  } catch {}
+}
+async function toggleAccountConfirm(kind: "agent-user" | "developer", u: any) {
+  const path =
+    kind === "agent-user"
+      ? `/admin/agents/${a.selected.agent}/users/${u.id}/${u.status === "active" ? "disable" : "enable"}`
+      : `/admin/developers/${u.id}/${u.status === "active" ? "disable" : "enable"}`;
+  if (u.status !== "active") {
+    try {
+      await a.mutate(path, kind === "developer" ? {} : undefined, "状态已更新");
+    } catch {}
+    return;
+  }
+  const ok = await askConfirm({
+    title: "停用账号",
+    description: `停用「${u.username || u.id}」后其登录会话立即失效，无法再访问控制台。`,
+    confirmText: "停用",
+  });
+  if (ok == null) return;
+  try {
+    await a.mutate(path, kind === "developer" ? {} : undefined, "状态已更新");
+  } catch {}
 }
 async function changePage(d: number) {
   a.data.licensePage.page += d;
@@ -1274,11 +1500,11 @@ onMounted(async () => {
                 </select></label
               >
               <label class="field"
-                >离线天数<input
+                >离线天数（最长 365）<input
                   name="offline_grace_days"
                   type="number"
                   min="0"
-                  max="36500"
+                  max="365"
                   :value="productEdit.offline_grace_days"
                   required
               /></label>
@@ -1336,27 +1562,13 @@ onMounted(async () => {
                       ><button
                         v-if="a.isSuper.value"
                         class="btn secondary small"
-                        @click="
-                          a
-                            .mutate(
-                              `/admin/products/${p.id}/keys/rotate`,
-                              undefined,
-                              '密钥已轮换',
-                            )
-                            .then(() => a.showKeys(p.id))
-                        "
+                        @click="rotateKeyConfirm(p)"
                       >
                         轮换</button
                       ><button
                         v-if="a.isManager.value"
                         class="btn danger small"
-                        @click="
-                          a.mutate(
-                            `/admin/products/${p.id}/${p.status === 'active' ? 'disable' : 'enable'}`,
-                            undefined,
-                            p.status === 'active' ? '产品已停用' : '产品已恢复',
-                          )
-                        "
+                        @click="toggleProductConfirm(p)"
                       >
                         {{ p.status === "active" ? "停用" : "恢复" }}
                       </button>
@@ -1768,13 +1980,7 @@ onMounted(async () => {
                         ><button
                           v-if="a.isManager.value"
                           class="btn danger small"
-                          @click="
-                            a.mutate(
-                              `/admin/agents/${x.id}/${x.status === 'active' ? 'suspend' : 'enable'}`,
-                              undefined,
-                              '代理状态已更新',
-                            )
-                          "
+                          @click="suspendAgentConfirm(x)"
                         >
                           {{ x.status === "active" ? "暂停" : "恢复" }}
                         </button>
@@ -1816,13 +2022,7 @@ onMounted(async () => {
                     <button
                       v-if="a.isManager.value"
                       class="btn secondary small"
-                      @click="
-                        a.mutate(
-                          `/admin/agents/${a.selected.agent}/users/${u.id}/${u.status === 'active' ? 'disable' : 'enable'}`,
-                          undefined,
-                          '代理账号状态已更新',
-                        )
-                      "
+                      @click="toggleAccountConfirm('agent-user', u)"
                     >
                       {{ u.status === "active" ? "停用" : "启用" }}
                     </button></span
@@ -1922,6 +2122,25 @@ onMounted(async () => {
           </div>
           <template v-if="cardsTab === 'list'">
           <pre v-if="codes.length" class="code-box">{{ codes.join("\n") }}</pre>
+          <div class="batch-filter">
+            <label class="field"
+              >产品筛选<select v-model="batchFilter.product">
+                <option value="">全部产品</option>
+                <option v-for="p in a.data.products" :key="p.id" :value="p.id">
+                  {{ p.name }}
+                </option>
+              </select></label
+            >
+            <label class="field"
+              >搜索批次<input
+                v-model="batchFilter.keyword"
+                placeholder="批次名称或 ID"
+                autocomplete="off"
+            /></label>
+            <button class="btn secondary small" @click="exportBatchesCSV">
+              <Download :size="14" />导出批次 CSV
+            </button>
+          </div>
           <div class="table-wrap">
             <table class="table">
               <thead>
@@ -1936,7 +2155,7 @@ onMounted(async () => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="b in a.data.batches">
+                <tr v-for="b in filteredBatches">
                   <td>{{ b.name }}</td>
                   <td>
                     {{ pname(b.product_id)
@@ -1951,12 +2170,20 @@ onMounted(async () => {
                   <td>{{ b.export_count }}</td>
                   <td>{{ formatTime(b.created_at) }}</td>
                   <td>
-                    <button
-                      class="btn secondary small"
-                      @click="openBatch(b.id)"
-                    >
-                      明细
-                    </button>
+                    <div class="row-actions">
+                      <button
+                        class="btn secondary small"
+                        @click="openBatch(b.id)"
+                      >
+                        明细</button
+                      ><button
+                        v-if="a.isManager.value"
+                        class="btn danger small"
+                        @click="voidBatchConfirm(b)"
+                      >
+                        批量作废
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -2001,16 +2228,7 @@ onMounted(async () => {
                     <button
                       v-if="a.isManager.value && c.status === 'unused'"
                       class="btn danger small"
-                      @click="
-                        a
-                          .mutate(
-                            '/admin/cards/void',
-                            { card_id: c.id, reason: 'admin_void' },
-                            '卡密已作废',
-                            false,
-                          )
-                          .then(() => a.showBatch(a.selected.batch))
-                      "
+                      @click="voidCardConfirm(c)"
                     >
                       作废
                     </button>
@@ -2099,6 +2317,11 @@ onMounted(async () => {
                   <td><StatusBadge :status="l.status" /></td>
                   <td>
                     {{ l.expired_at ? formatTime(l.expired_at) : "永久" }}
+                    <span
+                      v-if="l.expired_at"
+                      :class="['expiry-tag', `expiry-tag-${expiryInfo(l.expired_at).level}`]"
+                      >{{ expiryInfo(l.expired_at).label }}</span
+                    >
                   </td>
                   <td>
                     {{
@@ -2106,6 +2329,11 @@ onMounted(async () => {
                         ? formatTime(l.updates_expired_at)
                         : "永久更新"
                     }}
+                    <span
+                      v-if="l.updates_expired_at"
+                      :class="['expiry-tag', `expiry-tag-${expiryInfo(l.updates_expired_at).level}`]"
+                      >{{ expiryInfo(l.updates_expired_at).label }}</span
+                    >
                   </td>
                   <td>{{ formatTime(l.last_verify_at) }}</td>
                   <td>
@@ -2118,13 +2346,7 @@ onMounted(async () => {
                       ><button
                         v-if="a.isManager.value"
                         class="btn danger small"
-                        @click="
-                          a.mutate(
-                            '/admin/licenses/revoke',
-                            { license_no: l.license_no, reason: 'admin' },
-                            '授权已吊销',
-                          )
-                        "
+                        @click="revokeLicenseConfirm(l)"
                       >
                         吊销
                       </button>
@@ -2170,24 +2392,16 @@ onMounted(async () => {
             <div v-for="b in a.data.bindings" class="detail-row">
               <span
                 ><b>{{ b.bind_mode }} · {{ b.display_name || "-" }}</b
-                ><code>{{ b.id }}</code></span
+                ><code>{{ b.id }}</code
+                ><span
+                  v-if="b.online_state"
+                  :class="['heartbeat-tag', `heartbeat-${b.online_state}`]"
+                  >{{ onlineStateLabel(b.online_state, b.offline_days) }}</span
+                ></span
               ><button
                 v-if="a.isManager.value"
                 class="btn secondary small"
-                @click="
-                  a
-                    .mutate(
-                      '/admin/licenses/unbind',
-                      {
-                        license_no: a.selected.license,
-                        binding_id: b.id,
-                        reason: 'admin',
-                      },
-                      '绑定已解绑',
-                      false,
-                    )
-                    .then(() => a.showBindings(a.selected.license))
-                "
+                @click="unbindBindingConfirm(b)"
               >
                 解绑
               </button>
@@ -2269,11 +2483,11 @@ onMounted(async () => {
             ><label class="field wide"
               >机器码<input name="machine_code" required maxlength="256" /></label
             ><label class="field"
-              >有效天数<input
+              >有效天数（最长 365，更长周期请分次签发）<input
                 name="duration_days"
                 type="number"
                 min="1"
-                max="36500"
+                max="365"
                 value="365" /></label
             ><label class="check"
               ><input name="is_permanent" type="checkbox" />永久授权</label
@@ -2284,7 +2498,7 @@ onMounted(async () => {
           </form>
           </FormDialog>
           <div class="notice">
-            纯离线文件无法远程实时收回；吊销后系统将停止再次下载。
+            纯离线文件无法远程实时收回；离线授权最长 365 天，到期后重新签发可让吊销与到期策略生效。
           </div>
           <div class="table-wrap">
             <table class="table">
@@ -2323,13 +2537,7 @@ onMounted(async () => {
                       ><button
                         v-if="a.isManager.value && l.status === 'active'"
                         class="btn danger small"
-                        @click="
-                          a.mutate(
-                            `/admin/offline-licenses/${l.id}/revoke`,
-                            { reason: 'admin_revoked' },
-                            '离线授权已吊销',
-                          )
-                        "
+                        @click="revokeOfflineConfirm(l)"
                       >
                         吊销
                       </button>
@@ -2513,13 +2721,7 @@ onMounted(async () => {
                       <button
                         v-if="a.isManager.value && x.status === 'active'"
                         class="btn danger small"
-                        @click="
-                          a.mutate(
-                            `/admin/risk/blocks/${x.id}/disable`,
-                            undefined,
-                            '封禁已解除',
-                          )
-                        "
+                        @click="disableBlockConfirm(x)"
                       >
                         解除
                       </button>
@@ -2989,13 +3191,7 @@ onMounted(async () => {
                     <button
                       v-if="u.role === 'developer'"
                       class="btn secondary small"
-                      @click="
-                        a.mutate(
-                          `/admin/developers/${u.id}/${u.status === 'active' ? 'disable' : 'enable'}`,
-                          {},
-                          '开发者状态已更新',
-                        )
-                      "
+                      @click="toggleAccountConfirm('developer', u)"
                     >
                       {{ u.status === "active" ? "停用" : "启用" }}
                     </button>
@@ -3042,6 +3238,17 @@ onMounted(async () => {
         </div>
       </form>
     </FormDialog>
+    <ConfirmDialog
+      :open="confirmState.open"
+      :title="confirmState.title"
+      :description="confirmState.description"
+      :confirm-text="confirmState.confirmText"
+      :require-reason="confirmState.requireReason"
+      :reason-label="confirmState.reasonLabel"
+      :reason-placeholder="confirmState.reasonPlaceholder"
+      @close="closeConfirm"
+      @confirm="acceptConfirm"
+    />
     <AppToast />
     <dialog :open="!!a.data.keys" class="key-dialog">
       <div class="panel-head">

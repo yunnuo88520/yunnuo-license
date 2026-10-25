@@ -18,6 +18,7 @@ import {
   Wallet,
 } from "lucide-vue-next";
 import { ApiError, downloadText, request } from "../shared/api";
+import { friendlyError } from "../shared/errors";
 import { formatTime, roleLabel } from "../shared/format";
 import AppToast from "../shared/components/AppToast.vue";
 import StatusBadge from "../shared/components/StatusBadge.vue";
@@ -127,7 +128,7 @@ async function signIn() {
     login.password = "";
     await refresh();
   } catch (e: any) {
-    loginError.value = e.message;
+    loginError.value = friendlyError(e);
     captchaField.value?.refresh();
   } finally {
     loading.value = false;
@@ -161,7 +162,7 @@ async function refresh() {
     if (!packages.value.some((q) => q.package.id === batch.package_id))
       batch.package_id = packages.value[0]?.package.id || "";
   } catch (e) {
-    toast(e);
+    toast(friendlyError(e));
   } finally {
     loading.value = false;
   }
@@ -188,7 +189,7 @@ async function generate() {
     await refresh();
     await showCards(data.batch.id);
   } catch (e) {
-    toast(e);
+    toast(friendlyError(e));
   } finally {
     issuing.value = false;
   }
@@ -203,7 +204,7 @@ async function showCards(id: string) {
       .querySelector(".console-main")
       ?.scrollTo({ top: 9999, behavior: "smooth" });
   } catch (e) {
-    toast(e);
+    toast(friendlyError(e));
   }
 }
 async function exportBatch(id: string) {
@@ -216,7 +217,7 @@ async function exportBatch(id: string) {
     navigate("generate");
     toast("批次明文已加载");
   } catch (e) {
-    toast(e);
+    toast(friendlyError(e));
   }
 }
 async function copyCodes() {
@@ -244,7 +245,7 @@ onMounted(async () => {
       profile.value = await api("/agent/profile");
       await refresh();
     } catch (e) {
-      loginError.value = e instanceof Error ? e.message : String(e);
+      loginError.value = friendlyError(e);
     }
   }
 });

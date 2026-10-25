@@ -731,3 +731,19 @@
   flex: 1;
   min-width: 0;
 }
+
+/* 卡密批次筛选条 */
+.batch-filter {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.batch-filter .field {
+  min-width: 180px;
+  margin: 0;
+}
+.batch-filter .btn {
+  margin-bottom: 2px;
+}

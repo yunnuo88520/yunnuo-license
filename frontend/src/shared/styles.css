@@ -1231,3 +1231,115 @@ fieldset,
     bottom: calc(94px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* ConfirmDialog: confirmation for irreversible admin actions */
+.confirm-card {
+  max-width: 440px;
+}
+.confirm-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.confirm-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 10px;
+  color: #ef4444;
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+}
+.confirm-note {
+  margin: 2px 0 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-muted, #6b7280);
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+.confirm-actions .btn.danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.required {
+  color: #ef4444;
+  margin-left: 2px;
+  font-style: normal;
+}
+
+/* Expiry signal: shared badge for license expiry countdown */
+.expiry-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 20px;
+  font-size: 12px;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+.expiry-tag-warn {
+  background: rgba(217, 119, 6, 0.14);
+  color: #d97706;
+}
+.expiry-tag-urgent,
+.expiry-tag-expired {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
+/* Heartbeat online state (admin bindings) */
+.heartbeat-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 20px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.heartbeat-online {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+.heartbeat-idle {
+  background: rgba(217, 119, 6, 0.14);
+  color: #d97706;
+}
+.heartbeat-offline {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
+/* HelpPanel */
+.help-card {
+  max-width: 560px;
+}
+.help-body details {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 14px;
+  margin-bottom: 10px;
+}
+.help-body summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-weight: 600;
+  font-size: 14px;
+  list-style-position: outside;
+}
+.help-body details[open] summary {
+  border-bottom: 1px dashed var(--line);
+  margin-bottom: 8px;
+}
+.help-body p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--muted);
+}

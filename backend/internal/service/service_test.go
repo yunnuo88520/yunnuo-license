@@ -230,8 +230,11 @@ func TestPublicLicenseQuerySupportsCardAndLicenseNumber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query license: %v", err)
 	}
-	if byCard.LicenseNo != activated.LicenseNo || byLicense.LicenseStatus != domain.LicenseActive {
+	if byCard.LicenseNo != byLicense.LicenseNo || byLicense.LicenseStatus != domain.LicenseActive {
 		t.Fatalf("unexpected public query results: card=%#v license=%#v", byCard, byLicense)
+	}
+	if byCard.LicenseNo == activated.LicenseNo || !strings.Contains(byCard.LicenseNo, "****") {
+		t.Fatalf("public query must mask the license number: %s", byCard.LicenseNo)
 	}
 
 	_, err = svc.QueryPublicLicense(ctx, PublicLicenseQueryInput{LicenseNo: "lic_missing"})
@@ -281,8 +284,8 @@ func TestPublicLicenseQuerySupportsBindingIdentifiersAndMasksValues(t *testing.T
 			if result.QueryMasked != tc.wantMasked || result.MatchCount != 1 || len(result.Results) != 1 {
 				t.Fatalf("unexpected binding result: %#v", result)
 			}
-			if result.Results[0].LicenseNo != activated.LicenseNo || result.Results[0].ProductName != product.Name {
-				t.Fatalf("unexpected authorization match: %#v", result.Results[0])
+			if result.Results[0].LicenseNo == activated.LicenseNo || !strings.Contains(result.Results[0].LicenseNo, "****") || result.Results[0].ProductName != product.Name {
+				t.Fatalf("unexpected authorization match (license number must be masked): %#v", result.Results[0])
 			}
 			encoded, err := json.Marshal(result)
 			if err != nil {
@@ -947,5 +950,88 @@ func assertCode(t *testing.T, err error, code string) {
 	}
 	if appErr.Code != code {
 		t.Fatalf("expected error code %s, got %s", code, appErr.Code)
+	}
+}
+
+func TestPublicQueryMasksLicenseNo(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	product := createTestProduct(t, ctx, svc, domain.ConflictReject)
+	code := createTestCard(t, ctx, svc, product.ID, 30)
+	resp, err := svc.Activate(ctx, ActivateInput{
+		AppKey: product.AppKey, CardCode: code, BindMode: domain.BindDevice, BindValue: "mask-device",
+	})
+	if err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+
+	byLicense, err := svc.QueryPublicLicense(ctx, PublicLicenseQueryInput{Query: resp.LicenseNo, QueryType: "license"})
+	if err != nil {
+		t.Fatalf("query by license: %v", err)
+	}
+	if byLicense.LicenseNo == resp.LicenseNo || !strings.Contains(byLicense.LicenseNo, "****") {
+		t.Fatalf("public license query leaked full license number: %s", byLicense.LicenseNo)
+	}
+
+	byCard, err := svc.QueryPublicLicense(ctx, PublicLicenseQueryInput{Query: code, QueryType: "card"})
+	if err != nil {
+		t.Fatalf("query by card: %v", err)
+	}
+	if byCard.LicenseNo == resp.LicenseNo || !strings.Contains(byCard.LicenseNo, "****") {
+		t.Fatalf("public card query leaked full license number: %s", byCard.LicenseNo)
+	}
+}
+
+func TestMaskLicenseNo(t *testing.T) {
+	cases := map[string]bool{ // value -> must contain **** and differ from input
+		"lic_abcdefghijklmnopqrstuvwxyz": true,
+		"short":                          false, // 短值不适用于授权编号，仅验证不崩溃
+	}
+	for value := range cases {
+		masked := maskLicenseNo(value)
+		if masked == "" {
+			t.Fatalf("maskLicenseNo(%q) returned empty", value)
+		}
+	}
+	full := "lic_abcdefghijklmnopqrstuvwxyz012345"
+	masked := maskLicenseNo(full)
+	if !strings.Contains(masked, "****") || masked == full {
+		t.Fatalf("unexpected mask: %s", masked)
+	}
+	if len(masked) >= len(full) {
+		t.Fatalf("mask must shorten the value: %s", masked)
+	}
+}
+
+func TestVoidCardBatchVoidsOnlyUnused(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	product := createTestProduct(t, ctx, svc, domain.ConflictReject)
+	batch, err := svc.CreateCardBatch(ctx, CreateCardBatchInput{
+		ProductID: product.ID, Name: "void batch", Quantity: 3, DurationDays: 30,
+	})
+	if err != nil {
+		t.Fatalf("create batch: %v", err)
+	}
+	if _, err := svc.Activate(ctx, ActivateInput{
+		AppKey: product.AppKey, CardCode: batch.Codes[0], BindMode: domain.BindDevice, BindValue: "batch-void-device",
+	}); err != nil {
+		t.Fatalf("activate first card: %v", err)
+	}
+
+	result, err := svc.VoidCardBatch(ctx, batch.Batch.ID, VoidCardBatchInput{Reason: "batch leak", ActorID: "admin-test"})
+	if err != nil || result["voided"] != 2 {
+		t.Fatalf("void batch should void the two unused cards: result=%#v err=%v", result, err)
+	}
+
+	// 已激活卡不受影响，仍可验证；未使用卡全部作废。
+	if _, err := svc.Activate(ctx, ActivateInput{
+		AppKey: product.AppKey, CardCode: batch.Codes[1], BindMode: domain.BindDevice, BindValue: "batch-void-device-2",
+	}); err == nil {
+		t.Fatal("voided card must not activate")
+	}
+
+	if _, err := svc.VoidCardBatch(ctx, batch.Batch.ID, VoidCardBatchInput{Reason: ""}); err == nil {
+		t.Fatal("empty reason must be rejected")
 	}
 }

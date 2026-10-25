@@ -61,8 +61,8 @@ func (s *Service) UpdateProductProfile(ctx context.Context, productID string, in
 	if input.MaxBindCount <= 0 {
 		input.MaxBindCount = 1
 	}
-	if input.OfflineGraceDays < 0 || input.OfflineGraceDays > 36500 {
-		return domain.Product{}, ErrInvalidRequest
+	if input.OfflineGraceDays < 0 || input.OfflineGraceDays > maxOfflineGraceDays {
+		return domain.Product{}, badRequest("OFFLINE_GRACE_TOO_LONG", "离线缓存宽限最长 365 天")
 	}
 	product, err := s.currentStore().GetProduct(ctx, productID)
 	if err != nil {
@@ -125,14 +125,39 @@ func (s *Service) ExportCardBatch(ctx context.Context, batchID, actorID string) 
 	return CardBatchExportResult{Batch: batch, Codes: codes}, nil
 }
 
+type VoidCardBatchInput struct {
+	Reason  string `json:"reason"`
+	ActorID string `json:"-"`
+}
+
+// VoidCardBatch 整批作废未使用卡密（已激活卡不受影响），用于批次泄漏止损。
+func (s *Service) VoidCardBatch(ctx context.Context, batchID string, input VoidCardBatchInput) (map[string]any, error) {
+	batchID = strings.TrimSpace(batchID)
+	reason := strings.TrimSpace(input.Reason)
+	if batchID == "" || reason == "" || len(reason) > 200 {
+		return nil, ErrInvalidRequest
+	}
+	batch, err := s.currentStore().GetCardBatch(ctx, batchID)
+	if err != nil {
+		if store.IsNotFound(err) {
+			return nil, ErrCardBatchNotFound
+		}
+		return nil, err
+	}
+	// 批次状态与卡密状态独立维护：作废只改卡密，不改批次元数据。
+	voided, err := s.currentStore().VoidUnusedCardsInBatch(ctx, batchID, reason, s.now())
+	if err != nil {
+		return nil, err
+	}
+	_ = s.audit(ctx, "admin", input.ActorID, batch.ProductID, "", batchID, "card_batch.void_unused", "success", reason)
+	return map[string]any{"voided": voided, "batch_id": batchID}, nil
+}
+
 func (s *Service) VoidCard(ctx context.Context, cardID, reason, actorID string) (domain.Card, error) {
 	cardID = strings.TrimSpace(cardID)
 	reason = strings.TrimSpace(reason)
-	if cardID == "" || len(reason) > 200 {
+	if cardID == "" || reason == "" || len(reason) > 200 {
 		return domain.Card{}, ErrInvalidRequest
-	}
-	if reason == "" {
-		reason = "admin_void"
 	}
 	card, err := s.currentStore().GetCard(ctx, cardID)
 	if err != nil {
