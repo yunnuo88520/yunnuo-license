@@ -80,6 +80,7 @@ jobs:
   frontend:
     # Keep the browser/font environment stable while ubuntu-latest migrates.
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -102,16 +103,24 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Test desktop and mobile appearance in a real browser
+      - name: Install the browser and fonts for acceptance tests
+        timeout-minutes: 9
         run: |
-          pip install playwright==1.62.0
-          python -m playwright install --with-deps chromium
-          sudo apt-get install -y fonts-noto-cjk
-          go -C backend build -o /tmp/yunnuo-appearance-server ./cmd/server
+          python .github/scripts/check-command.py "Playwright setup" timeout 120s pip install playwright==1.62.0
+          python .github/scripts/check-command.py "Chromium setup" timeout 240s python -m playwright install --with-deps chromium
+          python .github/scripts/check-command.py "CJK font setup" timeout 120s sudo apt-get install -y fonts-noto-cjk
+      - name: Build the server for browser acceptance tests
+        timeout-minutes: 3
+        run: go -C backend build -o /tmp/yunnuo-appearance-server ./cmd/server
+      - name: Test desktop and mobile appearance in a real browser
+        timeout-minutes: 3
+        run: |
           python .github/scripts/check-command.py "Appearance browser acceptance" python examples/platform-e2e/test_appearance.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-appearance"
       - name: Compile and run the projects downloaded from the integration guide
+        timeout-minutes: 8
         run: python .github/scripts/check-command.py "Developer integration acceptance" python examples/platform-e2e/test_integration.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-integration"
       - name: Verify card detection and agent application selection in a real browser
+        timeout-minutes: 4
         run: |
           python .github/scripts/check-command.py "Card application detection acceptance" python examples/platform-e2e/test_stage1.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-application-identity/user"
           python .github/scripts/check-command.py "Agent application selection acceptance" python examples/platform-e2e/test_stage3.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-application-identity/agent"
