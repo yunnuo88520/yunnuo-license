@@ -68,14 +68,18 @@ def main():
                 page.get_by_label("密码", exact=True).fill(password)
                 page.get_by_role("button", name="登录", exact=True).click()
                 page.get_by_label("产品名称", exact=True).fill("Ebox 接入验收")
-                page.get_by_label("产品代码", exact=True).fill("EBOXNODE")
+                assert page.get_by_label("产品代码", exact=True).count() == 0
                 with page.expect_response(lambda r: r.url.endswith("/developer/products") and r.request.method == "POST") as response:
                     page.get_by_role("button", name="创建产品", exact=True).click()
                 assert response.value.status == 200
                 node_product = response.value.json()["data"]
                 page.get_by_role("heading", name="接入授权 · Ebox 接入验收", exact=True).wait_for()
+                page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base)
+                page.get_by_role("button", name="复制应用 ID", exact=True).click()
+                assert page.evaluate("navigator.clipboard.readText()") == node_product["id"]
             else:
-                node_product = http.api(base, "/developer/products", {"name": "Ebox 接入验收", "code": "EBOXNODE", "bind_mode": "domain"}, developer)
+                node_product = http.api(base, "/developer/products", {"name": "Ebox 接入验收", "bind_mode": "domain"}, developer)
+            assert node_product["id"].startswith("prod_") and node_product["app_key"] == node_product["id"]
 
             def kit_url(product, language, token=developer):
                 query = urllib.parse.urlencode({"base_url": base, "language": language, "bind_value": "ebox.example.com"})
@@ -115,7 +119,7 @@ def main():
                 return site
 
             for language in ["node", "go", "java"]:
-                product = node_product if language == "node" else http.api(base, "/developer/products", {"name": "接入验收 " + language, "code": "EBOX" + language.upper(), "bind_mode": "domain"}, developer)
+                product = node_product if language == "node" else http.api(base, "/developer/products", {"name": "接入验收 " + language, "bind_mode": "domain"}, developer)
                 project = folder / language
                 project.mkdir()
                 if page:
@@ -131,7 +135,7 @@ def main():
                         guide.screenshot(path=str(args.artifacts / "developer-application-integration.png"))
                         guide.get_by_role("button", name="HTTP 接口", exact=True).click()
                         example = json.loads(guide.locator('[data-example="activate"]').inner_text())
-                        assert example["app_key"] == product["app_key"] and example["bind_mode"] == "domain"
+                        assert example["app_key"] == product["id"] and example["bind_mode"] == "domain"
                         http_example=example
                         http_command=shlex.split(guide.locator('[data-example="activate-command"]').inner_text())
                         for width in [390, 320]:
@@ -146,7 +150,7 @@ def main():
                     assert all(secret.encode() not in archive.read(name) for name in archive.namelist() for secret in [root, developer, other, password, "-----BEGIN PRIVATE KEY-----"])
                     archive.extractall(project)
                 config = json.loads((project / "config.json").read_text())
-                assert config["app_key"] == product["app_key"] and config["product_code"] == product["code"] and config["bind_mode"] == "domain"
+                assert config["app_key"] == product["id"] and config["product_code"] == product["code"] and config["bind_mode"] == "domain"
                 codes = http.api(base, "/developer/products/" + product["id"] + "/card-batches", {"name": "接入测试卡", "quantity": 2, "duration_days": 30}, developer)["codes"]
                 if language=="node" and http_command:
                     http_example["card_code"]=codes[0]
@@ -179,7 +183,7 @@ def main():
                 cli(language, project, "verify", expected=1, expected_code="LICENSE_EXPIRED")
                 report["languages"].append(language)
                 report["checks"].append(f"{language}: downloaded project builds, activates, verifies, heartbeats, renews and rejects wrong bindings, revocation and usage expiry at its real business endpoint")
-                permanent = http.api(base, "/developer/products", {"name":"永久使用验收 "+language,"code":"PERM"+language.upper(),"bind_mode":"domain","license_mode":"perpetual"},developer)
+                permanent = http.api(base, "/developer/products", {"name":"永久使用验收 "+language,"bind_mode":"domain","license_mode":"perpetual"},developer)
                 with zipfile.ZipFile(io.BytesIO(http.http(base,kit_url(permanent,language),token=developer))) as archive:
                     (project/"config.json").write_bytes(archive.read("config.json"))
                 permanent_card=http.api(base,"/developer/products/"+permanent["id"]+"/card-batches",{"name":"永久使用限期更新","quantity":1,"duration_days":30},developer)["codes"][0]
@@ -214,6 +218,19 @@ def main():
                 row.get_by_role("button", name="接入授权", exact=True).click()
                 page.get_by_role("heading", name="接入授权 · Ebox 接入验收", exact=True).wait_for()
                 page.locator(".integration-guide").screenshot(path=str(args.artifacts / "admin-integration-entry.png"))
+                page.get_by_role("button", name="新增产品", exact=True).click()
+                dialog = page.get_by_role("dialog", name="新增产品", exact=True)
+                assert dialog.locator('input[name="code"]').count() == 0
+                dialog.get_by_label("产品名称", exact=True).fill("管理员创建应用")
+                with page.expect_response(lambda r: r.url.endswith("/admin/products") and r.request.method == "POST") as response:
+                    dialog.get_by_role("button", name="确认新增", exact=True).click()
+                assert response.value.status == 200
+                admin_product = response.value.json()["data"]
+                assert admin_product["id"] != node_product["id"] and admin_product["app_key"] == admin_product["id"]
+                page.get_by_role("heading", name="接入授权 · 管理员创建应用", exact=True).wait_for()
+                page.locator(".integration-guide").evaluate("e => e.scrollIntoView({behavior:'instant',block:'start'})")
+                page.locator(".integration-guide").screenshot(path=str(args.artifacts / "admin-generated-application-id.png"))
+                report["checks"].append("Both developer and administrator forms create applications without a manual code and automatically show the unique generated application ID")
                 assert not errors, errors
             server.terminate()
             server.wait(timeout=10)

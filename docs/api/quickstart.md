@@ -60,7 +60,6 @@ curl -X POST http://127.0.0.1:18080/admin/products \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -d '{
     "name": "测试产品",
-    "code": "YN",
     "bind_mode": "device",
     "max_bind_count": 1,
     "bind_conflict_strategy": "reject",
@@ -68,6 +67,8 @@ curl -X POST http://127.0.0.1:18080/admin/products \
     "expire_grace_days": 3
   }'
 ```
+
+创建成功后自动生成应用 ID（`id`），当前客户端协议的 `app_key` 字段直接使用该 ID。名称可以修改，ID 保持不变；无需手工编写产品代码。管理后台通过选择应用自动带入下方 `product_id`，产品 ID 不是后台登录凭证。
 
 生成卡密：
 

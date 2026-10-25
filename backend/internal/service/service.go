@@ -77,7 +77,7 @@ type CreateProductInput struct {
 	UpdateDurationDays   int    `json:"update_duration_days"`
 	DeveloperID          string `json:"-"`
 	Name                 string `json:"name"`
-	Code                 string `json:"code"`
+	Code                 string `json:"code,omitempty"` // Legacy integrations may retain an existing card prefix.
 	BindMode             string `json:"bind_mode"`
 	MaxBindCount         int    `json:"max_bind_count"`
 	BindConflictStrategy string `json:"bind_conflict_strategy"`
@@ -95,7 +95,7 @@ func (s *Service) CreateProduct(ctx context.Context, input CreateProductInput) (
 	if !validLicensePolicy(input.LicenseMode, input.UpdateDurationDays, input.ExpireGraceDays) {
 		return domain.Product{}, ErrInvalidRequest
 	}
-	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.Code) == "" {
+	if strings.TrimSpace(input.Name) == "" {
 		return domain.Product{}, ErrInvalidRequest
 	}
 	if input.BindMode == "" {
@@ -124,15 +124,21 @@ func (s *Service) CreateProduct(ctx context.Context, input CreateProductInput) (
 	if err != nil {
 		return domain.Product{}, err
 	}
+	productID := yncrypto.NewID("prod")
+	code := strings.ToUpper(strings.TrimSpace(input.Code))
+	if code == "" {
+		// Keep the card/offline identifier stable without asking people to invent one.
+		code = strings.ToUpper(strings.TrimPrefix(productID, "prod_"))
+	}
 	now := s.now()
 	product := domain.Product{
 		LicenseMode:          input.LicenseMode,
 		UpdateDurationDays:   input.UpdateDurationDays,
 		DeveloperID:          input.DeveloperID,
-		ID:                   yncrypto.NewID("prod"),
+		ID:                   productID,
 		Name:                 strings.TrimSpace(input.Name),
-		Code:                 strings.ToUpper(strings.TrimSpace(input.Code)),
-		AppKey:               yncrypto.NewID("app"),
+		Code:                 code,
+		AppKey:               productID,
 		PublicKeyPEM:         publicPEM,
 		PrivateKeyEncrypted:  privateEncrypted,
 		KeyVersion:           1,
@@ -671,6 +677,7 @@ type PublicLicenseQueryMatch struct {
 	UsageExpiredAt   *time.Time `json:"usage_expired_at"`
 	UpdatesExpiredAt *time.Time `json:"updates_expired_at"`
 	ProductName      string     `json:"product_name"`
+	ProductID        string     `json:"product_id"`
 	ProductCode      string     `json:"product_code"`
 	LicenseNo        string     `json:"license_no"`
 	LicenseStatus    string     `json:"license_status"`
@@ -689,6 +696,7 @@ type PublicLicenseQueryResult struct {
 	MatchCount       int                       `json:"match_count,omitempty"`
 	Results          []PublicLicenseQueryMatch `json:"results,omitempty"`
 	ProductName      string                    `json:"product_name"`
+	ProductID        string                    `json:"product_id"`
 	ProductCode      string                    `json:"product_code"`
 	CardStatus       string                    `json:"card_status,omitempty"`
 	LicenseNo        string                    `json:"license_no,omitempty"`
@@ -762,6 +770,7 @@ func (s *Service) QueryPublicLicense(ctx context.Context, input PublicLicenseQue
 		return PublicLicenseQueryResult{
 			QueryType:    "card",
 			ProductName:  product.Name,
+			ProductID:    product.ID,
 			ProductCode:  product.Code,
 			CardStatus:   card.Status,
 			DurationDays: card.DurationDays,
@@ -831,7 +840,7 @@ func (s *Service) publicLicenseMatch(ctx context.Context, license domain.License
 	activatedAt := license.ActivatedAt
 	return PublicLicenseQueryMatch{
 		LicenseMode: license.LicenseMode, UsageExpiredAt: license.ExpiredAt, UpdatesExpiredAt: license.UpdatesExpiredAt,
-		ProductName: product.Name, ProductCode: product.Code, LicenseNo: maskLicenseNo(license.LicenseNo),
+		ProductName: product.Name, ProductID: product.ID, ProductCode: product.Code, LicenseNo: maskLicenseNo(license.LicenseNo),
 		LicenseStatus: status, IsPermanent: license.ExpiredAt == nil, ActivatedAt: &activatedAt,
 		ExpiredAt: license.ExpiredAt, LastVerifyAt: license.LastVerifyAt,
 	}, nil
@@ -852,6 +861,7 @@ func (s *Service) publicLicenseResult(ctx context.Context, queryType string, car
 		LicenseMode: license.LicenseMode, UsageExpiredAt: license.ExpiredAt, UpdatesExpiredAt: license.UpdatesExpiredAt,
 		QueryType:     queryType,
 		ProductName:   product.Name,
+		ProductID:     product.ID,
 		ProductCode:   product.Code,
 		LicenseNo:     maskLicenseNo(license.LicenseNo),
 		LicenseStatus: status,

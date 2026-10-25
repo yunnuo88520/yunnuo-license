@@ -22,6 +22,7 @@ def main():
     p.add_argument("--base-url")
     p.add_argument("--artifacts", type=pathlib.Path, required=True)
     p.add_argument("--screenshots", action="store_true")
+    p.add_argument("--chromium", default="/usr/bin/chromium")
     args = p.parse_args()
     args.artifacts.mkdir(parents=True, exist_ok=True)
     report = {"stage": 1, "result": "running", "checks": []}
@@ -56,7 +57,7 @@ def main():
             if args.screenshots:
                 from playwright.sync_api import sync_playwright
                 playwright = sync_playwright().start()
-                browser = playwright.chromium.launch(executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox"])
+                browser = playwright.chromium.launch(executable_path=None if args.chromium == "bundled" else args.chromium, headless=True, args=["--no-sandbox"])
                 page = browser.new_page(viewport={"width": 1500, "height": 1100}, locale="zh-CN", timezone_id="Asia/Shanghai")
                 errors = []
                 page.on("pageerror", lambda e: errors.append(str(e)))
@@ -64,13 +65,13 @@ def main():
                 page.get_by_label("账号", exact=True).fill(alice_name)
                 page.get_by_label("密码", exact=True).fill(password)
                 page.get_by_role("button", name="登录用户中心", exact=True).click()
-                page.get_by_label("应用代码", exact=True).fill(product["code"])
+                assert page.get_by_label("应用代码", exact=True).count() == 0
                 page.get_by_label("未激活卡密", exact=True).fill(batch["codes"][0])
                 page.get_by_label("绑定信息", exact=True).fill("old.example.com")
                 page.get_by_role("button", name="激活并绑定到我的账号", exact=True).click()
                 page.get_by_text("授权已激活并归属当前账号。", exact=True).wait_for()
             else:
-                http.api(base, "/user/activate", {"application_code": product["code"], "card_code": batch["codes"][0], "bind_value": "old.example.com"}, alice_token)
+                http.api(base, "/user/activate", {"card_code": batch["codes"][0], "bind_value": "old.example.com"}, alice_token)
             owned = http.api(base, "/user/licenses", token=alice_token)
             assert len(owned) == 1 and owned[0]["license"]["owner_user_id"] == alice["id"]
             number, binding = owned[0]["license"]["license_no"], owned[0]["bindings"][0]["id"]
@@ -116,7 +117,7 @@ def main():
                 page.get_by_label("新的绑定信息", exact=True).fill("next.example.com")
                 page.get_by_label("更换原因", exact=True).fill("重复迁移尝试")
                 page.get_by_role("button", name="确认换绑", exact=True).click()
-                page.get_by_role("alert").filter(has_text="UNBIND_COOLDOWN").wait_for()
+                page.get_by_role("alert").filter(has_text="换绑冷却时间内，请稍后再试").wait_for()
                 page.screenshot(path=str(args.artifacts / "rebind-cooldown-denied.png"), full_page=True)
             report["checks"].append("Atomic rebind invalidates old binding, charges retries once and enforces cooldown")
             assert http.http(base, "/admin/licenses/" + number + "/owner", {"user_id": bob["id"], "expected_owner": alice["id"], "reason": "管理员转移验证"}, root, expected=403)["error"]["code"] == "OWNER_TRANSFER_DISABLED"
@@ -140,6 +141,9 @@ def main():
                 page.get_by_role("heading", name="普通用户管理", exact=True).wait_for()
                 page.get_by_text("小李 · 独立用户", exact=True).wait_for()
                 page.screenshot(path=str(args.artifacts / "admin-customers.png"), full_page=True)
+                platform = page.get_by_role("button", name="平台", exact=True)
+                if platform.get_attribute("aria-expanded") == "false":
+                    platform.click()
                 page.get_by_role("link", name="审计", exact=True).click()
                 page.get_by_role("heading", name="全操作记录", exact=True).wait_for()
                 page.get_by_label("分类标签").select_option("binding")

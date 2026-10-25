@@ -21,7 +21,7 @@ func (api *API) integrationKit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	config := integration.Config{ProductID: p.ID, BaseURL: r.URL.Query().Get("base_url"), AppKey: p.AppKey, ProductCode: p.Code, BindMode: p.BindMode, BindValue: strings.TrimSpace(r.URL.Query().Get("bind_value")), PublicKeys: map[int]string{}}
+	config := integration.Config{ProductID: p.ID, BaseURL: r.URL.Query().Get("base_url"), AppKey: p.ID, ProductCode: p.Code, BindMode: p.BindMode, BindValue: strings.TrimSpace(r.URL.Query().Get("bind_value")), PublicKeys: map[int]string{}}
 	for _, key := range keys.Keys {
 		config.PublicKeys[key.KeyVersion] = key.PublicKeyPEM
 	}
@@ -36,7 +36,7 @@ func (api *API) integrationKit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": p.Code + "-" + language + "-integration.zip"}))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": p.ID + "-" + language + "-integration.zip"}))
 	w.Header().Set("Content-Length", strconv.Itoa(len(content)))
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")

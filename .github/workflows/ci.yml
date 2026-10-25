@@ -111,6 +111,10 @@ jobs:
           python .github/scripts/check-command.py "Appearance browser acceptance" python examples/platform-e2e/test_appearance.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-appearance"
       - name: Compile and run the projects downloaded from the integration guide
         run: python .github/scripts/check-command.py "Developer integration acceptance" python examples/platform-e2e/test_integration.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-integration"
+      - name: Verify card detection and agent application selection in a real browser
+        run: |
+          python .github/scripts/check-command.py "Card application detection acceptance" python examples/platform-e2e/test_stage1.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-application-identity/user"
+          python .github/scripts/check-command.py "Agent application selection acceptance" python examples/platform-e2e/test_stage3.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-application-identity/agent"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -120,7 +124,9 @@ jobs:
         if: always()
         with:
           name: integration-browser-evidence
-          path: ${{ runner.temp }}/yunnuo-integration
+          path: |
+            ${{ runner.temp }}/yunnuo-integration
+            ${{ runner.temp }}/yunnuo-application-identity
 
   docker:
     runs-on: ubuntu-latest

@@ -145,9 +145,21 @@ func (s *Service) CustomerPassword(ctx context.Context, id string, input ChangeA
 }
 
 func (s *Service) CustomerActivate(ctx context.Context, userID, code string, input ActivateInput) (LicenseResponse, error) {
-	p, err := s.currentStore().ProductByCode(ctx, strings.ToUpper(strings.TrimSpace(code)))
+	card, err := s.currentStore().GetCardByHash(ctx, yncrypto.CardHash(s.cardPepper, input.CardCode))
 	if err != nil {
-		return LicenseResponse{}, ErrProductNotFound
+		if store.IsNotFound(err) {
+			return LicenseResponse{}, ErrCardInvalid
+		}
+		return LicenseResponse{}, err
+	}
+	p, err := s.currentStore().GetProduct(ctx, card.ProductID)
+	if err != nil {
+		return LicenseResponse{}, err
+	}
+	// An optional application ID (or legacy code) must agree with the stored card.
+	code = strings.TrimSpace(code)
+	if code != "" && code != p.ID && !strings.EqualFold(code, p.Code) {
+		return LicenseResponse{}, ErrCardInvalid
 	}
 	input.AppKey = p.AppKey
 	input.OwnerUserID = userID

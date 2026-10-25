@@ -66,7 +66,7 @@ const integrationAnchor = ref<HTMLElement>();
 async function openIntegration(id:string) {
   integrationProductID.value=id;
   await nextTick();
-  integrationAnchor.value?.scrollIntoView({behavior:"smooth",block:"start"});
+  integrationAnchor.value?.querySelector(".integration-guide")?.scrollIntoView({behavior:"smooth",block:"start"});
 }
 const page = ref(location.hash.slice(1) || "overview"),
   action = ref("");
@@ -779,14 +779,14 @@ async function tools(kind: string, e: Event) {
     const payload =
       kind === "activate"
         ? {
-            app_key: p.app_key,
+            app_key: p.id,
             card_code: o.card_code,
             bind_mode: p.bind_mode,
             bind_value: o.bind_value,
             device_name: o.device_name,
           }
         : {
-            app_key: p.app_key,
+            app_key: p.id,
             license_no: o.license_no,
             bind_mode: p.bind_mode,
             bind_value: o.bind_value,
@@ -1426,7 +1426,7 @@ onMounted(async () => {
           <FormDialog
             :open="action === 'product'"
             title="新增产品"
-            description="保存后生成 AppKey 与验签公钥；期限规则在首次发卡前可调整。"
+            description="保存后自动生成唯一应用 ID 与验签公钥，无需填写代码；期限规则在首次发卡前可调整。"
             @close="action = ''"
           >
             <form
@@ -1449,8 +1449,6 @@ onMounted(async () => {
                 required
             /></label>
             <label class="field">产品名称<input name="name" required /></label
-            ><label class="field"
-              >产品编码<input name="code" maxlength="6" required /></label
             ><label class="field"
               >绑定模式<select name="bind_mode">
                 <option value="device">设备</option>
@@ -1547,8 +1545,7 @@ onMounted(async () => {
               <thead>
                 <tr>
                   <th>名称</th>
-                  <th>编码</th>
-                  <th>AppKey</th>
+                  <th>应用 ID</th>
                   <th>密钥版本</th>
                   <th>绑定</th>
                   <th>席位</th>
@@ -1560,9 +1557,8 @@ onMounted(async () => {
               <tbody>
                 <tr v-for="p in a.data.products">
                   <td>{{ p.name }}</td>
-                  <td>{{ p.code }}</td>
                   <td>
-                    <code>{{ p.app_key }}</code>
+                    <code>{{ p.id }}</code>
                   </td>
                   <td>v{{ p.key_version || 1 }}</td>
                   <td>{{ p.bind_mode }}</td>
@@ -3291,7 +3287,7 @@ onMounted(async () => {
     <AppToast />
     <dialog :open="!!a.data.keys" class="key-dialog">
       <div class="panel-head">
-        <h3>{{ a.data.keys?.product_code }} 公钥</h3>
+        <h3>{{ pname(a.data.keys?.product_id) }} 公钥</h3>
         <button class="icon-btn" @click="a.data.keys = null">
           <X :size="17" />
         </button>

@@ -32,7 +32,7 @@ check_public_license() {
     -H 'Content-Type: application/json' -d "{\"license_no\":\"$license_no\"}")"
   masked="$(json_get 'data["data"]["license_no"]' <<<"$response")"
   [[ "$masked" != "$license_no" && "$masked" == *'****'* ]]
-  [[ "$(json_get 'data["data"]["product_code"]' <<<"$response")" == "DCK" ]]
+  [[ "$(json_get 'data["data"]["product_id"]' <<<"$response")" == "$product_id" ]]
   if grep -Fq "$license_no" <<<"$response"; then
     echo "Public license query leaked the full license number" >&2
     return 1
@@ -101,23 +101,24 @@ curl --fail --silent --show-error -X POST "$base/admin/site-settings" \
 
 product_response="$(curl --fail --silent --show-error -X POST "$base/admin/products" \
   -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
-  -d '{"name":"Docker 测试产品","code":"DCK","bind_mode":"device","max_bind_count":1,"bind_conflict_strategy":"reject","offline_grace_days":15,"expire_grace_days":3}')"
+  -d '{"name":"Docker 测试产品","bind_mode":"device","max_bind_count":1,"bind_conflict_strategy":"reject","offline_grace_days":15,"expire_grace_days":3}')"
 product_id="$(json_get 'data["data"]["id"]' <<<"$product_response")"
 app_key="$(json_get 'data["data"]["app_key"]' <<<"$product_response")"
+[[ "$app_key" == "$product_id" ]]
 
 for language in node go java; do
   curl --fail --silent --show-error --get "$base/admin/products/$product_id/integration-kit" \
     -H "Authorization: Bearer $admin_token" \
     --data-urlencode "base_url=$base" --data-urlencode "language=$language" \
     --data-urlencode 'bind_value=docker-integration-instance' -o "$kit_archive"
-  python3 - "$kit_archive" "$language" <<'PY'
+  python3 - "$kit_archive" "$language" "$product_id" <<'PY'
 import json,sys,zipfile
 with zipfile.ZipFile(sys.argv[1]) as archive:
     expected={'node':'sdk/src/index.js','go':'sdk/client.go','java':'src/main/java/com/yunnuo/license/LicenseClient.java'}[sys.argv[2]]
     assert expected in archive.namelist() and 'LICENSE' in archive.namelist()
     config=json.loads(archive.read('config.json'))
     assert config['bind_mode']=='device' and config['bind_value']=='docker-integration-instance'
-    assert config['product_code']=='DCK' and config['public_keys']
+    assert config['product_id']==sys.argv[3] and config['app_key']==sys.argv[3] and config['public_keys']
 PY
 done
 
@@ -151,7 +152,7 @@ check_public_license
 
 account_product_response="$(curl --fail --silent --show-error -X POST "$base/admin/products" \
   -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
-  -d '{"name":"账号查询测试产品","code":"ACC","bind_mode":"account","max_bind_count":1,"bind_conflict_strategy":"reject"}')"
+  -d '{"name":"账号查询测试产品","bind_mode":"account","max_bind_count":1,"bind_conflict_strategy":"reject"}')"
 account_product_id="$(json_get 'data["data"]["id"]' <<<"$account_product_response")"
 account_app_key="$(json_get 'data["data"]["app_key"]' <<<"$account_product_response")"
 account_batch_response="$(curl --fail --silent --show-error -X POST "$base/admin/card-batches" \

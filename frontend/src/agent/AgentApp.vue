@@ -398,7 +398,7 @@ onMounted(async () => {
                   <tr v-for="p in products" :key="p.id">
                     <td>
                       <b>{{ p.name }}</b
-                      ><code>{{ p.code }}</code>
+                      ><code>{{ p.id }}</code>
                     </td>
                     <td>
                       {{

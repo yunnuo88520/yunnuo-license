@@ -41,7 +41,8 @@ func TestCustomerHTTPIsolationAndCategorizedOperationLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	var lic service.LicenseResponse
-	decodeData(t, performJSON(t, h, "POST", "/user/activate", tokens["alice"], map[string]string{"application_code": p.Code, "card_code": batch.Codes[0], "bind_value": "alice.example.com"}), &lic)
+	performJSONStatus(t, h, "POST", "/user/activate", tokens["alice"], map[string]string{"application_id": "prod_wrong", "card_code": batch.Codes[0], "bind_value": "alice.example.com"}, 404)
+	decodeData(t, performJSON(t, h, "POST", "/user/activate", tokens["alice"], map[string]string{"card_code": batch.Codes[0], "bind_value": "alice.example.com"}), &lic)
 	performJSONStatus(t, h, "GET", "/user/licenses/"+lic.LicenseNo, tokens["bob"], nil, 404)
 	performJSONStatus(t, h, "POST", "/user/licenses/"+lic.LicenseNo+"/renew", tokens["bob"], map[string]string{"card_code": batch.Codes[1], "binding_id": "fake"}, 404)
 	performJSONStatus(t, h, "POST", "/admin/licenses/"+lic.LicenseNo+"/owner", tokens["alice"], map[string]string{"user_id": users["bob"].ID, "reason": "self transfer"}, 401)

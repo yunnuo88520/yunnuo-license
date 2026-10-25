@@ -222,7 +222,7 @@ function selectQueryType(value: string) {
                   : result.product_name
               }}
             </h2>
-            <code>{{ result.query_masked || result.product_code }}</code>
+            <code>{{ result.query_masked || result.product_id }}</code>
           </div>
           <span
             v-if="!result.results?.length"
@@ -241,7 +241,7 @@ function selectQueryType(value: string) {
             <header v-if="result.results?.length">
               <div>
                 <strong>{{ item.product_name }}</strong
-                ><code>{{ item.product_code }}</code>
+                ><code>{{ item.product_id }}</code>
               </div>
               <span class="status" :class="item.license_status">{{
                 statusLabel(item.license_status)

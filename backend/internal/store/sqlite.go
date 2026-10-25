@@ -204,7 +204,8 @@ func (s *Store) CreateProduct(ctx context.Context, p domain.Product) error {
 }
 
 func (s *Store) GetProductByAppKey(ctx context.Context, appKey string) (domain.Product, error) {
-	return scanProduct(s.db.QueryRowContext(ctx, `SELECT `+productColumns+` FROM products WHERE app_key = ?`, appKey))
+	// Public clients use the generated application ID. Existing App Keys remain valid.
+	return scanProduct(s.db.QueryRowContext(ctx, `SELECT `+productColumns+` FROM products WHERE id = ? OR app_key = ?`, appKey, appKey))
 }
 
 func (s *Store) GetProduct(ctx context.Context, id string) (domain.Product, error) {

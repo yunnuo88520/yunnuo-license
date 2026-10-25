@@ -27,7 +27,6 @@ const login = reactive({
 const captchaField = ref<any>(null);
 const product = reactive({
   name: "",
-  code: "",
   bind_mode: "domain",
   license_mode: "subscription",
   update_duration_days: 0,
@@ -102,7 +101,6 @@ function createProduct() {
       body: JSON.stringify(product),
     });
     product.name = "";
-    product.code = "";
     await refresh();
     selected.value = result.id;
   });
@@ -217,14 +215,6 @@ onMounted(async () => {
               required
           /></label>
           <label class="field"
-            >产品代码<input
-              v-model="product.code"
-              maxlength="20"
-              placeholder="EBOX"
-              pattern="[A-Za-z0-9]+"
-              required
-          /></label>
-          <label class="field"
             >授权绑定方式<select v-model="product.bind_mode">
               <option value="domain">域名</option>
               <option value="device">设备</option>
@@ -235,6 +225,7 @@ onMounted(async () => {
           >
           <button class="btn" :disabled="busy">创建产品</button>
         </form>
+        <p class="muted">应用 ID 由系统自动生成且保持不变，接入时直接复制即可。</p>
         <label v-if="products.length" class="field"
           >选择产品<select v-model="selected" @change="selectProduct">
             <option v-for="p in products" :key="p.id" :value="p.id">

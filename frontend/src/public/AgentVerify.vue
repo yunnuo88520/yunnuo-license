@@ -1,15 +1,20 @@
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import { request } from "../shared/api";
 import { formatTime } from "../shared/format";
-const form = reactive({ agent_no: "", application_code: "" }),
+const form = reactive({ agent_no: "" }),
+  application = ref(""),
   result = ref<any>(),
   error = ref(""),
   busy = ref(false);
+const applications = computed(() =>
+  (result.value?.applications || []).filter((p: any) => !application.value || p.id === application.value),
+);
 async function submit() {
   busy.value = true;
   error.value = "";
   result.value = null;
+  application.value = "";
   try {
     result.value = await request("/v1/agents/query", {
       method: "POST",
@@ -36,11 +41,6 @@ async function submit() {
           minlength="8"
           maxlength="80"
           autocomplete="off" /></label
-      ><label class="field"
-        >应用代码（可选）<input
-          v-model="form.application_code"
-          placeholder="例如 EBOX，核对该应用的代理权限"
-          maxlength="32" /></label
       ><button class="btn" :disabled="busy">
         {{ busy ? "查询中" : "核验代理身份" }}
       </button>
@@ -69,9 +69,16 @@ async function submit() {
         }}
       </p>
       <h3>本次核验可售应用</h3>
+      <label v-if="result.applications.length" class="field">
+        核验应用
+        <select v-model="application" aria-label="核验应用">
+          <option value="">全部可售应用</option>
+          <option v-for="p in result.applications" :key="p.id" :value="p.id">{{ p.name }} · {{ p.id }}</option>
+        </select>
+      </label>
       <ul v-if="result.applications.length">
-        <li v-for="p in result.applications" :key="p.code">
-          {{ p.name }} · {{ p.code }}
+        <li v-for="p in applications" :key="p.id">
+          {{ p.name }} · <code>{{ p.id }}</code>
         </li>
       </ul>
       <p v-else>未找到可售应用，请先联系平台核实。</p>
@@ -112,6 +119,7 @@ form p {
 }
 li {
   margin: 12px 0;
+  overflow-wrap: anywhere;
 }
 h2 {
   margin: 22px 0 10px;

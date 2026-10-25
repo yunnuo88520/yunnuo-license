@@ -20,7 +20,7 @@ const friendlyMessages: Record<string, string> = {
   REBIND_LIMIT_REACHED: "换绑次数已用完，请联系平台管理员",
   UNBIND_COOLDOWN: "换绑冷却时间内，请稍后再试",
   INVALID_CREDENTIALS: "账号或密码不正确",
-  INVALID_APP_KEY: "应用代码有误，请核对后重试",
+  INVALID_APP_KEY: "应用 ID 有误，请从应用接入指南复制后重试",
   PRODUCT_DISABLED: "该应用已被停用，请联系平台管理员",
   RISK_IP_BLOCKED: "当前网络被限制访问，请联系平台管理员",
   RISK_DEVICE_BLOCKED: "当前设备被限制访问，请联系平台管理员",

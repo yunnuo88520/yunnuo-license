@@ -17,17 +17,17 @@ func TestPublicAgentVerificationUsesCurrentGrantAndExcludesSecrets(t *testing.T)
 		t.Fatal(err)
 	}
 	pkg := packageFixture(t, s, a.ID, p.ID, 900, false)
-	view, err := s.PublicAgentQuery(ctx, PublicAgentInput{AgentNo: a.AgentNo, ApplicationCode: p.Code})
-	if err != nil || !view.IsAuthorized || len(view.Applications) != 1 {
+	view, err := s.PublicAgentQuery(ctx, PublicAgentInput{AgentNo: a.AgentNo, ApplicationID: p.ID})
+	if err != nil || !view.IsAuthorized || len(view.Applications) != 1 || view.Applications[0].ID != p.ID {
 		t.Fatal(view, err)
 	}
 	raw, _ := json.Marshal(view)
-	for _, secret := range []string{a.ID, a.LoginCode, a.Phone, a.Email, a.Remark, p.AppKey, p.PublicKeyPEM, "base_cost", "unit_cost", "balance"} {
+	for _, secret := range []string{a.ID, a.LoginCode, a.Phone, a.Email, a.Remark, p.PublicKeyPEM, "base_cost", "unit_cost", "balance"} {
 		if strings.Contains(string(raw), secret) {
 			t.Fatalf("public agent query exposed private field %q", secret)
 		}
 	}
-	view, err = s.PublicAgentQuery(ctx, PublicAgentInput{AgentNo: a.AgentNo, ApplicationCode: "OTHER"})
+	view, err = s.PublicAgentQuery(ctx, PublicAgentInput{AgentNo: a.AgentNo, ApplicationID: "prod_other"})
 	if err != nil || view.IsAuthorized || len(view.Applications) != 0 {
 		t.Fatal("ungranted application was approved", view, err)
 	}

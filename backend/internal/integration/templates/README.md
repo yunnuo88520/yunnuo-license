@@ -3,7 +3,7 @@
 接入包已包含本应用配置及 SDK 源码，不需要先从 npm、Maven Central 或 Go 公共仓库安装本 SDK。
 Node.js 需要 18+；Go 需要 1.22+；Java 需要 JDK 17+ 和 Maven 3，首次编译需联网下载 Maven 插件与 Jackson 依赖。
 
-1. 打开 config.json，核对 base_url、app_key、product_code、bind_mode 和 bind_value。服务器地址是授权站的根地址，不能填写 /admin 或控制台地址。生产使用 HTTPS。
+1. 打开 config.json，核对 base_url、app_key、bind_mode 和 bind_value。app_key 已填入系统生成的应用 ID，product_code 是系统维护的离线标识，不需要自行编写。服务器地址是授权站的根地址，不能填写 /admin 或控制台地址。生产使用 HTTPS。
 2. 在授权站为本应用生成一张测试卡。域名只填域名（不含协议/路径），IP 使用实际部署 IP，设备标识应稳定，账号标识由产品服务端决定；不要把所有客户都写成同一固定值。
 3. 以下命令中的 CARD_CODE 换为测试卡密。Java 将 COMMAND 替换为整个命令，例如 -Dexec.args="activate CARD_CODE"。
 
@@ -44,4 +44,4 @@ node app.mjs download 1.0.0
 
 ## 配置与凭证
 
-App Key、应用代码、公钥可以随产品分发，它们不是管理员凭证。不要把管理员/开发者登录 token、产品私钥或数据库密码放进产品。激活后的 .license.json 由示例保存为私有文件，包含授权凭证，已加入 .gitignore；生产请使用受保护的服务器存储，桌面端使用系统安全存储。
+应用 ID 与公钥是公开信息，可以随产品分发，它们不是管理员凭证。当前 API 的 app_key 字段及 SDK 的 appKey 参数传入应用 ID。不要把管理员/开发者登录 token、产品私钥或数据库密码放进产品。激活后的 .license.json 由示例保存为私有文件，包含授权凭证，已加入 .gitignore；生产请使用受保护的服务器存储，桌面端使用系统安全存储。

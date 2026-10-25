@@ -125,6 +125,7 @@ func (api *API) customerLicense(w http.ResponseWriter, r *http.Request) {
 }
 func (api *API) customerActivate(w http.ResponseWriter, r *http.Request) {
 	var input struct {
+		ApplicationID   string `json:"application_id"`
 		ApplicationCode string `json:"application_code"`
 		CardCode        string `json:"card_code"`
 		BindValue       string `json:"bind_value"`
@@ -132,7 +133,15 @@ func (api *API) customerActivate(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &input) {
 		return
 	}
-	result, err := api.service.CustomerActivate(r.Context(), customerFrom(r.Context()).ID, input.ApplicationCode, service.ActivateInput{CardCode: input.CardCode, BindValue: input.BindValue, ClientIP: api.clientIP(r), UserAgent: r.UserAgent()})
+	application := strings.TrimSpace(input.ApplicationID)
+	if application != "" && strings.TrimSpace(input.ApplicationCode) != "" {
+		writeError(w, r, service.ErrInvalidRequest)
+		return
+	}
+	if application == "" {
+		application = input.ApplicationCode
+	}
+	result, err := api.service.CustomerActivate(r.Context(), customerFrom(r.Context()).ID, application, service.ActivateInput{CardCode: input.CardCode, BindValue: input.BindValue, ClientIP: api.clientIP(r), UserAgent: r.UserAgent()})
 	if err != nil {
 		writeError(w, r, err)
 		return

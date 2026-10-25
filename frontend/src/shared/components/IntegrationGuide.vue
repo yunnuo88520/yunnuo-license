@@ -32,7 +32,7 @@ watch(
     binding.value =
       (
         {
-          domain: `${props.product.code.toLowerCase()}.example.com`,
+          domain: "app.example.com",
           ip: "203.0.113.10",
           device: "demo-device-001",
           account: "demo-account-001",
@@ -57,13 +57,13 @@ const commands = computed(() =>
     .join("\n"),
 );
 const activate = computed(() => ({
-  app_key: props.product.app_key,
+  app_key: props.product.id,
   card_code: "替换为本应用的未使用卡密",
   bind_mode: props.product.bind_mode,
   bind_value: binding.value,
 }));
 const verify = computed(() => ({
-  app_key: props.product.app_key,
+  app_key: props.product.id,
   license_no: "替换为激活返回的完整授权号",
   bind_mode: props.product.bind_mode,
   bind_value: binding.value,
@@ -119,7 +119,7 @@ async function download() {
     const url = URL.createObjectURL(await response.blob());
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${props.product.code}-${language.value}-integration.zip`;
+    a.download = `${props.product.id}-${language.value}-integration.zip`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     message.value = "接入包已开始下载，解压后按下方命令运行。";
@@ -149,19 +149,16 @@ async function copy(value: string) {
     </header>
     <div class="guide-credentials">
       <div>
-        <small>应用代码（用户中心激活时使用）</small
-        ><code>{{ product.code }}</code>
-      </div>
-      <div>
-        <small>App Key（产品客户端调用 API 时使用）</small
-        ><code>{{ product.app_key }}</code
+        <small>应用 ID（系统自动生成）</small
+        ><code>{{ product.id }}</code
         ><button
           type="button"
           class="btn secondary small"
-          @click="copy(product.app_key)"
+          @click="copy(product.id)"
         >
-          <Copy :size="13" />复制 App Key
+          <Copy :size="13" />复制应用 ID
         </button>
+        <p>这是应用的公开唯一标识，不是密码。后台选择应用会自动带入，用户激活由卡密识别。</p>
       </div>
       <div>
         <small>授权规则</small
@@ -293,8 +290,8 @@ async function copy(value: string) {
     <template v-else-if="tab === 'http'">
       <h3>请求地址和返回结构</h3>
       <p>
-        产品客户端调用以下公开 API，不需要管理员或开发者登录 token。App Key
-        必须使用本应用的值；应用代码不能替代 App Key。响应外层为
+        产品客户端调用以下公开 API，不需要管理员或开发者登录 token。请求中的 app_key
+        填上方的应用 ID；接入包已经自动配置。响应外层为
         success、data、request_id；SDK 已处理 HTTP 错误和外层解包。
       </p>
       <h4>1. 首次激活：POST /v1/licenses/activate</h4>
@@ -326,7 +323,7 @@ async function copy(value: string) {
         和绑定字段；accepted=true 只表示心跳被接收，不能替代 can_use 判断。POST
         /v1/licenses/renew 在这些字段基础上增加 renew_card_code。
       </p>
-      <h4>4. 公钥环：GET /v1/products/keys?app_key=本应用AppKey</h4>
+      <h4>4. 公钥环：GET /v1/products/keys?app_key=本应用ID</h4>
       <p>
         按 token 的 key_version 选择 keys 中对应的
         public_key_pem，轮换后同时保留历史版本。只从可信的授权站获取公钥；生产使用
@@ -385,7 +382,7 @@ async function copy(value: string) {
       </p>
       <h3>凭证与排障</h3>
       <p>
-        App Key 和公钥可以随产品分发；管理员/开发者登录
+        应用 ID 和公钥可以随产品分发；管理员/开发者登录
         token、产品私钥和数据库密码不能放进产品。不要在日志或 URL
         中记录卡密、license_token、offline_token。SDK 错误保留 code 和
         request_id，可与平台操作日志核对。直接激活仅建立部署绑定，授权用户归属由用户中心激活或管理员分配。

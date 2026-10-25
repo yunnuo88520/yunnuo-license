@@ -22,6 +22,7 @@ def main():
     parser.add_argument("--base-url")
     parser.add_argument("--artifacts", required=True, type=pathlib.Path)
     parser.add_argument("--screenshots", action="store_true")
+    parser.add_argument("--chromium", default="/usr/bin/chromium")
     args = parser.parse_args()
     args.artifacts.mkdir(parents=True, exist_ok=True)
     report = {"stage": 3, "result": "running", "checks": []}
@@ -45,26 +46,33 @@ def main():
             pkg = http.api(base, "/admin/packages", {"product_id": product["id"], "name": "限期更新套餐", "duration_days": 30, "base_cost": 1000}, root)
             agent = http.api(base, "/admin/agents", {"name": "华东认证代理", "phone": "13812345678", "remark": "private-agent-remark"}, root)
             http.api(base, "/admin/agents/" + agent["id"] + "/packages", {"package_id": pkg["id"], "enabled": True, "max_batch_quantity": 10}, root)
-            query = {"agent_no": agent["agent_no"], "application_code": product["code"]}
+            query = {"agent_no": agent["agent_no"], "application_id": product["id"]}
             verified = http.api(base, "/v1/agents/query", query)
-            assert verified["is_authorized"] and verified["applications"] == [{"name": product["name"], "code": product["code"]}]
-            assert not http.api(base, "/v1/agents/query", {**query, "application_code": "UNGRANTED"})["is_authorized"]
+            assert verified["is_authorized"] and verified["applications"] == [{"id": product["id"], "name": product["name"], "code": product["code"]}]
+            assert not http.api(base, "/v1/agents/query", {**query, "application_id": "prod_ungranted"})["is_authorized"]
             serialized = json.dumps(verified)
-            assert all(secret not in serialized for secret in [agent["id"], agent["login_code"], "13812345678", "private-agent-remark", "base_cost", "balance", product["app_key"]])
+            assert all(secret not in serialized for secret in [agent["id"], agent["login_code"], "13812345678", "private-agent-remark", "base_cost", "balance"])
             errors = []
             if args.screenshots:
                 from playwright.sync_api import sync_playwright
                 playwright = sync_playwright().start()
-                browser = playwright.chromium.launch(executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox"])
+                browser = playwright.chromium.launch(executable_path=None if args.chromium == "bundled" else args.chromium, headless=True, args=["--no-sandbox"])
                 page = browser.new_page(viewport={"width": 1500, "height": 1100}, locale="zh-CN", timezone_id="Asia/Shanghai")
                 page.on("pageerror", lambda e: errors.append(str(e)))
                 page.goto(base)
                 page.get_by_role("button", name="代理验真", exact=True).click()
                 page.get_by_label("公开代理编号", exact=True).fill(agent["agent_no"])
-                page.get_by_label("应用代码（可选）", exact=True).fill(product["code"])
+                assert page.get_by_label("应用代码（可选）", exact=True).count() == 0
                 page.get_by_role("button", name="核验代理身份", exact=True).click()
                 page.get_by_text("当前代理权限有效", exact=True).wait_for()
+                page.get_by_label("核验应用", exact=True).select_option(product["id"])
                 page.screenshot(path=str(args.artifacts / "public-agent-valid.png"), full_page=True)
+                for width in [390, 320]:
+                    page.set_viewport_size({"width": width, "height": 844})
+                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), "Agent application selector overflows on mobile"
+                    if width == 390:
+                        page.screenshot(path=str(args.artifacts / "public-agent-mobile-selector.png"), full_page=True)
+                page.set_viewport_size({"width": 1500, "height": 1100})
             http.api(base, "/admin/agents/" + agent["id"] + "/suspend", {}, root)
             suspended = http.api(base, "/v1/agents/query", query)
             assert suspended["status"] == "suspended" and not suspended["is_authorized"] and suspended["applications"] == []

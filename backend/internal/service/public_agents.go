@@ -8,9 +8,11 @@ import (
 
 type PublicAgentInput struct {
 	AgentNo         string `json:"agent_no"`
+	ApplicationID   string `json:"application_id"`
 	ApplicationCode string `json:"application_code"`
 }
 type PublicAgentProduct struct {
+	ID   string `json:"id"`
 	Name string `json:"name"`
 	Code string `json:"code"`
 }
@@ -26,8 +28,9 @@ type PublicAgentView struct {
 func (s *Service) PublicAgentQuery(ctx context.Context, in PublicAgentInput) (PublicAgentView, error) {
 	var v PublicAgentView
 	in.AgentNo = strings.ToUpper(strings.TrimSpace(in.AgentNo))
+	in.ApplicationID = strings.TrimSpace(in.ApplicationID)
 	in.ApplicationCode = strings.ToUpper(strings.TrimSpace(in.ApplicationCode))
-	if len(in.AgentNo) < 8 || len(in.AgentNo) > 80 || len(in.ApplicationCode) > 32 {
+	if len(in.AgentNo) < 8 || len(in.AgentNo) > 80 || len(in.ApplicationCode) > 32 || len(in.ApplicationID) > 80 {
 		return v, ErrInvalidRequest
 	}
 	a, err := s.currentStore().GetAgentByNo(ctx, in.AgentNo)
@@ -51,11 +54,11 @@ func (s *Service) PublicAgentQuery(ctx context.Context, in PublicAgentInput) (Pu
 		if err != nil {
 			return v, err
 		}
-		if in.ApplicationCode != "" && p.Code != in.ApplicationCode {
+		if in.ApplicationID != "" && p.ID != in.ApplicationID || in.ApplicationCode != "" && p.Code != in.ApplicationCode {
 			continue
 		}
 		seen[p.ID] = true
-		v.Applications = append(v.Applications, PublicAgentProduct{Name: p.Name, Code: p.Code})
+		v.Applications = append(v.Applications, PublicAgentProduct{ID: p.ID, Name: p.Name, Code: p.Code})
 	}
 	v.IsAuthorized = len(v.Applications) > 0
 	return v, nil

@@ -19,7 +19,7 @@ const token = ref(sessionStorage.getItem("yn.user_token") || ""),
   selected = ref<any>();
 const login = reactive({ username: "", password: "", captcha_id: "", captcha_code: "" });
 const captchaField = ref<any>(null);
-const claim = reactive({ application_code: "", card_code: "", bind_value: "" });
+const claim = reactive({ card_code: "", bind_value: "" });
 const renew = reactive({ binding_id: "", card_code: "" });
 const rebind = reactive({
   binding_id: "",
@@ -192,15 +192,10 @@ onMounted(async () => {
       ><section class="panel">
         <h2>激活新授权</h2>
         <p>
-          仅未激活卡密可首次认领。已有授权请联系管理员分配，授权归属不能自行转移。
+          系统根据卡密自动识别应用，无需填写应用 ID。仅未激活卡密可首次认领；已有授权请联系管理员分配。
         </p>
         <form class="claim" @submit.prevent="activate">
           <label class="field"
-            >应用代码<input
-              v-model="claim.application_code"
-              placeholder="例如 EBOX"
-              required /></label
-          ><label class="field"
             >未激活卡密<input
               v-model="claim.card_code"
               type="password"
