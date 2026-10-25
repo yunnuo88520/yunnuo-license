@@ -1,0 +1,19 @@
+{{define "content"}}
+<h2 style="margin:0 0 18px;font-size:19px;font-weight:700;color:#0f172a;">{{.Title}}</h2>
+{{if .Greeting}}<p style="margin:0 0 14px;font-size:14px;color:#334155;">{{.Greeting}}</p>{{end}}
+{{if .Intro}}<p style="margin:0 0 20px;font-size:14px;color:#334155;">{{.Intro}}</p>{{end}}
+{{if .Digits}}
+<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px;border-collapse:separate;border-spacing:8px 0;">
+<tr>
+  {{range .Digits}}<td align="center" width="52" height="64" style="width:52px;height:64px;min-width:52px;border:2px solid #cbd5e1;border-radius:10px;background-color:#f8fafc;font-family:'SF Mono',SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:28px;font-weight:700;color:#0f172a;">{{.}}</td>{{end}}
+</tr>
+</table>
+{{else}}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:22px 16px;background-color:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;">
+  <span style="display:block;font-family:'SF Mono',SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-size:24px;font-weight:700;letter-spacing:2px;color:#0f172a;word-break:break-all;line-height:1.5;">{{.Code}}</span>
+</td></tr></table>
+{{end}}
+{{if .ValidMinutes}}<p style="margin:14px 0 0;font-size:13px;color:#64748b;">该验证码 {{.ValidMinutes}} 分钟内有效，过期后需重新获取。</p>{{end}}
+{{if .Button.Text}}<div style="margin:20px 0 4px;"><a href="{{.Button.URL}}" style="display:inline-block;padding:11px 26px;background-color:#4f46e5;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">{{.Button.Text}}</a></div>{{end}}
+{{if .Warning}}<p style="margin:18px 0 0;padding:11px 14px;background-color:#fffbeb;border-left:3px solid #f59e0b;font-size:13px;color:#92400e;border-radius:0 6px 6px 0;">{{.Warning}}</p>{{end}}
+{{end}}

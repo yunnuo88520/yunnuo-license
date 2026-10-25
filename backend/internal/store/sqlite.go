@@ -769,7 +769,7 @@ func (s *Store) ListAgentUsers(ctx context.Context, agentID string) ([]domain.Ag
 		return nil, err
 	}
 	defer rows.Close()
-	var users []domain.AgentUser
+	users := []domain.AgentUser{}
 	for rows.Next() {
 		user, err := scanAgentUser(rows)
 		if err != nil {
@@ -885,7 +885,7 @@ func (s *Store) ListAgentQuotaSummaries(ctx context.Context, agentID string) ([]
 		return nil, err
 	}
 	defer rows.Close()
-	var summaries []domain.AgentQuotaSummary
+	summaries := []domain.AgentQuotaSummary{}
 	for rows.Next() {
 		var summary domain.AgentQuotaSummary
 		var isPermanent int

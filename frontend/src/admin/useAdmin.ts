@@ -170,23 +170,26 @@ export function useAdmin() {
   }
   async function showBatch(id: string) {
     selected.batch = id;
-    data.batchCards = await api(
+    data.batchCards = (await api(
       `/admin/card-batches/${encodeURIComponent(id)}/cards`,
-    );
+    )) || [];
   }
   async function showBindings(no: string) {
     selected.license = no;
-    data.bindings = await api(
+    data.bindings = (await api(
       `/admin/licenses/${encodeURIComponent(no)}/bindings`,
-    );
+    )) || [];
   }
   async function showAgent(id: string) {
     selected.agent = id;
     localStorage.setItem("yn.agent_id", id);
-    [data.agentQuotas, data.agentUsers] = await Promise.all([
+    const [quotas, users] = await Promise.all([
       api(`/admin/agents/${id}/quotas`),
       api(`/admin/agents/${id}/users`),
     ]);
+    // 空列表在后端序列化为 null，直接赋值会让模板的 .length 抛错。
+    data.agentQuotas = quotas || [];
+    data.agentUsers = users || [];
   }
   async function showKeys(id: string) {
     data.keys = await api(`/admin/products/${id}/keys`);

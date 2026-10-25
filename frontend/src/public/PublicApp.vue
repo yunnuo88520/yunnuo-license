@@ -146,6 +146,7 @@ function selectQueryType(value: string) {
             <Search :size="22" /><input
               id="license-query"
               v-model="query"
+              required
               autocomplete="off"
               :placeholder="placeholders[queryType]"
               autofocus

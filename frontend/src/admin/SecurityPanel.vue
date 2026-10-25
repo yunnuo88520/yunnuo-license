@@ -157,6 +157,8 @@ onMounted(() => run(load));
               v-model="policy.support_url"
               type="url"
               maxlength="500"
+              pattern="https?://.*"
+              title="需以 http:// 或 https:// 开头"
               placeholder="https://support.example.com"
           /></label>
           <p>

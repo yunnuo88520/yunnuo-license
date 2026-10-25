@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { formatTime } from "../shared/format";
 const props = defineProps<{
   api: <T = any>(path: string, options?: RequestInit) => Promise<T>;
@@ -15,6 +15,9 @@ const kind = ref("customer"),
   busy = ref(false);
 const form = reactive({ reason: "", minutes: 30 }),
   password = ref("");
+const selectedAccount = computed(() =>
+  accounts.value.find((u: any) => u.id === selected.value),
+);
 async function load() {
   error.value = "";
   result.value = null;
@@ -62,11 +65,28 @@ async function submit(direct = false) {
     }
   } catch (e: any) {
     error.value = e.message;
-  } finally {
-    busy.value = false;
+    } finally {
+      busy.value = false;
+    }
   }
-}
-onMounted(load);
+  async function submitByEmail() {
+    busy.value = true;
+    error.value = "";
+    message.value = "";
+    try {
+      const r = await props.api(
+        `/admin/recovery/${kind.value}/${selected.value}/email`,
+        { method: "POST", body: JSON.stringify(form) },
+      );
+      result.value = null;
+      message.value = `6 位验证码已发送至 ${r.sent_to}，${formatTime(r.expires_at)} 前有效；对方在密码恢复页输入登录账号和验证码即可重置。`;
+    } catch (e: any) {
+      error.value = e.message;
+    } finally {
+      busy.value = false;
+    }
+  }
+  onMounted(load);
 </script>
 <template>
   <section class="panel recovery-panel">
@@ -115,6 +135,15 @@ onMounted(load);
       <div class="form-actions">
         <button class="btn" :disabled="busy || !selected">
           创建一次性恢复码
+        </button>
+        <button
+          v-if="selectedAccount?.email"
+          type="button"
+          class="btn secondary"
+          :disabled="busy || !selected"
+          @click="submitByEmail"
+        >
+          创建并发送到账号邮箱
         </button>
       </div>
     </form>

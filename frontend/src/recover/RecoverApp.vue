@@ -4,7 +4,7 @@ import { onMounted, reactive, ref } from "vue";
 import { request } from "../shared/api";
 import { entries } from "../shared/entries";
 import { branding, loadBranding } from "../shared/branding";
-const form = reactive({ code: "", password: "", confirm: "" }),
+const form = reactive({ username: "", code: "", password: "", confirm: "" }),
   busy = ref(false),
   error = ref(""),
   done = ref(false);
@@ -15,12 +15,21 @@ async function submit() {
     error.value = "两次输入的密码不一致。";
     return;
   }
+  if (/^\d{6}$/.test(form.code.trim()) && !form.username.trim()) {
+    error.value = "使用 6 位邮箱验证码时，请填写登录账号；长恢复码无需填写。";
+    return;
+  }
   busy.value = true;
   try {
     await request("/v1/accounts/recovery", {
       method: "POST",
-      body: JSON.stringify({ code: form.code, password: form.password }),
+      body: JSON.stringify({
+        username: form.username.trim(),
+        code: form.code,
+        password: form.password,
+      }),
     });
+    form.username = "";
     form.code = "";
     form.password = "";
     form.confirm = "";
@@ -28,7 +37,7 @@ async function submit() {
   } catch (e: any) {
     error.value =
       e.code === "RECOVERY_INVALID"
-        ? "恢复码无效、已过期或已使用，请联系管理员重新核实。"
+        ? "恢复码或验证码无效、已过期或已使用，请联系管理员重新核实。"
         : e.message;
   } finally {
     busy.value = false;
@@ -45,13 +54,19 @@ async function submit() {
       <span class="eyebrow">账号恢复</span>
       <h1>{{ done ? "密码已重置" : "重新设置登录密码" }}</h1>
       <p v-if="!done">
-        请先联系平台管理员核实身份并获取一次性恢复码。恢复码仅用于设置新密码。
+        邮箱验证码方式：输入收到的 6 位验证码和你的登录账号；管理员手动提供长恢复码时无需填写账号。
       </p>
       <p v-else>原登录会话已失效，请使用新密码重新登录。</p>
       <p v-if="error" role="alert" class="error">{{ error }}</p>
       <form v-if="!done" @submit.prevent="submit">
         <label class="field"
-          >一次性恢复码<input
+          >登录账号<input
+            v-model="form.username"
+            autocomplete="username"
+            maxlength="80"
+            placeholder="使用 6 位邮箱验证码时必填" /></label
+        ><label class="field"
+          >恢复码 / 验证码<input
             v-model="form.code"
             type="password"
             autocomplete="off"

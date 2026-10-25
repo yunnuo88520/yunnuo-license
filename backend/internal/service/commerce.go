@@ -196,6 +196,7 @@ type AdjustBalanceInput struct {
 
 func (s *Service) AdjustAgentBalance(ctx context.Context, agent, actor string, in AdjustBalanceInput) (domain.MoneyLedger, error) {
 	var l domain.MoneyLedger
+	created := false
 	if in.Amount == 0 || in.Amount > maxMoney || in.Amount < -maxMoney || len(in.RequestID) < 8 || len(in.RequestID) > 64 || strings.TrimSpace(in.Reason) == "" || len(in.Reason) > 500 {
 		return l, ErrInvalidRequest
 	}
@@ -232,9 +233,16 @@ func (s *Service) AdjustAgentBalance(ctx context.Context, agent, actor string, i
 		if err := tx.InsertMoney(ctx, l); err != nil {
 			return err
 		}
+		created = true
 		return s.transactionAudit(ctx, tx, "admin", actor, "", "", "agent_balance.adjust", l)
 	})
-	return l, err
+	if err != nil {
+		return l, err
+	}
+	if created {
+		s.notifyAgentBalance(agent, l)
+	}
+	return l, nil
 }
 func (s *Service) AgentPackages(ctx context.Context, agent string) ([]domain.PackageQuote, error) {
 	all, err := s.currentStore().Packages(ctx)

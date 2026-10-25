@@ -354,6 +354,7 @@ onMounted(async () => {
                 v-model="password.new_password"
                 type="password"
                 minlength="8"
+                maxlength="256"
                 required
                 autocomplete="new-password" /></label
             ><button class="btn" :disabled="busy">保存密码并重新登录</button>

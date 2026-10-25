@@ -78,6 +78,7 @@ func (s *Service) ChangeAgentStatus(ctx context.Context, agentID, status, actorI
 	}
 	agent.LoginCode = loginCode
 	_ = s.auditAdminAgent(ctx, actorID, agentID, "agent.status."+status, "success", "")
+	s.notifyAgentStatus(agent)
 	return agent, nil
 }
 

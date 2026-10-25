@@ -470,6 +470,11 @@ func (s *Service) GrantAgentQuota(ctx context.Context, input AgentQuotaInput) (d
 	if err != nil {
 		return domain.AgentQuotaLedger{}, err
 	}
+	productName := input.ProductID
+	if product, err := s.currentStore().GetProduct(ctx, input.ProductID); err == nil {
+		productName = product.Name
+	}
+	s.notifyAgentQuota(input.AgentID, ledger, productName)
 	return ledger, nil
 }
 

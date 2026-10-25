@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   LoaderCircle,
   LogOut,
+  Mail,
   Plus,
   PackageCheck,
   RefreshCw,
@@ -31,6 +32,7 @@ import {
   Terminal,
   TicketCheck,
   UserRoundCog,
+  Wallet,
   X,
 } from "lucide-vue-next";
 import { useAdmin } from "./useAdmin";
@@ -60,9 +62,13 @@ const page = ref(location.hash.slice(1) || "overview"),
 const settingsTab = ref("branding");
 const settingTabs = [
   { id: "branding", label: "站点品牌" },
+  { id: "email", label: "邮件通知" },
   { id: "account", label: "账号与安全" },
   { id: "version", label: "版本与升级" },
 ];
+const visibleSettingTabs = computed(() =>
+  settingTabs.filter((t) => t.id !== "email" || a.isManager.value),
+);
 const agentActionTitles: Record<string, string> = {
   agent: "新增代理",
   user: "新增代理账号",
@@ -73,13 +79,160 @@ const agentActionTitles: Record<string, string> = {
 const login = reactive({ username: "", password: "" });
 const result = ref("{}");
 const codes = ref<string[]>([]);
+const blockKind = ref("ip");
+const toolsProductId = ref("");
+watch(
+  () => a.data.products,
+  (list: any[]) => {
+    if (!toolsProductId.value && list?.length) toolsProductId.value = list[0].id;
+  },
+  { immediate: true, deep: true },
+);
+const activateBindMode = computed(
+  () =>
+    a.data.products.find((x: any) => x.id === toolsProductId.value)
+      ?.bind_mode || "device",
+);
+const verifyBindMode = computed(
+  () =>
+    a.data.products.find((x: any) => x.id === a.selected.product)?.bind_mode ||
+    "device",
+);
 const siteForm = reactive({
   site_name: "允诺云授权",
   browser_title: "允诺云授权",
   logo_data_url: "",
   favicon_data_url: "",
 });
-const navHome = { id: "overview", label: "业务概览", icon: LayoutDashboard };
+const navHome = { id: "overview", label: "仪表盘", icon: LayoutDashboard };
+const dashCards = computed(() => {
+  const today = new Date().toISOString().slice(0, 10);
+  const todayBatches = a.data.batches.filter(
+    (b: any) => String(b.created_at || "").slice(0, 10) === today,
+  );
+  const sum = (arr: any[]) =>
+    arr.reduce((s: number, b: any) => s + (b.quantity || 0), 0);
+  return [
+    {
+      label: "产品",
+      value: a.data.products.length,
+      sub: `${a.data.products.filter((p: any) => p.status === "active").length} 个启用中`,
+      icon: Boxes,
+      tone: "blue",
+    },
+    {
+      label: "代理",
+      value: a.data.agents.length,
+      sub: `${a.data.agents.filter((x: any) => x.status === "active").length} 家启用中`,
+      icon: UserRoundCog,
+      tone: "green",
+    },
+    {
+      label: "卡密批次",
+      value: a.data.batches.length,
+      sub: `累计发卡 ${sum(a.data.batches)} 张`,
+      icon: TicketCheck,
+      tone: "purple",
+    },
+    {
+      label: "授权总数",
+      value: a.data.licensePage.total,
+      sub: `永久卡 ${sum(a.data.batches.filter((b: any) => b.is_permanent))} 张`,
+      icon: BadgeCheck,
+      tone: "cyan",
+    },
+    {
+      label: "今日发卡",
+      value: sum(todayBatches),
+      sub: `新增 ${todayBatches.length} 个批次`,
+      icon: Clock3,
+      tone: "orange",
+    },
+    {
+      label: "未处理风险",
+      value: a.data.riskAlerts.filter((x: any) => x.status === "open").length,
+      sub: `封禁规则 ${a.data.riskBlocks.length} 条`,
+      icon: ShieldAlert,
+      tone: "red",
+    },
+    {
+      label: "最近操作",
+      value: a.data.audit.length,
+      sub: "最近 100 条审计日志",
+      icon: History,
+      tone: "slate",
+    },
+    {
+      label: "邮件通知",
+      value: emailSettings.value
+        ? emailSettings.value.enabled
+          ? "已启用"
+          : "已停用"
+        : "未配置",
+      sub: emailSettings.value?.enabled
+        ? String(emailSettings.value.smtp_host || "SMTP 已就绪")
+        : "在系统设置中配置 SMTP",
+      icon: Mail,
+      tone: "indigo",
+    },
+  ];
+});
+const quickActions = [
+  {
+    label: "生成卡密",
+    desc: "创建卡密批次并导出明文",
+    icon: TicketCheck,
+    tone: "purple",
+    run: () => {
+      go("cards");
+      action.value = "batch";
+    },
+  },
+  {
+    label: "新增产品",
+    desc: "定义授权模式与绑定策略",
+    icon: Boxes,
+    tone: "blue",
+    run: () => {
+      go("products");
+      action.value = "product";
+    },
+  },
+  {
+    label: "新增代理",
+    desc: "开通代理与登录账号",
+    icon: UserRoundCog,
+    tone: "green",
+    run: () => {
+      go("agents");
+      action.value = "agent";
+    },
+  },
+  {
+    label: "余额调整",
+    desc: "代理预付余额充值或扣减",
+    icon: Wallet,
+    tone: "orange",
+    run: () => go("commerce"),
+  },
+  {
+    label: "邮件通知",
+    desc: "配置 SMTP 与代理通知",
+    icon: Mail,
+    tone: "indigo",
+    run: () => {
+      go("admins");
+      settingsTab.value = "email";
+    },
+  },
+  {
+    label: "版本发布",
+    desc: "上传升级包并发布给客户",
+    icon: PackageCheck,
+    tone: "cyan",
+    run: () => go("releases"),
+  },
+];
 const navGroups = [
   {
     label: "产品",
@@ -234,14 +387,6 @@ async function agentTask(kind: string, e: Event) {
       "额度已发放",
     );
   }
-  o.quantity = Number(o.quantity);
-  o.duration_days = Number(o.duration_days);
-  const r = await a.mutate(
-    `/admin/agents/${id}/card-batches`,
-    o,
-    "代理卡密已生成",
-  );
-  codes.value = r.codes || [];
 }
 async function batchCreate(e: Event) {
   const r = await create("/admin/card-batches", e, "卡密已生成", (o) => {
@@ -284,7 +429,7 @@ async function productUpdate(e: Event) {
   await a.mutate(`/admin/products/${productEdit.id}/update`, o, "产品已更新");
   action.value = "";
 }
-const agentEdit = reactive({ id: "", name: "", contact_name: "", phone: "" });
+const agentEdit = reactive({ id: "", name: "", contact_name: "", phone: "", email: "" });
 const selectedAgentName = computed(
   () =>
     a.data.agents.find((x: any) => x.id === a.selected.agent)?.name || "",
@@ -295,6 +440,7 @@ function openAgentEdit(x: any) {
     name: x.name,
     contact_name: x.contact_name || "",
     phone: x.phone || "",
+    email: x.email || "",
   });
   action.value = "agentEdit";
 }
@@ -302,6 +448,158 @@ async function agentUpdate(e: Event) {
   const o = values(e);
   await a.mutate(`/admin/agents/${agentEdit.id}/update`, o, "代理信息已更新");
   action.value = "";
+}
+const emailSettings = ref<any>(null);
+const emailLogs = ref<any[]>([]);
+const emailForm = reactive({
+  enabled: false,
+  smtp_host: "",
+  smtp_port: 465,
+  encryption: "ssl",
+  smtp_username: "",
+  password: "",
+  from_address: "",
+  from_name: "",
+  site_url: "",
+});
+const emailTestTo = ref("");
+const emailTesting = ref(false);
+const emailTestResult = ref("");
+const emailKindLabels: Record<string, string> = {
+  test: "测试",
+  manual: "手动",
+  balance_adjust: "余额",
+  quota_grant: "额度",
+  account_created: "开通",
+  status_change: "状态",
+  recovery_code: "恢复码",
+  verify_code: "验证码",
+};
+function switchSettingsTab(id: string) {
+  settingsTab.value = id;
+  if (id === "email" && a.isManager.value && !emailSettings.value) {
+    loadEmailSettings().catch((e) => toast(e));
+  }
+}
+async function loadEmailSettings() {
+  const [settings, logs] = await Promise.all([
+    a.api("/admin/email-settings"),
+    a.api("/admin/email-logs?limit=20"),
+  ]);
+  emailSettings.value = settings;
+  emailLogs.value = logs || [];
+  Object.assign(emailForm, {
+    enabled: !!settings?.enabled,
+    smtp_host: settings?.smtp_host || "",
+    smtp_port: settings?.smtp_port || 465,
+    encryption: settings?.encryption || "ssl",
+    smtp_username: settings?.smtp_username || "",
+    from_address: settings?.from_address || "",
+    from_name: settings?.from_name || "",
+    site_url: settings?.site_url || "",
+  });
+}
+async function saveEmailSettings() {
+  await a.mutate(
+    "/admin/email-settings",
+    { ...emailForm, smtp_port: Number(emailForm.smtp_port) || 465 },
+    "邮件设置已保存",
+    false,
+  );
+  emailForm.password = "";
+  await loadEmailSettings();
+}
+async function sendTestEmail() {
+  if (!emailTestTo.value.trim()) return;
+  emailTesting.value = true;
+  emailTestResult.value = "";
+  try {
+    await a.api("/admin/email-settings/test", {
+      method: "POST",
+      body: JSON.stringify({ to_address: emailTestTo.value }),
+    });
+    emailTestResult.value = "测试邮件已发送，请查收收件箱。";
+    emailLogs.value = await a.api("/admin/email-logs?limit=20");
+  } catch (e: any) {
+    emailTestResult.value = e?.message || String(e);
+  } finally {
+    emailTesting.value = false;
+  }
+}
+const agentEmailForm = reactive({ id: "", name: "", subject: "", body: "" });
+function openAgentEmail() {
+  agentEmailForm.id = a.selected.agent;
+  agentEmailForm.name = selectedAgentName.value;
+  agentEmailForm.subject = "";
+  agentEmailForm.body = "";
+  action.value = "agentEmail";
+}
+async function agentEmailSubmit() {
+  try {
+    const r = await a.api(`/admin/agents/${agentEmailForm.id}/email`, {
+      method: "POST",
+      body: JSON.stringify({
+        subject: agentEmailForm.subject,
+        body: agentEmailForm.body,
+      }),
+    });
+    toast(`邮件已发送给 ${r.recipients} 个收件人`);
+    action.value = "";
+  } catch (e) {
+    toast(e);
+  }
+}
+const agentIssue = reactive({ package_id: "", quantity: 5, name: "" });
+const agentAccount = ref<any>(null);
+const agentIssueQuote = computed(() =>
+  agentAccount.value?.packages?.find(
+    (q: any) => q.package.id === agentIssue.package_id,
+  ),
+);
+const yuanText = (cents: number) =>
+  `¥${((cents || 0) / 100).toFixed(2)}`;
+async function openAgentBatch() {
+  action.value = "agentBatch";
+  agentIssue.quantity = 5;
+  agentIssue.name = "";
+  await loadAgentAccount();
+}
+async function loadAgentAccount() {
+  agentIssue.package_id = "";
+  try {
+    agentAccount.value = await a.api(
+      `/admin/agents/${a.selected.agent}/account`,
+    );
+    agentIssue.package_id =
+      agentAccount.value?.packages?.[0]?.package?.id || "";
+  } catch (e) {
+    agentAccount.value = null;
+    toast(e);
+  }
+}
+async function agentBatchSubmit() {
+  const quote = agentIssueQuote.value;
+  if (!quote) return;
+  try {
+    const r = await a.api(
+      `/admin/agents/${a.selected.agent}/card-batches`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          package_id: quote.package.id,
+          quantity: Number(agentIssue.quantity),
+          name: agentIssue.name.trim(),
+          request_id: crypto.randomUUID(),
+          expected_unit_cost: quote.unit_cost,
+        }),
+      },
+    );
+    toast(`已按代理价格生成 ${r.codes?.length || 0} 张卡密`);
+    action.value = "";
+    await a.showAgent(a.selected.agent);
+  } catch (e) {
+    toast(e);
+  }
 }
 async function openBatch(id: string) {
   await a.showBatch(id);
@@ -413,6 +711,9 @@ async function saveSiteSettings() {
 }
 onMounted(async () => {
   loadBranding("管理控制台").catch(() => undefined);
+  if (a.isManager.value && !emailSettings.value) {
+    loadEmailSettings().catch(() => undefined);
+  }
   addEventListener(
     "hashchange",
     () => (page.value = location.hash.slice(1) || "overview"),
@@ -551,44 +852,41 @@ onMounted(async () => {
       </header>
       <div class="workspace">
         <template v-if="page === 'overview'"
-          ><section class="hero-card">
-            <div>
-              <span class="hero-eyebrow">AUTHORIZATION CORE</span>
-              <h2>授权运行态</h2>
-              <p>产品供给、发卡与授权验证的核心状态聚合于此。</p>
-            </div>
-            <button
-              v-if="canOperate"
-              class="btn"
-              @click="
-                go('cards');
-                action = 'batch';
-              "
-            >
-              <Plus :size="16" />生成卡密
-            </button>
-          </section>
-          <div class="metrics five">
-            <div
-              v-for="(v, i) in [
-                a.data.products.length,
-                a.data.batches.length,
-                a.data.agents.length,
-                a.data.licensePage.total,
-                a.data.licenses.filter((x: any) => x.status === 'active')
-                  .length,
-              ]"
-              class="metric"
-            >
-              <span class="metric-icon"
-                ><component
-                  :is="[Boxes, TicketCheck, UserRoundCog, BadgeCheck, Activity][i]"
-                  :size="16"
+          ><div class="page-head">
+            <h2>仪表盘</h2>
+            <p>系统概览与统计数据</p>
+          </div>
+          <div class="stat-grid">
+            <div v-for="s in dashCards" :key="s.label" class="stat-card">
+              <span class="stat-icon" :class="'tone-' + s.tone"
+                ><component :is="s.icon" :size="18"
               /></span>
-              <strong>{{ v }}</strong>
-              <small>{{ ["产品", "批次", "代理", "授权", "当前有效"][i] }}</small>
+              <span class="stat-body">
+                <small>{{ s.label }}</small>
+                <strong>{{ s.value }}</strong>
+                <small class="stat-sub">{{ s.sub }}</small>
+              </span>
             </div>
           </div>
+          <section class="panel quick-panel">
+            <div class="panel-head"><h3>快捷操作</h3></div>
+            <div class="quick-grid">
+              <button
+                v-for="q in quickActions"
+                :key="q.label"
+                class="quick-card"
+                @click="q.run()"
+              >
+                <span class="stat-icon" :class="'tone-' + q.tone"
+                  ><component :is="q.icon" :size="18"
+                /></span>
+                <span class="quick-body"
+                  ><b>{{ q.label }}</b
+                  ><small>{{ q.desc }}</small></span
+                ><ChevronRight :size="16" class="quick-arrow" />
+              </button>
+            </div>
+          </section>
           <div class="overview-grid">
             <section class="panel">
               <div class="panel-head">
@@ -690,7 +988,9 @@ onMounted(async () => {
               >最大绑定数<input
                 name="max_bind_count"
                 type="number"
-                value="1" /></label
+                min="1"
+                value="1"
+                required /></label
             ><label class="field"
               >超限策略<select name="bind_conflict_strategy">
                 <option value="reject">拒绝</option>
@@ -700,7 +1000,10 @@ onMounted(async () => {
               >离线天数<input
                 name="offline_grace_days"
                 type="number"
-                value="15" /></label
+                min="0"
+                max="36500"
+                value="15"
+                required /></label
             ><label class="field"
               >使用到期宽限天数<input
                 name="expire_grace_days"
@@ -994,14 +1297,21 @@ onMounted(async () => {
           <form
             class="form-grid"
             @submit.prevent="
-              agentTask(action === 'agent' ? 'create' : action, $event)
+              action === 'agentBatch'
+                ? agentBatchSubmit()
+                : agentTask(action === 'agent' ? 'create' : action, $event)
             "
           >
             <label v-if="action === 'agent'" class="field"
               >代理名称<input name="name" required /></label
             ><template v-else
               ><label class="field"
-                >代理<select name="agent_id">
+                >代理<select
+                  v-model="a.selected.agent"
+                  name="agent_id"
+                  required
+                  @change="action === 'agentBatch' && loadAgentAccount()"
+                >
                   <option v-for="x in a.data.agents" :value="x.id">
                     {{ x.name }} · {{ x.login_code || x.agent_no }}
                   </option>
@@ -1009,7 +1319,14 @@ onMounted(async () => {
               ></template
             ><template v-if="action === 'agent'"
               ><label class="field">联系人<input name="contact_name" /></label
-              ><label class="field">手机<input name="phone" /></label></template
+              ><label class="field">手机<input name="phone" /></label>
+              <label class="field"
+                >邮箱<input
+                  name="email"
+                  type="email"
+                  maxlength="254"
+                  placeholder="接收通知与验证码邮件" /></label
+            ></template
             ><template v-if="action === 'user'"
               ><label class="field"
                 >登录名<input name="username" required /></label
@@ -1038,12 +1355,16 @@ onMounted(async () => {
               ><label class="field"
                 >允许天数<input
                   name="allowed_duration_days"
-                  value="30,90,365" /></label
+                  value="30,90,365"
+                  pattern="[0-9]+(\s*,\s*[0-9]+)*"
+                  title="填写逗号分隔的数字天数，例如 30,90,365" /></label
               ><label class="field"
                 >单批上限<input
                   name="max_batch_quantity"
                   type="number"
-                  value="100" /></label
+                  min="1"
+                  value="100"
+                  required /></label
               ><label class="check"
                 ><input
                   name="can_generate"
@@ -1061,23 +1382,69 @@ onMounted(async () => {
                   type="checkbox"
                 />允许永久卡</label
               ></template
-            ><template v-if="action === 'quota' || action === 'agentBatch'"
+            ><template v-if="action === 'quota'"
               ><label class="field"
-                >产品<select name="product_id">
+                >产品<select name="product_id" required>
                   <option v-for="p in a.data.products" :value="p.id">
                     {{ p.name }}
                   </option>
                 </select></label
-              ><label v-if="action === 'agentBatch'" class="field"
-                >批次名称<input name="name" value="代理自助批次" /></label
               ><label class="field"
                 >天数<input
                   name="duration_days"
                   type="number"
-                  value="30" /></label
+                  min="1"
+                  value="30"
+                  required /></label
               ><label class="field"
-                >数量<input name="quantity" type="number" value="10" /></label
+                >数量<input
+                  name="quantity"
+                  type="number"
+                  min="1"
+                  value="10"
+                  required /></label
             ></template>
+            <template v-if="action === 'agentBatch'"
+              ><label class="field"
+                >套餐（按代理价格结算）<select v-model="agentIssue.package_id" required>
+                  <option
+                    v-for="q in agentAccount?.packages || []"
+                    :key="q.package.id"
+                    :value="q.package.id"
+                  >
+                    {{ pname(q.package.product_id) }} · {{ q.package.name }}
+                    （{{ yuanText(q.unit_cost) }}/张）
+                  </option>
+                </select></label
+              ><label class="field"
+                >批次名称<input
+                  v-model="agentIssue.name"
+                  maxlength="160"
+                  placeholder="默认由系统命名" /></label
+              ><label class="field"
+                >数量<input
+                  v-model.number="agentIssue.quantity"
+                  type="number"
+                  min="1"
+                  max="1000"
+                  required /></label
+              ><p
+                v-if="action === 'agentBatch' && agentAccount && !agentAccount.packages?.length"
+                class="issue-quote"
+              >
+                该代理还没有可发的套餐：请先在「授权规则」里允许生成，并在「套餐与结算」中授予套餐。
+              </p>
+              <p v-if="agentIssueQuote" class="issue-quote">
+                单张成本
+                <strong>{{ yuanText(agentIssueQuote.unit_cost) }}</strong>
+                · 预计合计
+                <strong>{{
+                  yuanText(agentIssueQuote.unit_cost * (agentIssue.quantity || 0))
+                }}</strong>
+                · 当前余额
+                <strong>{{ yuanText(agentAccount?.account?.balance) }}</strong>
+              </p>
+            </template>
             <div class="form-actions">
               <button class="btn">确认提交</button>
             </div>
@@ -1098,8 +1465,41 @@ onMounted(async () => {
               /></label>
               <label class="field"
                 >手机<input name="phone" :value="agentEdit.phone" /></label>
+              <label class="field"
+                >邮箱<input
+                  name="email"
+                  type="email"
+                  :value="agentEdit.email"
+                  placeholder="接收通知与验证码邮件"
+              /></label>
               <div class="form-actions">
                 <button class="btn">保存修改</button>
+              </div>
+            </form>
+          </FormDialog>
+          <FormDialog
+            :open="action === 'agentEmail'"
+            title="发送邮件"
+            :description="`发送给 ${agentEmailForm.name} 的联系邮箱及其全部启用账号邮箱（自动去重）。`"
+            @close="action = ''"
+          >
+            <form class="form-grid" @submit.prevent="agentEmailSubmit">
+              <label class="field"
+                >主题<input
+                  v-model="agentEmailForm.subject"
+                  maxlength="200"
+                  required
+              /></label>
+              <label class="field wide"
+                >正文<textarea
+                  v-model="agentEmailForm.body"
+                  rows="8"
+                  maxlength="5000"
+                  required
+                  placeholder="支持纯文本，换行会保留"
+              /></label>
+              <div class="form-actions">
+                <button class="btn">发送邮件</button>
               </div>
             </form>
           </FormDialog>
@@ -1177,6 +1577,12 @@ onMounted(async () => {
                   <button class="btn secondary small" @click="action = 'quota'">
                     发放额度
                   </button>
+                  <button class="btn secondary small" @click="openAgentBatch">
+                    批量发卡
+                  </button>
+                  <button class="btn secondary small" @click="openAgentEmail">
+                    发送邮件
+                  </button>
                 </div>
               </div>
               <template v-if="a.selected.agent">
@@ -1245,19 +1651,26 @@ onMounted(async () => {
             @submit.prevent="batchCreate"
           >
             <label class="field"
-              >产品<select name="product_id">
+              >产品<select name="product_id" required>
                 <option v-for="p in a.data.products" :value="p.id">
                   {{ p.name }}
                 </option>
               </select></label
             ><label class="field"
-              >批次名称<input name="name" value="新批次" required /></label
+              >批次名称<input name="name" value="新批次" maxlength="160" /></label
             ><label class="field"
-              >数量<input name="quantity" type="number" value="5" /></label
+              >数量<input
+                name="quantity"
+                type="number"
+                min="1"
+                max="1000"
+                value="5"
+                required /></label
             ><label class="field"
               >天数<input
                 name="duration_days"
                 type="number"
+                min="1"
                 value="30" /></label
             ><label class="check"
               ><input name="is_permanent" type="checkbox" />永久</label
@@ -1569,7 +1982,7 @@ onMounted(async () => {
           <div class="panel-head"><h3>激活与验证</h3></div>
           <form class="form-grid" @submit.prevent="tools('activate', $event)">
             <label class="field"
-              >产品<select name="product_id">
+              >产品<select v-model="toolsProductId" name="product_id" required>
                 <option v-for="p in a.data.products" :value="p.id">
                   {{ p.name }}
                 </option>
@@ -1579,7 +1992,7 @@ onMounted(async () => {
               >绑定值<input
                 name="bind_value"
                 value="machine-A"
-                required /></label
+                :required="activateBindMode !== 'none'" /></label
             ><label class="field"
               >设备名<input name="device_name" value="Office Mac"
             /></label>
@@ -1589,7 +2002,10 @@ onMounted(async () => {
             <label class="field"
               >授权号<input name="license_no" required /></label
             ><label class="field"
-              >绑定值<input name="bind_value" value="machine-A" required
+              >绑定值<input
+                name="bind_value"
+                value="machine-A"
+                :required="verifyBindMode !== 'none'"
             /></label>
             <div class="form-actions"><button class="btn">验证</button></div>
           </form>
@@ -1623,18 +2039,21 @@ onMounted(async () => {
             "
           >
             <label class="field"
-              >产品<select name="product_id">
+              >产品<select name="product_id" required>
                 <option v-for="p in a.data.products" :value="p.id">
                   {{ p.name }}
                 </option>
               </select></label
-            ><label class="field">客户标识<input name="label" /></label
+            ><label class="field"
+              >客户标识<input name="label" maxlength="100" /></label
             ><label class="field wide"
-              >机器码<input name="machine_code" required /></label
+              >机器码<input name="machine_code" required maxlength="256" /></label
             ><label class="field"
               >有效天数<input
                 name="duration_days"
                 type="number"
+                min="1"
+                max="36500"
                 value="365" /></label
             ><label class="check"
               ><input name="is_permanent" type="checkbox" />永久授权</label
@@ -1749,7 +2168,7 @@ onMounted(async () => {
               "
             >
               <label class="field"
-                >类型<select name="kind">
+                >类型<select v-model="blockKind" name="kind">
                   <option value="ip">IP 地址</option>
                   <option value="device">设备指纹</option>
                 </select></label
@@ -1760,8 +2179,19 @@ onMounted(async () => {
                     {{ p.name }}
                   </option>
                 </select></label
-              ><label class="field">目标值<input name="value" required /></label
-              ><label class="field">原因<input name="reason" required /></label>
+              ><label class="field"
+                >目标值<input
+                  name="value"
+                  required
+                  maxlength="256"
+                  :pattern="blockKind === 'ip' ? '[0-9a-fA-F:.]{3,45}' : '.{1,256}'"
+                  :title="
+                    blockKind === 'ip'
+                      ? '填写有效的 IPv4/IPv6 地址'
+                      : '填写设备指纹'
+                  " /></label
+              ><label class="field"
+                >原因<input name="reason" required maxlength="500" /></label>
               <div class="form-actions">
                 <button class="btn">立即封禁</button>
               </div>
@@ -1973,13 +2403,13 @@ onMounted(async () => {
           </div>
           <div class="tabbar" role="tablist" aria-label="设置分类">
             <button
-              v-for="t in settingTabs"
+              v-for="t in visibleSettingTabs"
               :key="t.id"
               type="button"
               role="tab"
               :aria-selected="settingsTab === t.id"
               :class="{ active: settingsTab === t.id }"
-              @click="settingsTab = t.id"
+              @click="switchSettingsTab(t.id)"
             >
               {{ t.label }}
             </button>
@@ -2064,6 +2494,131 @@ onMounted(async () => {
               </div>
             </div>
           </form>
+          <div
+            v-if="settingsTab === 'email' && a.isManager.value"
+            class="email-settings"
+          >
+            <div class="email-main">
+              <div class="branding-copy">
+                <span class="eyebrow"><Mail :size="15" /> EMAIL / SMTP</span>
+                <h4>邮件通知</h4>
+                <p>
+                  配置 SMTP 后可向代理发送通知与验证码邮件；未启用时自动通知静默跳过，不影响业务。
+                </p>
+              </div>
+              <form class="branding-fields" @submit.prevent="saveEmailSettings">
+                <label class="check"
+                  ><input v-model="emailForm.enabled" type="checkbox" />启用邮件通知（余额、额度、账号开通、状态变更自动通知）</label
+                >
+                <label class="field"
+                  >SMTP 服务器<input
+                    v-model="emailForm.smtp_host"
+                    placeholder="smtp.example.com"
+                    :required="emailForm.enabled"
+                /></label>
+                <label class="field"
+                  >端口<input
+                    v-model.number="emailForm.smtp_port"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    required
+                /></label>
+                <label class="field"
+                  >加密方式<select v-model="emailForm.encryption">
+                    <option value="ssl">SSL/TLS（465 端口常用）</option>
+                    <option value="starttls">STARTTLS（587 端口常用）</option>
+                    <option value="none">无加密</option>
+                  </select></label
+                >
+                <label class="field"
+                  >SMTP 用户名<input
+                    v-model="emailForm.smtp_username"
+                    autocomplete="off"
+                    placeholder="留空默认使用发件人地址"
+                /></label>
+                <label class="field"
+                  >SMTP 密码<input
+                    v-model="emailForm.password"
+                    type="password"
+                    autocomplete="new-password"
+                    :placeholder="
+                      emailSettings?.has_password
+                        ? '已保存，留空保持不变'
+                        : '未设置'
+                    "
+                /></label>
+                <label class="field"
+                  >发件人地址<input
+                    v-model="emailForm.from_address"
+                    type="email"
+                    placeholder="noreply@example.com"
+                    :required="emailForm.enabled"
+                /></label>
+                <label class="field"
+                  >发件人名称<input
+                    v-model="emailForm.from_name"
+                    placeholder="显示在邮件发件人位置"
+                /></label>
+                <label class="field wide"
+                  >站点地址<input
+                    v-model="emailForm.site_url"
+                    placeholder="https://your-site.com（邮件内登录与恢复链接使用，选填）"
+                /></label>
+                <div class="form-actions">
+                  <button class="btn">保存邮件设置</button>
+                </div>
+              </form>
+            </div>
+            <div class="email-test">
+              <h5>测试发送</h5>
+              <form class="email-test-row" @submit.prevent="sendTestEmail">
+                <input
+                  v-model="emailTestTo"
+                  type="email"
+                  placeholder="填写一个能收信的邮箱地址"
+                  required
+                />
+                <button class="btn secondary" :disabled="emailTesting">
+                  {{ emailTesting ? "发送中…" : "发送测试邮件" }}
+                </button>
+              </form>
+              <p v-if="emailTestResult" role="status" class="email-test-result">
+                {{ emailTestResult }}
+              </p>
+            </div>
+            <div class="email-logs">
+              <h5>最近发送记录</h5>
+              <div v-if="emailLogs.length" class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>类型</th>
+                      <th>收件人</th>
+                      <th>主题</th>
+                      <th>状态</th>
+                      <th>时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="log in emailLogs" :key="log.id">
+                      <td>{{ emailKindLabels[log.kind] || log.kind }}</td>
+                      <td><code>{{ log.to_address }}</code></td>
+                      <td>{{ log.subject }}</td>
+                      <td>
+                        <StatusBadge :status="log.status" />
+                        <small v-if="log.error" class="email-error">
+                          {{ log.error }}</small
+                        >
+                      </td>
+                      <td>{{ formatTime(log.created_at) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p v-else class="pane-empty">暂无发送记录。</p>
+            </div>
+          </div>
           <section v-if="settingsTab === 'version'" class="version-console">
             <div class="version-hero">
               <span><PackageCheck :size="18" /> 当前运行版本</span>

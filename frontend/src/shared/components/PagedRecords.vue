@@ -84,6 +84,10 @@ function query() {
 }
 async function load(reset = false) {
   if (reset) page.value = 1;
+  if (filters.from && filters.to && new Date(filters.from) >= new Date(filters.to)) {
+    error.value = "开始时间必须早于结束时间。";
+    return;
+  }
   busy.value = true;
   error.value = "";
   try {

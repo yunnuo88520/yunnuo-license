@@ -33,6 +33,7 @@ async function submit() {
           v-model="form.agent_no"
           placeholder="AGT_ 开头的公开编号"
           required
+          minlength="8"
           maxlength="80"
           autocomplete="off" /></label
       ><label class="field"

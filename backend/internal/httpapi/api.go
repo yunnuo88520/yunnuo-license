@@ -97,6 +97,7 @@ func (api *API) Handler() http.Handler {
 	api.registerSecurityRoutes(mux)
 	api.registerRecoveryRoutes(mux)
 	api.registerHistoryRoutes(mux)
+	api.registerEmailRoutes(mux)
 	mux.HandleFunc("GET /healthz", api.health)
 	mux.HandleFunc("GET /v1/setup/status", api.setupStatus)
 	mux.HandleFunc("POST /v1/setup/initialize", withRateLimit(api.setupLimit, api.setupInitialize))

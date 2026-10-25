@@ -81,6 +81,11 @@ function toggle() {
 async function upload(event: Event) {
   const form = event.currentTarget as HTMLFormElement;
   const body = new FormData(form);
+  const notesText = String(body.get("notes") || "");
+  if (new Blob([notesText]).size > 16000) {
+    error.value = "版本说明过长（含中文按字节计算不能超过 16000），请精简后重试。";
+    return;
+  }
   await run(async () => {
     await props.api(`${base()}/releases`, { method: "POST", body });
     version.value = "";

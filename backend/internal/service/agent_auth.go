@@ -41,7 +41,7 @@ func (s *Service) CreateAgentUser(ctx context.Context, input CreateAgentUserInpu
 	input.AgentID = strings.TrimSpace(input.AgentID)
 	input.Username = normalizeUsername(input.Username)
 	input.Password = strings.TrimSpace(input.Password)
-	if input.AgentID == "" || input.Username == "" || len(input.Password) < 6 {
+	if input.AgentID == "" || input.Username == "" || len(input.Password) < 8 {
 		return domain.AgentUser{}, ErrInvalidRequest
 	}
 	if input.Role == "" {
@@ -82,6 +82,11 @@ func (s *Service) CreateAgentUser(ctx context.Context, input CreateAgentUserInpu
 		return domain.AgentUser{}, err
 	}
 	_ = s.audit(ctx, "admin", "", "", "", "", "agent_user.create", "success", "")
+	loginURL := ""
+	if r, err := s.emailRuntime(ctx); err == nil {
+		loginURL = r.settings.SiteURL
+	}
+	s.notifyAgentAccountCreated(input.AgentID, user, agent.Name, loginURL)
 	return user, nil
 }
 

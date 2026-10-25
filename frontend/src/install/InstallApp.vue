@@ -111,6 +111,8 @@ async function install() {
               v-model="form.database_path"
               aria-label="数据库文件路径"
               required
+              pattern="[^?#]*"
+              title="路径中不能包含 ? 或 # 字符"
             /><small
               >路径相对于服务运行目录，也可填写服务器上的绝对路径。</small
             ></label

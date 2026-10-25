@@ -29,9 +29,15 @@ func readRecoveryAccount(ctx context.Context, q commerceQuery, kind, id string) 
 	if kind == "customer" {
 		role = "'customer'"
 	}
-	var name sql.NullString
-	err = q.QueryRowContext(ctx, `SELECT id,username,display_name,`+role+`,status,password_hash FROM `+table+` WHERE id=?`, id).Scan(&a.ID, &a.Username, &name, &a.Role, &a.Status, &a.PasswordHash)
+	email := "''"
+	if kind == "agent" {
+		// 优先账号自身邮箱，其次回退到所属代理的联系邮箱。
+		email = "COALESCE(NULLIF(email,''),(SELECT a.email FROM agents a WHERE a.id = agent_id),'')"
+	}
+	var name, mail sql.NullString
+	err = q.QueryRowContext(ctx, `SELECT id,username,display_name,`+role+`,status,password_hash,`+email+` FROM `+table+` WHERE id=?`, id).Scan(&a.ID, &a.Username, &name, &a.Role, &a.Status, &a.PasswordHash, &mail)
 	a.DisplayName = str(name)
+	a.Email = mail.String
 	return a, err
 }
 func (s *Store) RecoveryAccount(ctx context.Context, kind, id string) (domain.RecoveryAccount, error) {
@@ -97,6 +103,38 @@ func (s *Store) PasswordReset(ctx context.Context, hash string) (domain.Password
 }
 func (tx *Tx) PasswordReset(ctx context.Context, hash string) (domain.PasswordReset, error) {
 	return readReset(tx.tx.QueryRowContext(ctx, `SELECT `+resetCols+` FROM account_password_resets WHERE token_hash=?`, hash))
+}
+
+// PasswordResetByAccount 按账号作用域查找恢复记录（6 位验证码使用）。
+func (s *Store) PasswordResetByAccount(ctx context.Context, kind, userID, tokenHash string) (domain.PasswordReset, error) {
+	return readReset(s.db.QueryRowContext(ctx, `SELECT `+resetCols+` FROM account_password_resets WHERE account_kind=? AND user_id=? AND token_hash=?`, kind, userID, tokenHash))
+}
+func (tx *Tx) PasswordResetByAccount(ctx context.Context, kind, userID, tokenHash string) (domain.PasswordReset, error) {
+	return readReset(tx.tx.QueryRowContext(ctx, `SELECT `+resetCols+` FROM account_password_resets WHERE account_kind=? AND user_id=? AND token_hash=?`, kind, userID, tokenHash))
+}
+
+// ResetAccountRefsByUsername 返回同名登录账号的定位引用。管理员与普通用户名全局
+// 唯一，代理账号用户名仅代理内唯一，因此可能命中多条。
+func (s *Store) ResetAccountRefsByUsername(ctx context.Context, username string) ([]domain.ResetAccountRef, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, username, 'admin' AS account_kind, status FROM admin_users WHERE username = ?
+		UNION ALL
+		SELECT id, username, 'customer' AS account_kind, status FROM customer_users WHERE username = ?
+		UNION ALL
+		SELECT id, username, 'agent' AS account_kind, status FROM agent_users WHERE username = ?`, username, username, username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	refs := []domain.ResetAccountRef{}
+	for rows.Next() {
+		var r domain.ResetAccountRef
+		if err := rows.Scan(&r.ID, &r.Username, &r.Kind, &r.Status); err != nil {
+			return nil, err
+		}
+		refs = append(refs, r)
+	}
+	return refs, rows.Err()
 }
 func (tx *Tx) ConsumePasswordReset(ctx context.Context, id string, now time.Time) error {
 	_, err := tx.tx.ExecContext(ctx, `UPDATE account_password_resets SET consumed_at=? WHERE id=?`, ts(now), id)

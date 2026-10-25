@@ -38,3 +38,6 @@ examples/platform-e2e/__pycache__/
 coverage/
 *.coverprofile
 *.log
+
+# ZCode workspace
+.zcode/

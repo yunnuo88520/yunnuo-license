@@ -36,7 +36,7 @@ func TestRecoveryExpirySingleUsePrivilegeBoundaryAndSessionInvalidation(t *testi
 	}
 	clock := s.now
 	s.now = func() time.Time { return r.ExpiresAt }
-	assertCode(t, s.RedeemRecovery(ctx, r.Code, "new-password"), "RECOVERY_INVALID")
+	assertCode(t, s.RedeemRecovery(ctx, r.Code, "new-password", ""), "RECOVERY_INVALID")
 	s.now = clock
 	first, err := s.CreateRecovery(ctx, "customer", customer.ID, root.ID, domain.AdminRoleSuperAdmin, RecoveryInput{Reason: "reissue"})
 	if err != nil {
@@ -46,12 +46,12 @@ func TestRecoveryExpirySingleUsePrivilegeBoundaryAndSessionInvalidation(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCode(t, s.RedeemRecovery(ctx, first.Code, "new-password"), "RECOVERY_INVALID")
+	assertCode(t, s.RedeemRecovery(ctx, first.Code, "new-password", ""), "RECOVERY_INVALID")
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
 	for range 2 {
 		wg.Add(1)
-		go func() { defer wg.Done(); results <- s.RedeemRecovery(ctx, latest.Code, "new-password") }()
+		go func() { defer wg.Done(); results <- s.RedeemRecovery(ctx, latest.Code, "new-password", "") }()
 	}
 	wg.Wait()
 	close(results)
@@ -79,7 +79,7 @@ func TestRecoveryExpirySingleUsePrivilegeBoundaryAndSessionInvalidation(t *testi
 	if err = s.ResetAccountPassword(ctx, "customer", customer.ID, "another-password", "operator reset", root.ID, domain.AdminRoleSuperAdmin); err != nil {
 		t.Fatal(err)
 	}
-	assertCode(t, s.RedeemRecovery(ctx, stale.Code, "bad-password"), "RECOVERY_INVALID")
+	assertCode(t, s.RedeemRecovery(ctx, stale.Code, "bad-password", ""), "RECOVERY_INVALID")
 	audit, err := s.ListAuditLogs(ctx, AuditLogFilter{Limit: 200})
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestRecoveryAuditFailureRollsBackPasswordAndCodeConsumption(t *testing.T) {
 	if _, err = db.Exec(`CREATE TRIGGER fail_recovery_audit BEFORE INSERT ON audit_logs WHEN NEW.action='account.recovery.redeem' BEGIN SELECT RAISE(ABORT,'injected audit failure'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.RedeemRecovery(ctx, r.Code, "new-password"); err == nil {
+	if err = s.RedeemRecovery(ctx, r.Code, "new-password", ""); err == nil {
 		t.Fatal("audit failure still reset password")
 	}
 	if _, err = s.CustomerLogin(ctx, AdminLoginInput{Username: u.Username, Password: "old-password"}); err != nil {
@@ -167,7 +167,7 @@ func TestRecoveryAuditFailureRollsBackPasswordAndCodeConsumption(t *testing.T) {
 	if _, err = db.Exec(`DROP TRIGGER fail_recovery_audit`); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.RedeemRecovery(ctx, r.Code, "new-password"); err != nil {
+	if err = s.RedeemRecovery(ctx, r.Code, "new-password", ""); err != nil {
 		t.Fatal("failed transaction consumed recovery code", err)
 	}
 }

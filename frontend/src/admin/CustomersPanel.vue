@@ -123,6 +123,7 @@ onMounted(() => run(load));
             type="password"
             required
             minlength="8"
+            maxlength="256"
             autocomplete="new-password" /></label
         ><div class="form-actions">
           <button class="btn" :disabled="busy">创建用户</button>

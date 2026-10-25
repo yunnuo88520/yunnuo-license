@@ -455,9 +455,12 @@ onMounted(async () => {
                   type="number"
                   min="1"
                   :max="
-                    products.find(
-                      (p) => p.id === currentPackage?.package.product_id,
-                    )?.policy.max_batch_quantity || 1
+                    Math.min(
+                      products.find(
+                        (p) => p.id === currentPackage?.package.product_id,
+                      )?.policy.max_batch_quantity || 1000,
+                      1000,
+                    )
                   "
                   required
               /></label>

@@ -114,6 +114,14 @@ async function saveGrant() {
   });
 }
 async function adjust() {
+  if (Number(credit.amount) === 0) {
+    error.value = "调整金额不能为 0。";
+    return;
+  }
+  if (!credit.reason.trim()) {
+    error.value = "请填写调整原因。";
+    return;
+  }
   await post(`/admin/agents/${selected.value}/balance`, credit);
   credit.request_id = crypto.randomUUID();
   credit.reason = "";
@@ -263,7 +271,14 @@ onMounted(() => run(load));
                 <td class="row-actions">
                   <button
                     class="btn small secondary"
-                    @click="run(() => post(`/admin/packages/${p.id}`, p))"
+                    @click="
+                      run(() =>
+                        post(`/admin/packages/${p.id}`, {
+                          enabled: p.enabled,
+                          base_cost: Number(p.base_cost),
+                        }),
+                      )
+                    "
                   >
                     保存成本</button
                   ><button
@@ -271,8 +286,8 @@ onMounted(() => run(load));
                     @click="
                       run(() =>
                         post(`/admin/packages/${p.id}`, {
-                          ...p,
                           enabled: !p.enabled,
+                          base_cost: Number(p.base_cost),
                         }),
                       )
                     "
@@ -396,7 +411,7 @@ onMounted(() => run(load));
             run(async () => {
               await post(
                 `/admin/agent-tiers/${price.tier_id}/prices`,
-                price,
+                { package_id: price.package_id, unit_cost: Number(price.unit_cost) },
               );
               show.price = false;
             })
