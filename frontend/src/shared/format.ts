@@ -11,6 +11,25 @@ export const formatTime = (value?: string | null) =>
 
 export const shortId = (value?: string) =>
   !value ? "-" : value.length > 18 ? `${value.slice(0, 15)}...` : value;
+
+export type ExpiryLevel = "permanent" | "ok" | "warn" | "urgent" | "expired";
+
+// Expiry signal shared by every console: amber inside 30 days, red inside 7.
+export const expiryInfo = (
+  expiredAt?: string | null,
+  now: Date = new Date(),
+): { level: ExpiryLevel; daysLeft: number; label: string } => {
+  if (!expiredAt) return { level: "permanent", daysLeft: Infinity, label: "永久" };
+  const msLeft = new Date(expiredAt).getTime() - now.getTime();
+  const daysLeft = Math.ceil(msLeft / 86400000);
+  if (msLeft <= 0) return { level: "expired", daysLeft, label: "已到期" };
+  if (daysLeft <= 7)
+    return { level: "urgent", daysLeft, label: `剩 ${daysLeft} 天` };
+  if (daysLeft <= 30)
+    return { level: "warn", daysLeft, label: `剩 ${daysLeft} 天` };
+  return { level: "ok", daysLeft, label: `剩 ${daysLeft} 天` };
+};
+
 export const statusLabel = (value?: string) =>
   ({
     active: "有效",
@@ -46,3 +65,17 @@ export const roleLabel = (value?: string) =>
   })[value || ""] ||
   value ||
   "-";
+
+// 服务端心跳视图：online 24 小时内有上报，idle 超一天但在容忍期内，offline 已失联。
+export const onlineStateLabel = (state?: string, days?: number) => {
+  switch (state) {
+    case "online":
+      return "在线";
+    case "idle":
+      return `空闲 ${days ?? 1} 天`;
+    case "offline":
+      return `失联 ${days ?? 1} 天`;
+    default:
+      return "";
+  }
+};

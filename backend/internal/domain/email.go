@@ -35,6 +35,7 @@ const (
 	EmailKindAccount  = "account_created"
 	EmailKindStatus   = "status_change"
 	EmailKindRecovery = "recovery_code"
+	EmailKindExpiry   = "license_expiry"
 )
 
 // 加密方式取值。

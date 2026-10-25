@@ -57,6 +57,7 @@ func main() {
 	if err := svc.EnsureAgentLoginCodes(ctx); err != nil {
 		log.Fatal(err)
 	}
+	svc.StartExpiryReminderScheduler()
 	server := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(svc, cfg.PublicStaticDir, cfg.AdminStaticDir, cfg.AgentStaticDir).

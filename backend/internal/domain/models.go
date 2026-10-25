@@ -198,6 +198,11 @@ type Binding struct {
 	ActivatedAt        time.Time  `json:"activated_at"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`
+	// 服务端心跳视图（读取时计算，不落库）：online 24 小时内有上报，
+	// idle 超过 24 小时但在产品离线容忍期内，offline 超过容忍期即失联。
+	LastSeenAt  *time.Time `json:"last_seen_at,omitempty"`
+	OnlineState string     `json:"online_state,omitempty"`
+	OfflineDays int        `json:"offline_days,omitempty"`
 }
 
 const (
@@ -359,4 +364,14 @@ type AgentQuotaSummary struct {
 	DurationDays int    `json:"duration_days"`
 	IsPermanent  bool   `json:"is_permanent"`
 	Balance      int    `json:"balance"`
+}
+
+type ExpiryReminder struct {
+	ID          string    `json:"id"`
+	LicenseID   string    `json:"license_id"`
+	UserID      string    `json:"user_id"`
+	Kind        string    `json:"kind"`
+	ExpiryValue string    `json:"expiry_value"`
+	SentAt      time.Time `json:"sent_at"`
+	CreatedAt   time.Time `json:"created_at"`
 }

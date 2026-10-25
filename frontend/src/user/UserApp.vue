@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
+import HelpPanel from "../shared/components/HelpPanel.vue";
+import { CircleHelp } from "lucide-vue-next";
 import CaptchaField from "../shared/components/CaptchaField.vue";
 import SecurityAppeals from "./SecurityAppeals.vue";
 import { onMounted, reactive, ref } from "vue";
 import { ApiError, request } from "../shared/api";
+import { friendlyError } from "../shared/errors";
 import { branding, loadBranding } from "../shared/branding";
-import { formatTime } from "../shared/format";
+import { formatTime, expiryInfo, onlineStateLabel } from "../shared/format";
 const token = ref(sessionStorage.getItem("yn.user_token") || ""),
   profile = ref<any>(),
   items = ref<any[]>([]),
@@ -25,6 +28,7 @@ const rebind = reactive({
   request_id: "",
 });
 const password = reactive({ current_password: "", new_password: "" });
+const helpOpen = ref(false);
 function logout() {
   token.value = "";
   profile.value = null;
@@ -50,7 +54,7 @@ async function run(fn: () => Promise<unknown>) {
   try {
     await fn();
   } catch (e: any) {
-    error.value = e.message;
+    error.value = friendlyError(e);
   } finally {
     busy.value = false;
   }
@@ -153,6 +157,9 @@ onMounted(async () => {
       </div>
       <div class="header-actions">
         <AppearanceMenu />
+        <button class="btn secondary" @click="helpOpen = true">
+          <CircleHelp :size="15" />帮助
+        </button>
         <a href="/">公开验真</a
         ><button v-if="profile" class="btn secondary" @click="logout">
           {{ profile.display_name || profile.username }} · 退出
@@ -232,19 +239,29 @@ onMounted(async () => {
         <div class="facts">
           <div>
             <small>使用期限</small
-            ><strong>{{
+            ><strong :class="`expiry-${expiryInfo(item.license.usage_expired_at).level}`">{{
               item.license.usage_expired_at
                 ? formatTime(item.license.usage_expired_at)
                 : "永久使用"
-            }}</strong>
+            }}</strong
+            ><span
+              v-if="item.license.usage_expired_at"
+              :class="['expiry-tag', `expiry-tag-${expiryInfo(item.license.usage_expired_at).level}`]"
+              >{{ expiryInfo(item.license.usage_expired_at).label }}</span
+            >
           </div>
           <div>
             <small>更新服务</small
-            ><strong>{{
+            ><strong :class="`expiry-${expiryInfo(item.license.updates_expired_at).level}`">{{
               item.license.updates_expired_at
                 ? formatTime(item.license.updates_expired_at)
                 : "永久更新"
-            }}</strong>
+            }}</strong
+            ><span
+              v-if="item.license.updates_expired_at"
+              :class="['expiry-tag', `expiry-tag-${expiryInfo(item.license.updates_expired_at).level}`]"
+              >{{ expiryInfo(item.license.updates_expired_at).label }}</span
+            >
           </div>
           <div>
             <small>换绑规则</small
@@ -279,7 +296,12 @@ onMounted(async () => {
         <div class="bindings">
           <p v-for="b in item.bindings" :key="b.id">
             {{ b.mode }} · {{ b.value }} ·
-            {{ b.status === "active" ? "当前生效" : "已失效" }}
+            {{ b.status === "active" ? "当前生效" : "已失效"
+            }}<span
+              v-if="b.online_state"
+              :class="['heartbeat-tag', `heartbeat-${b.online_state}`]"
+              >{{ onlineStateLabel(b.online_state, b.offline_days) }}</span
+            >
           </p>
         </div>
         <div class="actions">
@@ -372,6 +394,7 @@ onMounted(async () => {
       </section></template
     >
   </main>
+  <HelpPanel :open="helpOpen" @close="helpOpen = false" />
 </template>
 <style scoped>
 .user-page {
@@ -439,6 +462,36 @@ form {
   padding: 8px 14px;
   border-radius: 24px;
 }
+.facts strong.expiry-warn {
+  color: #d97706;
+}
+.facts strong.expiry-urgent {
+  color: #dc2626;
+}
+.facts strong.expiry-expired {
+  color: var(--red, #dc2626);
+}
+.expiry-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 12px;
+  vertical-align: 1px;
+}
+.expiry-tag-ok {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.expiry-tag-warn {
+  background: rgba(217, 119, 6, 0.14);
+  color: #d97706;
+}
+.expiry-tag-urgent,
+.expiry-tag-expired {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
 .actions {
   justify-content: flex-start;
 }
@@ -461,6 +514,25 @@ form {
   background: var(--surface);
   border-radius: 7px;
   margin-bottom: 18px;
+}
+.heartbeat-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 20px;
+  font-size: 12px;
+}
+.heartbeat-online {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.heartbeat-idle {
+  background: rgba(217, 119, 6, 0.14);
+  color: #d97706;
+}
+.heartbeat-offline {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
 }
 @media (max-width: 700px) {
   .claim,
