@@ -17,14 +17,16 @@ import (
 )
 
 type Service struct {
-	store      atomic.Pointer[store.Store]
-	setupMu    sync.Mutex
-	retiredMu  sync.Mutex
-	retired    []*store.Store
-	cardPepper []byte
-	dataKey    []byte
-	releaseDir string
-	now        func() time.Time
+	store          atomic.Pointer[store.Store]
+	setupMu        sync.Mutex
+	retiredMu      sync.Mutex
+	retired        []*store.Store
+	cardPepper     []byte
+	dataKey        []byte
+	releaseDir     string
+	now            func() time.Time
+	expiryOnce     sync.Once
+	stopExpiryScan context.CancelFunc
 }
 
 func (s *Service) currentStore() *store.Store {
@@ -42,8 +44,9 @@ func (s *Service) replaceStore(st *store.Store) {
 }
 
 // Close is called after the HTTP server has stopped, so no request can still
-// be using a store retained during first-run initialization.
+// be using a store retained during first-run installation.
 func (s *Service) Close() error {
+	s.stopExpiryReminderScheduler()
 	current := s.store.Swap(nil)
 	s.retiredMu.Lock()
 	stores := append(s.retired, current)
@@ -108,6 +111,9 @@ func (s *Service) CreateProduct(ctx context.Context, input CreateProductInput) (
 	}
 	if input.OfflineGraceDays == 0 {
 		input.OfflineGraceDays = 15
+	}
+	if input.OfflineGraceDays < 0 || input.OfflineGraceDays > maxOfflineGraceDays {
+		return domain.Product{}, badRequest("OFFLINE_GRACE_TOO_LONG", "离线缓存宽限最长 365 天")
 	}
 	publicPEM, privatePEM, err := yncrypto.GenerateRSAKeyPair()
 	if err != nil {
@@ -638,14 +644,25 @@ func (s *Service) ListLicenseBindings(ctx context.Context, licenseNo string) ([]
 		}
 		return nil, err
 	}
-	return s.currentStore().GetBindings(ctx, lic.ID)
+	bindings, err := s.currentStore().GetBindings(ctx, lic.ID)
+	if err != nil {
+		return nil, err
+	}
+	product, err := s.currentStore().GetProduct(ctx, lic.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	bindingOnlineStates(bindings, product.OfflineGraceDays, s.now())
+	return bindings, nil
 }
 
 type PublicLicenseQueryInput struct {
-	LicenseNo string `json:"license_no"`
-	CardCode  string `json:"card_code"`
-	Query     string `json:"query"`
-	QueryType string `json:"query_type"`
+	LicenseNo   string `json:"license_no"`
+	CardCode    string `json:"card_code"`
+	Query       string `json:"query"`
+	QueryType   string `json:"query_type"`
+	CaptchaID   string `json:"captcha_id"`
+	CaptchaCode string `json:"captcha_code"`
 }
 
 type PublicLicenseQueryMatch struct {
@@ -813,7 +830,7 @@ func (s *Service) publicLicenseMatch(ctx context.Context, license domain.License
 	activatedAt := license.ActivatedAt
 	return PublicLicenseQueryMatch{
 		LicenseMode: license.LicenseMode, UsageExpiredAt: license.ExpiredAt, UpdatesExpiredAt: license.UpdatesExpiredAt,
-		ProductName: product.Name, ProductCode: product.Code, LicenseNo: license.LicenseNo,
+		ProductName: product.Name, ProductCode: product.Code, LicenseNo: maskLicenseNo(license.LicenseNo),
 		LicenseStatus: status, IsPermanent: license.ExpiredAt == nil, ActivatedAt: &activatedAt,
 		ExpiredAt: license.ExpiredAt, LastVerifyAt: license.LastVerifyAt,
 	}, nil
@@ -835,7 +852,7 @@ func (s *Service) publicLicenseResult(ctx context.Context, queryType string, car
 		QueryType:     queryType,
 		ProductName:   product.Name,
 		ProductCode:   product.Code,
-		LicenseNo:     license.LicenseNo,
+		LicenseNo:     maskLicenseNo(license.LicenseNo),
 		LicenseStatus: status,
 		IsPermanent:   license.ExpiredAt == nil,
 		ActivatedAt:   &activatedAt,
@@ -999,7 +1016,7 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 	})
 	if err != nil {
 		_ = s.auditClient(ctx, product.ID, "", "", "license.activate", "failed", errorCode(err), input.ClientIP, input.UserAgent)
-		s.evaluateFailedActivationRisk(ctx, product.ID, input.ClientIP)
+		s.evaluateFailedActivationRisk(ctx, product.ID, input.ClientIP, err)
 		return LicenseResponse{}, err
 	}
 	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.activate", "success", "", input.ClientIP, input.UserAgent)
@@ -1364,9 +1381,13 @@ func (s *Service) AdminUnbind(ctx context.Context, input AdminUnbindInput) (map[
 }
 
 func (s *Service) RevokeLicense(ctx context.Context, input RevokeLicenseInput) (domain.License, error) {
-	if strings.TrimSpace(input.LicenseNo) == "" {
+	if strings.TrimSpace(input.LicenseNo) == "" || strings.TrimSpace(input.Reason) == "" {
 		return domain.License{}, ErrInvalidRequest
 	}
+	if len([]rune(strings.TrimSpace(input.Reason))) > 500 {
+		return domain.License{}, ErrInvalidRequest
+	}
+	input.Reason = strings.TrimSpace(input.Reason)
 	now := s.now()
 	var lic domain.License
 	err := s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
@@ -1485,6 +1506,18 @@ func detectPublicQueryType(value string) string {
 		return "card"
 	}
 	return domain.BindAccount
+}
+
+// maskLicenseNo 脱敏公开查询结果中的授权编号：保留前 7 后 2 位，中间以 **** 代替。
+// 授权编号是部分绑定模式下的在线校验凭据，公开页面不回显完整编号。
+func maskLicenseNo(no string) string {
+	if len(no) <= 11 {
+		if len(no) > 6 {
+			return no[:len(no)-3] + "****"
+		}
+		return "****"
+	}
+	return no[:7] + "****" + no[len(no)-2:]
 }
 
 func maskPublicQuery(queryType, value string) string {

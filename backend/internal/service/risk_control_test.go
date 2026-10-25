@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	yncrypto "github.com/yunnuo88520/yunnuo-license/backend/internal/crypto"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
 )
 
@@ -93,4 +94,45 @@ func TestRepeatedDeviceActivationsCreateAggregatedAlert(t *testing.T) {
 	if err != nil || summary.OpenAlerts != 0 || summary.Alerts24Hours != 1 {
 		t.Fatalf("unexpected risk summary: summary=%#v err=%v", summary, err)
 	}
+}
+
+func TestActivationFailureBurstAutoBlocksIP(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	product := createTestProduct(t, ctx, svc, domain.ConflictReject)
+
+	probe := func() error {
+		code, err := yncrypto.GenerateCardCode(product.Code)
+		if err != nil {
+			t.Fatalf("generate probe code: %v", err)
+		}
+		_, err = svc.Activate(ctx, ActivateInput{
+			AppKey: product.AppKey, CardCode: code, BindMode: domain.BindDevice,
+			BindValue: "auto-block-device", ClientIP: "203.0.113.77",
+		})
+		return err
+	}
+
+	for i := 0; i < activationAutoBlockThreshold-1; i++ {
+		assertCode(t, probe(), "CARD_INVALID")
+	}
+	blocks, err := svc.ListRiskBlocks(ctx, RiskBlockFilter{Kind: domain.RiskBlockIP, Status: domain.RiskStatusActive})
+	if err != nil || len(blocks) != 0 {
+		t.Fatalf("expected no auto block below threshold: blocks=%#v err=%v", blocks, err)
+	}
+	alerts, err := svc.ListRiskAlerts(ctx, RiskAlertFilter{Status: domain.RiskAlertOpen, AlertType: "activation_failure_burst"})
+	if err != nil || len(alerts) != 1 {
+		t.Fatalf("expected failure burst alert before auto block: alerts=%#v err=%v", alerts, err)
+	}
+
+	assertCode(t, probe(), "CARD_INVALID")
+	blocks, err = svc.ListRiskBlocks(ctx, RiskBlockFilter{Kind: domain.RiskBlockIP, Status: domain.RiskStatusActive})
+	if err != nil || len(blocks) != 1 || blocks[0].ProductID != product.ID {
+		t.Fatalf("expected product-scoped auto block: blocks=%#v err=%v", blocks, err)
+	}
+	alerts, err = svc.ListRiskAlerts(ctx, RiskAlertFilter{Status: domain.RiskAlertOpen, AlertType: "activation_auto_blocked"})
+	if err != nil || len(alerts) != 1 || alerts[0].Severity != "critical" {
+		t.Fatalf("expected critical auto-block alert: alerts=%#v err=%v", alerts, err)
+	}
+	assertCode(t, probe(), "RISK_IP_BLOCKED")
 }

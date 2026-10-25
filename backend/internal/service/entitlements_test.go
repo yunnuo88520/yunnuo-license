@@ -127,7 +127,7 @@ func TestPerpetualUsageRenewsOnlyUpdatesAndOfflineCacheRemainsUsable(t *testing.
 		t.Fatal(err)
 	}
 	file.Close()
-	if _, err = svc.RevokeLicense(ctx, RevokeLicenseInput{LicenseNo: input.LicenseNo}); err != nil {
+	if _, err = svc.RevokeLicense(ctx, RevokeLicenseInput{LicenseNo: input.LicenseNo, Reason: "test revoke"}); err != nil {
 		t.Fatal(err)
 	}
 	_, err = svc.Verify(ctx, input)

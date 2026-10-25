@@ -41,22 +41,27 @@ var (
 )
 
 type API struct {
-	adminPath          string
-	installReady       atomic.Bool
-	service            *service.Service
-	publicStaticDir    string
-	adminStaticDir     string
-	agentStaticDir     string
-	developerStaticDir string
-	customerStaticDir  string
-	adminLoginLimit    *fixedWindowLimiter
-	agentLoginLimit    *fixedWindowLimiter
-	publicQueryLimit   *fixedWindowLimiter
-	setupLimit         *fixedWindowLimiter
-	trustProxyHeaders  bool
-	migrationDir       string
-	databaseConfigFile string
-	sqliteSetupDSN     string
+	adminPath            string
+	installReady         atomic.Bool
+	service              *service.Service
+	publicStaticDir      string
+	adminStaticDir       string
+	agentStaticDir       string
+	developerStaticDir   string
+	customerStaticDir    string
+	adminLoginLimit      *fixedWindowLimiter
+	agentLoginLimit      *fixedWindowLimiter
+	publicQueryLimit     *fixedWindowLimiter
+	publicQueryFreeLimit *fixedWindowLimiter
+	setupLimit           *fixedWindowLimiter
+	clientWriteLimit     *fixedWindowLimiter
+	clientReadLimit      *fixedWindowLimiter
+	activateFailLock     *failureLockout
+	verifyFailLock       *failureLockout
+	trustProxyHeaders    bool
+	migrationDir         string
+	databaseConfigFile   string
+	sqliteSetupDSN       string
 }
 
 func (api *API) WithTrustedProxyHeaders(enabled bool) *API {
@@ -66,19 +71,24 @@ func (api *API) WithTrustedProxyHeaders(enabled bool) *API {
 
 func New(svc *service.Service, publicStaticDir, adminStaticDir, agentStaticDir string) *API {
 	return &API{
-		service:            svc,
-		adminPath:          "/admin",
-		publicStaticDir:    publicStaticDir,
-		adminStaticDir:     adminStaticDir,
-		agentStaticDir:     agentStaticDir,
-		developerStaticDir: envOr("YN_DEVELOPER_STATIC_DIR", "../frontend/dist/developer-console"),
-		customerStaticDir:  envOr("YN_CUSTOMER_STATIC_DIR", "../frontend/dist/user-console"),
-		adminLoginLimit:    newFixedWindowLimiter(20, 5*time.Minute),
-		agentLoginLimit:    newFixedWindowLimiter(30, 5*time.Minute),
-		publicQueryLimit:   newFixedWindowLimiter(60, time.Minute),
-		setupLimit:         newFixedWindowLimiter(10, time.Hour),
-		migrationDir:       "migrations",
-		sqliteSetupDSN:     envOr("YN_SQLITE_SETUP_DSN", "file:yn-license.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"),
+		service:              svc,
+		adminPath:            "/admin",
+		publicStaticDir:      publicStaticDir,
+		adminStaticDir:       adminStaticDir,
+		agentStaticDir:       agentStaticDir,
+		developerStaticDir:   envOr("YN_DEVELOPER_STATIC_DIR", "../frontend/dist/developer-console"),
+		customerStaticDir:    envOr("YN_CUSTOMER_STATIC_DIR", "../frontend/dist/user-console"),
+		adminLoginLimit:      newFixedWindowLimiter(20, 5*time.Minute),
+		agentLoginLimit:      newFixedWindowLimiter(30, 5*time.Minute),
+		publicQueryLimit:     newFixedWindowLimiter(60, time.Minute),
+		publicQueryFreeLimit: newFixedWindowLimiter(15, time.Minute),
+		setupLimit:           newFixedWindowLimiter(10, time.Hour),
+		clientWriteLimit:     newFixedWindowLimiter(envIntOr("YN_CLIENT_WRITE_RATE_LIMIT", 30), 5*time.Minute),
+		clientReadLimit:      newFixedWindowLimiter(envIntOr("YN_CLIENT_READ_RATE_LIMIT", 600), 5*time.Minute),
+		activateFailLock:     newFailureLockout(envIntOr("YN_CLIENT_ACTIVATE_FAIL_LOCK", 10), 10*time.Minute),
+		verifyFailLock:       newFailureLockout(envIntOr("YN_CLIENT_VERIFY_FAIL_LOCK", 30), 10*time.Minute),
+		migrationDir:         "migrations",
+		sqliteSetupDSN:       envOr("YN_SQLITE_SETUP_DSN", "file:yn-license.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"),
 	}
 }
 
@@ -127,6 +137,7 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/card-batches/", api.withAdmin(api.cardBatchDetail, adminReadRoles...))
 	mux.HandleFunc("POST /admin/card-batches/", api.withAdmin(api.cardBatchDetail, adminOperateRoles...))
 	mux.HandleFunc("POST /admin/cards/void", api.withAdmin(api.voidCard, adminWriteRoles...))
+	mux.HandleFunc("POST /admin/card-batches/{batchID}/void", api.withAdmin(api.voidCardBatch, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/licenses", api.withAdmin(api.listLicenses, adminReadRoles...))
 	mux.HandleFunc("POST /admin/licenses/revoke", api.withAdmin(api.revokeLicense, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/licenses/unbind", api.withAdmin(api.adminUnbind, adminWriteRoles...))
@@ -142,11 +153,11 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/risk/alerts", api.withAdmin(api.listRiskAlerts, adminReadRoles...))
 	mux.HandleFunc("POST /admin/risk/alerts/{alertID}/resolve", api.withAdmin(api.resolveRiskAlert, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/audit-logs", api.withAdmin(api.listAuditLogs, adminReadRoles...))
-	mux.HandleFunc("POST /v1/licenses/activate", api.activate)
-	mux.HandleFunc("POST /v1/licenses/verify", api.verify)
-	mux.HandleFunc("POST /v1/licenses/heartbeat", api.heartbeat)
-	mux.HandleFunc("POST /v1/licenses/renew", api.renew)
-	mux.HandleFunc("POST /v1/licenses/unbind", api.unbind)
+	mux.HandleFunc("POST /v1/licenses/activate", withClientFailureLock(api.activateFailLock, withRateLimit(api.clientWriteLimit, api.activate)))
+	mux.HandleFunc("POST /v1/licenses/verify", withClientFailureLock(api.verifyFailLock, withRateLimit(api.clientReadLimit, api.verify)))
+	mux.HandleFunc("POST /v1/licenses/heartbeat", withRateLimit(api.clientReadLimit, api.heartbeat))
+	mux.HandleFunc("POST /v1/licenses/renew", withClientFailureLock(api.activateFailLock, withRateLimit(api.clientWriteLimit, api.renew)))
+	mux.HandleFunc("POST /v1/licenses/unbind", withClientFailureLock(api.verifyFailLock, withRateLimit(api.clientWriteLimit, api.unbind)))
 	mux.HandleFunc("POST /v1/licenses/query", withRateLimit(api.publicQueryLimit, api.publicLicenseQuery))
 	mux.HandleFunc("POST /v1/agents/query", withRateLimit(api.publicQueryLimit, func(w http.ResponseWriter, r *http.Request) {
 		var input service.PublicAgentInput
@@ -252,6 +263,15 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+func envIntOr(key string, fallback int) int {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return fallback
+}
+
 func (api *API) setupInitialize(w http.ResponseWriter, r *http.Request) {
 	if origin := r.Header.Get("Origin"); origin != "" {
 		u, err := url.Parse(origin)
@@ -307,6 +327,13 @@ func (api *API) publicLicenseQuery(w http.ResponseWriter, r *http.Request) {
 	var input service.PublicLicenseQueryInput
 	if !decode(w, r, &input) {
 		return
+	}
+	// 渐进式防爬：同 IP 每分钟前 15 次免验证码，之后每次查询都要求图形验证码。
+	if allowed, _ := api.publicQueryFreeLimit.Allow(remoteClientIP(r)); !allowed {
+		if err := api.service.EnsureCaptcha(r.Context(), input.CaptchaID, input.CaptchaCode); err != nil {
+			writeError(w, r, err)
+			return
+		}
 	}
 	result, err := api.service.QueryPublicLicense(r.Context(), input)
 	if err != nil {
@@ -839,6 +866,7 @@ func (api *API) activate(w http.ResponseWriter, r *http.Request) {
 	input.UserAgent = r.UserAgent()
 	result, err := api.service.Activate(r.Context(), input)
 	if err != nil {
+		recordClientFailure(api.activateFailLock, input.ClientIP, err)
 		writeError(w, r, err)
 		return
 	}
@@ -854,6 +882,7 @@ func (api *API) verify(w http.ResponseWriter, r *http.Request) {
 	input.UserAgent = r.UserAgent()
 	result, err := api.service.Verify(r.Context(), input)
 	if err != nil {
+		recordClientFailure(api.verifyFailLock, input.ClientIP, err)
 		writeError(w, r, err)
 		return
 	}
@@ -869,6 +898,7 @@ func (api *API) heartbeat(w http.ResponseWriter, r *http.Request) {
 	input.UserAgent = r.UserAgent()
 	result, err := api.service.Heartbeat(r.Context(), input)
 	if err != nil {
+		recordClientFailure(api.verifyFailLock, input.ClientIP, err)
 		writeError(w, r, err)
 		return
 	}
@@ -884,6 +914,7 @@ func (api *API) renew(w http.ResponseWriter, r *http.Request) {
 	input.UserAgent = r.UserAgent()
 	result, err := api.service.Renew(r.Context(), input)
 	if err != nil {
+		recordClientFailure(api.activateFailLock, input.ClientIP, err)
 		writeError(w, r, err)
 		return
 	}
@@ -898,6 +929,21 @@ func (api *API) unbind(w http.ResponseWriter, r *http.Request) {
 	input.ClientIP = api.clientIP(r)
 	input.UserAgent = r.UserAgent()
 	result, err := api.service.Unbind(r.Context(), input)
+	if err != nil {
+		recordClientFailure(api.verifyFailLock, input.ClientIP, err)
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, result)
+}
+
+func (api *API) voidCardBatch(w http.ResponseWriter, r *http.Request) {
+	var input service.VoidCardBatchInput
+	if !decode(w, r, &input) {
+		return
+	}
+	input.ActorID = adminSessionFrom(r.Context()).UserID
+	result, err := api.service.VoidCardBatch(r.Context(), r.PathValue("batchID"), input)
 	if err != nil {
 		writeError(w, r, err)
 		return

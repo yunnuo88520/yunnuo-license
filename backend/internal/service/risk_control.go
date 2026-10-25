@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -167,16 +168,74 @@ func (s *Service) evaluateActivationRisk(ctx context.Context, productID string, 
 	}
 }
 
-func (s *Service) evaluateFailedActivationRisk(ctx context.Context, productID, clientIP string) {
+// activationAutoBlockThreshold is the CARD_INVALID failure count (10-minute
+// window, audit-based) at which the source IP is written into the persistent
+// product-scoped blocklist. It stays above the single-instance HTTP failure
+// lock so only sustained or multi-window probing reaches it.
+const activationAutoBlockThreshold = 12
+
+func (s *Service) evaluateFailedActivationRisk(ctx context.Context, productID, clientIP string, cause error) {
+	if !isCredentialProbeFailure(cause) {
+		return
+	}
 	ip, err := normalizeRiskValue(domain.RiskBlockIP, clientIP)
 	if err != nil {
 		return
 	}
 	count, err := s.currentStore().CountRecentClientEventsByIP(ctx, productID, "license.activate", "failed", clientIP, s.now().Add(-10*time.Minute))
-	if err == nil && count >= 5 {
-		s.recordRiskAlert(ctx, productID, "", "", "activation_failure_burst", "medium", domain.RiskBlockIP, ip,
+	if err != nil {
+		return
+	}
+	if count >= activationAutoBlockThreshold {
+		s.autoBlockIP(ctx, productID, ip,
+			fmt.Sprintf("风控自动封禁：该 IP 在 10 分钟内出现 %d 次卡密无效的激活尝试", count))
+		return
+	}
+	if count >= 5 {
+		s.recordRiskAlert(ctx, productID, "", "", "activation_failure_burst", "high", domain.RiskBlockIP, ip,
 			fmt.Sprintf("同一 IP 在 10 分钟内连续激活失败 %d 次", count))
 	}
+}
+
+// isCredentialProbeFailure reports whether an activation error indicates card
+// guessing rather than a policy rejection, so only probing feeds the counters.
+func isCredentialProbeFailure(cause error) bool {
+	if cause == nil {
+		return false
+	}
+	var appErr AppError
+	if !errors.As(cause, &appErr) {
+		return false
+	}
+	return appErr.Code == ErrCardInvalid.Code || appErr.Code == ErrCardNotFound.Code
+}
+
+// autoBlockIP writes a product-scoped risk block (idempotent) and raises a
+// critical alert so the enforcement shows up in the admin risk console.
+func (s *Service) autoBlockIP(ctx context.Context, productID, ip, reason string) {
+	valueHash := s.riskHash(domain.RiskBlockIP, ip)
+	if _, err := s.currentStore().FindActiveRiskBlock(ctx, productID, domain.RiskBlockIP, valueHash); err == nil {
+		return
+	} else if !store.IsNotFound(err) {
+		return
+	}
+	now := s.now()
+	if err := s.currentStore().CreateRiskBlock(ctx, domain.RiskBlock{
+		ID:          yncrypto.NewID("rblock"),
+		ProductID:   productID,
+		Kind:        domain.RiskBlockIP,
+		ValueHash:   valueHash,
+		ValueMasked: maskRiskValue(domain.RiskBlockIP, ip),
+		Reason:      reason,
+		Status:      domain.RiskStatusActive,
+		CreatedBy:   "system:risk",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		return
+	}
+	s.recordRiskAlert(ctx, productID, "", "", "activation_auto_blocked", "critical", domain.RiskBlockIP, ip, reason)
+	_ = s.audit(ctx, "system", "system:risk", productID, "", "", "risk_block.auto_create", "success", "")
 }
 
 func (s *Service) recordRiskAlert(ctx context.Context, productID, licenseID, bindingID, alertType, severity, subjectKind, subjectValue, detail string) {
