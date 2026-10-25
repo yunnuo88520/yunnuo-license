@@ -26,6 +26,10 @@ async function requestCode() {
     requesting.value = false;
   }
 }
+// 从哪个登录页进来就回到哪个登录页；直接访问时回首页。
+const fromKey = new URLSearchParams(location.search).get("from") || "";
+const backURL =
+  ({ admin: entries.value.admin, agent: entries.value.agent, user: entries.value.user, developer: entries.value.developer } as Record<string, string>)[fromKey] || "/";
 onMounted(() => loadBranding("密码恢复").catch(() => {}));
 async function submit() {
   error.value = "";
@@ -65,15 +69,16 @@ async function submit() {
 <template>
   <main>
     <header class="recovery-header">
-      <a href="/" class="brand">{{ branding.site_name }}</a
-      ><AppearanceMenu />
+      <a href="/" class="brand">{{ branding.site_name }}</a>
+      <span class="recovery-header-right">
+        <a :href="backURL" class="back-link">← 返回登录</a>
+        <AppearanceMenu />
+      </span>
     </header>
     <section class="panel">
       <span class="eyebrow">账号恢复</span>
       <h1>{{ done ? "密码已重置" : "重新设置登录密码" }}</h1>
-      <p v-if="!done">
-        邮箱验证码方式：输入登录账号并点击「发送验证码」，验证码将发送到账号绑定的邮箱（代理账号未单独绑定邮箱时使用代理联系邮箱）。管理员手动提供长恢复码时无需填写账号。
-      </p>
+      <p v-if="!done">输入登录账号获取邮箱验证码；持管理员签发的恢复码可直接使用。</p>
       <p v-else>原登录会话已失效，请使用新密码重新登录。</p>
       <p v-if="error" role="alert" class="error">{{ error }}</p>
       <form v-if="!done" @submit.prevent="submit">
@@ -83,7 +88,7 @@ async function submit() {
               v-model="form.username"
               autocomplete="username"
               maxlength="80"
-              placeholder="使用 6 位邮箱验证码时必填"
+              placeholder="登录账号"
           /><button
               type="button"
               class="btn secondary"
@@ -124,11 +129,9 @@ async function submit() {
         </button>
       </form>
       <nav class="recovery-nav">
-        <span v-if="done">密码已重置，请返回对应控制台重新登录：</span>
-        <a :href="entries.admin">管理后台登录</a
-        ><a :href="entries.agent">代理后台登录</a
-        ><a :href="entries.user">用户中心登录</a
-        ><a :href="entries.developer">开发者登录</a>
+        <a class="btn" :href="backURL">{{
+          done ? "使用新密码返回登录" : "返回登录"
+        }}</a>
       </nav>
     </section>
   </main>
@@ -163,17 +166,21 @@ form {
 }
 .recovery-nav {
   display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
-  align-items: center;
   margin-top: 30px;
   padding-top: 18px;
   border-top: 1px solid var(--line);
-  font-size: 13px;
 }
-.recovery-nav span {
+.recovery-header-right {
+  display: inline-flex;
+  gap: 14px;
+  align-items: center;
+}
+.back-link {
+  font-size: 13px;
   color: var(--muted);
-  width: 100%;
+}
+.back-link:hover {
+  color: var(--ink, inherit);
 }
 .error {
   color: var(--red);

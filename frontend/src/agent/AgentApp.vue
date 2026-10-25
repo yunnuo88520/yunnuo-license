@@ -295,7 +295,7 @@ onMounted(async () => {
               v-else
               :size="17"
             />进入工作台</button
-          ><a href="/recover">忘记密码</a>
+          ><a href="/recover?from=agent">忘记密码</a>
           <p class="error">{{ loginError }}</p>
         </form>
       </div>

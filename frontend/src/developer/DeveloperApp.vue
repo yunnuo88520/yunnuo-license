@@ -173,7 +173,7 @@ onMounted(async () => {
             required
         /></label>
         <button class="btn" :disabled="busy">登录</button
-        ><a href="/recover">忘记密码</a>
+        ><a href="/recover?from=developer">忘记密码</a>
       </form>
     </section>
     <template v-else>

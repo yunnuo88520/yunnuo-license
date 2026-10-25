@@ -54,7 +54,7 @@ func (api *API) registerRecoveryRoutes(mux *http.ServeMux) {
 		// 无论账号是否存在都返回相同提示，防止账号枚举。
 		e := api.service.RequestRecoveryEmail(r.Context(), in.Username)
 		commerceResponse(w, r, map[string]any{
-			"message": "若该账号已绑定邮箱，验证码已发送（30 分钟内有效，请留意垃圾邮件）；若未收到，请联系平台管理员。",
+			"message": "验证码已发送至账号绑定邮箱，30 分钟内有效；未收到请联系管理员。",
 		}, e)
 	}))
 	mux.HandleFunc("POST /v1/accounts/recovery", withRateLimit(api.adminLoginLimit, func(w http.ResponseWriter, r *http.Request) {

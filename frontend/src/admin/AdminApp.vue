@@ -880,7 +880,7 @@ onMounted(async () => {
               class="spin"
               :size="17"
             /><KeyRound v-else :size="17" />安全登录</button
-          ><a href="/recover">忘记密码</a>
+          ><a href="/recover?from=admin">忘记密码</a>
           <p class="error">{{ a.loginError.value }}</p>
         </form>
       </div>

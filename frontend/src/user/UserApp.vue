@@ -178,7 +178,7 @@ onMounted(async () => {
             autocomplete="current-password"
             required /></label
         ><button class="btn" :disabled="busy">登录用户中心</button
-        ><a href="/recover">忘记密码</a>
+        ><a href="/recover?from=user">忘记密码</a>
       </form>
     </section>
     <template v-else
