@@ -66,6 +66,9 @@ func (s *Service) Customers(ctx context.Context) ([]domain.Customer, error) {
 	return s.currentStore().Customers(ctx)
 }
 func (s *Service) CustomerLogin(ctx context.Context, input AdminLoginInput) (CustomerLoginResponse, error) {
+	if err := s.ensureLoginCaptcha(ctx, input.CaptchaID, input.CaptchaCode); err != nil {
+		return CustomerLoginResponse{}, err
+	}
 	c, err := s.currentStore().CustomerByUsername(ctx, normalizeUsername(input.Username))
 	if err != nil {
 		return CustomerLoginResponse{}, ErrInvalidCredentials

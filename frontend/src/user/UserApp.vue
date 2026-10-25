@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
+import CaptchaField from "../shared/components/CaptchaField.vue";
 import SecurityAppeals from "./SecurityAppeals.vue";
 import { onMounted, reactive, ref } from "vue";
 import { ApiError, request } from "../shared/api";
@@ -13,7 +14,8 @@ const token = ref(sessionStorage.getItem("yn.user_token") || ""),
   busy = ref(false),
   action = ref(""),
   selected = ref<any>();
-const login = reactive({ username: "", password: "" });
+const login = reactive({ username: "", password: "", captcha_id: "", captcha_code: "" });
+const captchaField = ref<any>(null);
 const claim = reactive({ application_code: "", card_code: "", bind_value: "" });
 const renew = reactive({ binding_id: "", card_code: "" });
 const rebind = reactive({
@@ -58,15 +60,21 @@ async function refresh() {
 }
 function signIn() {
   void run(async () => {
-    const r = await request<any>("/user/login", {
-      method: "POST",
-      body: JSON.stringify(login),
-    });
-    token.value = r.access_token;
-    profile.value = r.user;
-    login.password = "";
-    sessionStorage.setItem("yn.user_token", token.value);
-    await refresh();
+    login.captcha_id = captchaField.value?.captchaId || "";
+    try {
+      const r = await request<any>("/user/login", {
+        method: "POST",
+        body: JSON.stringify(login),
+      });
+      token.value = r.access_token;
+      profile.value = r.user;
+      login.password = "";
+      sessionStorage.setItem("yn.user_token", token.value);
+      await refresh();
+    } finally {
+      login.captcha_code = "";
+      captchaField.value?.refresh();
+    }
   });
 }
 function activate() {
@@ -157,6 +165,7 @@ onMounted(async () => {
       <h2>用户登录</h2>
       <p>账号由平台管理员开通。公开查询不能认领授权。</p>
       <form @submit.prevent="signIn">
+        <CaptchaField ref="captchaField" v-model="login.captcha_code" />
         <label class="field"
           >账号<input
             v-model="login.username"

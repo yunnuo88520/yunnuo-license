@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
+import CaptchaField from "../shared/components/CaptchaField.vue";
 import PagedRecords from "../shared/components/PagedRecords.vue";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
@@ -28,6 +29,7 @@ const token = ref(sessionStorage.getItem("yn.agent_token") || "");
 const profile = ref<any>();
 const loading = ref(false);
 const loginError = ref("");
+const captchaField = ref<any>(null);
 const page = ref(location.hash.slice(1) || "overview");
 const products = ref<any[]>([]),
   quotas = ref<any[]>([]),
@@ -44,6 +46,8 @@ const login = reactive({
   login_code: localStorage.getItem("yn.agent_login_code") || "",
   username: "",
   password: "",
+  captcha_id: "",
+  captcha_code: "",
 });
 const batch = reactive({
   package_id: "",
@@ -107,6 +111,7 @@ async function api<T>(path: string, options: RequestInit = {}) {
   }
 }
 async function signIn() {
+  login.captcha_id = captchaField.value?.captchaId || "";
   loading.value = true;
   loginError.value = "";
   try {
@@ -123,6 +128,7 @@ async function signIn() {
     await refresh();
   } catch (e: any) {
     loginError.value = e.message;
+    captchaField.value?.refresh();
   } finally {
     loading.value = false;
   }
@@ -265,6 +271,7 @@ onMounted(async () => {
         <h2>代理工作台</h2>
         <p>登录代码会在此设备上自动记忆。</p>
         <form class="login-form" @submit.prevent="signIn">
+          <CaptchaField ref="captchaField" v-model="login.captcha_code" />
           <label class="field"
             >代理代码<input
               v-model="login.login_code"

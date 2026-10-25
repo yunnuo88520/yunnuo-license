@@ -98,11 +98,13 @@ func (s *Service) ListAgentUsers(ctx context.Context, agentID string) ([]domain.
 }
 
 type AgentLoginInput struct {
-	AgentID   string `json:"agent_id"`
-	AgentNo   string `json:"agent_no"`
-	LoginCode string `json:"login_code"`
-	Username  string `json:"username"`
-	Password  string `json:"password"`
+	AgentID     string `json:"agent_id"`
+	AgentNo     string `json:"agent_no"`
+	LoginCode   string `json:"login_code"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	CaptchaID   string `json:"captcha_id"`
+	CaptchaCode string `json:"captcha_code"`
 }
 
 type AgentLoginResponse struct {
@@ -137,6 +139,9 @@ type agentTokenPayload struct {
 }
 
 func (s *Service) AgentLogin(ctx context.Context, input AgentLoginInput) (AgentLoginResponse, error) {
+	if err := s.ensureLoginCaptcha(ctx, input.CaptchaID, input.CaptchaCode); err != nil {
+		return AgentLoginResponse{}, err
+	}
 	input.AgentID = strings.TrimSpace(input.AgentID)
 	input.AgentNo = strings.ToUpper(strings.TrimSpace(input.AgentNo))
 	input.LoginCode = normalizeAgentLoginCode(input.LoginCode)

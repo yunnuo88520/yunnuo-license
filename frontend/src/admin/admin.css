@@ -611,3 +611,26 @@
     padding: 16px;
   }
 }
+.captcha-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.captcha-setting-copy h4 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.captcha-setting-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+@media (max-width: 700px) {
+  .captcha-setting {
+    grid-template-columns: 1fr;
+  }
+}

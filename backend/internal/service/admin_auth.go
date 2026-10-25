@@ -81,6 +81,9 @@ func (s *Service) ListAdminUsers(ctx context.Context) ([]domain.AdminUser, error
 type AdminLoginInput struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// 登录图形验证码：开关开启时必填（管理员/开发者/用户中心登录共用）。
+	CaptchaID   string `json:"captcha_id"`
+	CaptchaCode string `json:"captcha_code"`
 }
 
 type AdminLoginResponse struct {
@@ -107,6 +110,9 @@ type adminTokenPayload struct {
 }
 
 func (s *Service) AdminLogin(ctx context.Context, input AdminLoginInput) (AdminLoginResponse, error) {
+	if err := s.ensureLoginCaptcha(ctx, input.CaptchaID, input.CaptchaCode); err != nil {
+		return AdminLoginResponse{}, err
+	}
 	input.Username = normalizeUsername(input.Username)
 	if input.Username == "" || strings.TrimSpace(input.Password) == "" {
 		return AdminLoginResponse{}, ErrInvalidCredentials

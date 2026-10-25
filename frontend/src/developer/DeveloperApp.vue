@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
+import CaptchaField from "../shared/components/CaptchaField.vue";
 import { onMounted, reactive, ref } from "vue";
 import { request, downloadText, ApiError } from "../shared/api";
 import { branding, loadBranding } from "../shared/branding";
@@ -15,7 +16,8 @@ const error = ref(""),
   codes = ref<string[]>([]),
   licenses = ref<any>();
 const policyRevision = ref(0);
-const login = reactive({ username: "", password: "" });
+const login = reactive({ username: "", password: "", captcha_id: "", captcha_code: "" });
+const captchaField = ref<any>(null);
 const product = reactive({
   name: "",
   code: "",
@@ -69,15 +71,21 @@ async function refresh() {
 }
 function signIn() {
   void run(async () => {
-    const result = await request<any>("/developer/login", {
-      method: "POST",
-      body: JSON.stringify(login),
-    });
-    token.value = result.access_token;
-    sessionStorage.setItem("yn.developer_token", token.value);
-    login.password = "";
-    profile.value = await api("/developer/profile");
-    await refresh();
+    login.captcha_id = captchaField.value?.captchaId || "";
+    try {
+      const result = await request<any>("/developer/login", {
+        method: "POST",
+        body: JSON.stringify(login),
+      });
+      token.value = result.access_token;
+      sessionStorage.setItem("yn.developer_token", token.value);
+      login.password = "";
+      profile.value = await api("/developer/profile");
+      await refresh();
+    } finally {
+      login.captcha_code = "";
+      captchaField.value?.refresh();
+    }
   });
 }
 function createProduct() {
@@ -153,6 +161,7 @@ onMounted(async () => {
       <h2>开发者登录</h2>
       <p>请使用站点管理员为你创建的开发者账号。</p>
       <form class="developer-form" @submit.prevent="signIn">
+        <CaptchaField ref="captchaField" v-model="login.captcha_code" />
         <label class="field"
           >账号<input v-model="login.username" autocomplete="username" required
         /></label>

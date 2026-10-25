@@ -8,11 +8,56 @@ import (
 )
 
 func (api *API) registerEmailRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/captcha", withRateLimit(api.adminLoginLimit, func(w http.ResponseWriter, r *http.Request) {
+		settings, err := api.service.CaptchaSettings(r.Context())
+		if err != nil {
+			writeError(w, r, err)
+			return
+		}
+		if !settings.LoginEnabled {
+			writeOK(w, r, map[string]any{"enabled": false})
+			return
+		}
+		challenge, err := api.service.NewCaptcha(r.Context())
+		if err != nil {
+			writeError(w, r, err)
+			return
+		}
+		writeOK(w, r, map[string]any{
+			"enabled": true, "id": challenge.ID,
+			"image": challenge.Image, "expires_at": challenge.ExpiresAt,
+		})
+	}))
+	mux.HandleFunc("GET /admin/captcha-settings", api.withAdmin(api.getCaptchaSettings, adminReadRoles...))
+	mux.HandleFunc("POST /admin/captcha-settings", api.withAdmin(api.updateCaptchaSettings, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/email-settings", api.withAdmin(api.getEmailSettings, adminReadRoles...))
 	mux.HandleFunc("POST /admin/email-settings", api.withAdmin(api.updateEmailSettings, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/email-settings/test", api.withAdmin(api.sendTestEmail, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/agents/{agentID}/email", api.withAdmin(api.sendAgentEmail, adminWriteRoles...))
 	mux.HandleFunc("GET /admin/email-logs", api.withAdmin(api.listEmailLogs, adminReadRoles...))
+}
+
+func (api *API) getCaptchaSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := api.service.CaptchaSettings(r.Context())
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, settings)
+}
+
+func (api *API) updateCaptchaSettings(w http.ResponseWriter, r *http.Request) {
+	var input service.UpdateCaptchaSettingsInput
+	if !decode(w, r, &input) {
+		return
+	}
+	input.ActorID = adminSessionFrom(r.Context()).UserID
+	settings, err := api.service.UpdateCaptchaSettings(r.Context(), input)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, settings)
 }
 
 func (api *API) getEmailSettings(w http.ResponseWriter, r *http.Request) {

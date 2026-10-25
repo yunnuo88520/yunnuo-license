@@ -49,6 +49,7 @@ import CommercePanel from "./CommercePanel.vue";
 import RecoveryPanel from "./RecoveryPanel.vue";
 import SecurityPanel from "./SecurityPanel.vue";
 import FormDialog from "../shared/components/FormDialog.vue";
+import CaptchaField from "../shared/components/CaptchaField.vue";
 import UserMenu from "../shared/components/UserMenu.vue";
 import {
   applyBranding,
@@ -76,7 +77,8 @@ const agentActionTitles: Record<string, string> = {
   quota: "发放额度",
   agentBatch: "代理批量发卡",
 };
-const login = reactive({ username: "", password: "" });
+const login = reactive({ username: "", password: "", captcha_id: "", captcha_code: "" });
+const captchaField = ref<any>(null);
 const result = ref("{}");
 const codes = ref<string[]>([]);
 const blockKind = ref("ip");
@@ -475,10 +477,38 @@ const emailKindLabels: Record<string, string> = {
   recovery_code: "恢复码",
   verify_code: "验证码",
 };
+const captchaSettings = ref<any>(null);
+const captchaSaving = ref(false);
+async function loadCaptchaSettings() {
+  if (captchaSettings.value) return;
+  try {
+    captchaSettings.value = await a.api("/admin/captcha-settings");
+  } catch (e) {
+    toast(e);
+  }
+}
+async function saveCaptchaSettings() {
+  captchaSaving.value = true;
+  try {
+    captchaSettings.value = await a.mutate(
+      "/admin/captcha-settings",
+      { login_enabled: !captchaSettings.value?.login_enabled },
+      captchaSettings.value?.login_enabled ? "图形验证码已关闭" : "图形验证码已开启",
+      false,
+    );
+  } catch (e) {
+    toast(e);
+  } finally {
+    captchaSaving.value = false;
+  }
+}
 function switchSettingsTab(id: string) {
   settingsTab.value = id;
   if (id === "email" && a.isManager.value && !emailSettings.value) {
     loadEmailSettings().catch((e) => toast(e));
+  }
+  if (id === "account" && a.isManager.value) {
+    loadCaptchaSettings();
   }
 }
 async function loadEmailSettings() {
@@ -709,6 +739,15 @@ async function saveSiteSettings() {
   a.data.siteSettings = settings;
   applyBranding(settings, "管理控制台");
 }
+async function adminSignIn() {
+  login.captcha_id = captchaField.value?.captchaId || "";
+  try {
+    await a.signIn(login);
+  } finally {
+    login.captcha_code = "";
+    captchaField.value?.refresh();
+  }
+}
 onMounted(async () => {
   loadBranding("管理控制台").catch(() => undefined);
   if (a.isManager.value && !emailSettings.value) {
@@ -749,7 +788,7 @@ onMounted(async () => {
         </div>
         <h2>管理控制台</h2>
         <p>使用管理员账号进入安全控制域。</p>
-        <form class="login-form" @submit.prevent="a.signIn(login)">
+        <form class="login-form" @submit.prevent="adminSignIn">
           <label class="field"
             >账号<input
               v-model="login.username"
@@ -762,7 +801,8 @@ onMounted(async () => {
               type="password"
               autocomplete="current-password"
               required /></label
-          ><button class="btn" :disabled="a.loading.value">
+          ><CaptchaField ref="captchaField" v-model="login.captcha_code" />
+          <button class="btn" :disabled="a.loading.value">
             <LoaderCircle
               v-if="a.loading.value"
               class="spin"
@@ -2701,6 +2741,23 @@ onMounted(async () => {
           </form>
           </FormDialog>
           <template v-if="settingsTab === 'account'">
+          <div v-if="a.isManager.value" class="captcha-setting">
+            <div class="captcha-setting-copy">
+              <h4>登录图形验证码</h4>
+              <p>
+                开启后，管理、代理、用户与开发者控制台的登录页都会要求输入图形验证码。验证码 5
+                分钟有效且只能使用一次，用于防御暴力尝试登录。
+              </p>
+            </div>
+            <button
+              class="btn"
+              :class="{ danger: captchaSettings?.login_enabled }"
+              :disabled="captchaSaving"
+              @click="saveCaptchaSettings"
+            >
+              {{ captchaSaving ? "处理中…" : captchaSettings?.login_enabled ? "关闭验证码" : "开启验证码" }}
+            </button>
+          </div>
           <div v-if="a.isSuper.value" class="table-wrap">            <table class="table">
               <thead>
                 <tr>
