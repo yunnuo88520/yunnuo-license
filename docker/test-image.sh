@@ -17,10 +17,24 @@ cleanup() {
   docker volume rm "$volume" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+trap 'printf "Docker verification failed at script line %s\n" "$LINENO" >&2' ERR
 
 json_get() {
   local expression="$1"
   python3 -c 'import json,sys; data=json.load(sys.stdin); print(eval(sys.argv[1], {"__builtins__": {}}, {"data": data}))' "$expression"
+}
+
+check_public_license() {
+  local response masked
+  response="$(curl --fail --silent --show-error -X POST "$base/v1/licenses/query" \
+    -H 'Content-Type: application/json' -d "{\"license_no\":\"$license_no\"}")"
+  masked="$(json_get 'data["data"]["license_no"]' <<<"$response")"
+  [[ "$masked" != "$license_no" && "$masked" == *'****'* ]]
+  [[ "$(json_get 'data["data"]["product_code"]' <<<"$response")" == "DCK" ]]
+  if grep -Fq "$license_no" <<<"$response"; then
+    echo "Public license query leaked the full license number" >&2
+    return 1
+  fi
 }
 
 if [[ "$skip_build" != "1" ]]; then
@@ -115,8 +129,7 @@ activate_response="$(curl --fail --silent --show-error -X POST "$base/v1/license
   -d "{\"app_key\":\"$app_key\",\"card_code\":\"$card_code\",\"bind_mode\":\"device\",\"bind_value\":\"docker-machine\",\"device_name\":\"Docker E2E\"}")"
 license_no="$(json_get 'data["data"]["license_no"]' <<<"$activate_response")"
 
-curl --fail --silent --show-error -X POST "$base/v1/licenses/query" \
-  -H 'Content-Type: application/json' -d "{\"license_no\":\"$license_no\"}" | grep -q "$license_no"
+check_public_license
 
 account_product_response="$(curl --fail --silent --show-error -X POST "$base/admin/products" \
   -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
@@ -151,8 +164,7 @@ for attempt in $(seq 1 120); do
   [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container")" == "healthy" ]] && break
   sleep 1
 done
-curl --fail --silent --show-error -X POST "$base/v1/licenses/query" \
-  -H 'Content-Type: application/json' -d "{\"license_no\":\"$license_no\"}" | grep -q "$license_no"
+check_public_license
 
 python3 ./docker/test-product-updates.py verify "$base" "$update_state"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2" --verify-state "$platform_artifacts/stage2/report.json"

@@ -12,7 +12,9 @@ with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         tail.append(line)
     result = process.wait()
 if result:
-    message = "".join(tail)[-10000:]
+    # GitHub's public annotation view truncates long messages from the start.
+    # Keep the final error visible instead of filling it with startup logs.
+    message = "".join(tail)[-3000:]
     message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
     print(f"::error title={title}::{message}", flush=True)
 sys.exit(result)
