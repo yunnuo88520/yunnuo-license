@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 
 public final class LicenseClient {
     private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -74,6 +75,70 @@ public final class LicenseClient {
 
     public UnbindResponse unbind(UnbindRequest input) {
         return post("/v1/licenses/unbind", input, UnbindResponse.class);
+    }
+
+    /** 产品公钥环中的一个版本。 */
+    public record ProductKeyEntry(int keyVersion, String publicKeyPem) {
+    }
+
+    /** 拉取产品公钥环（含历史版本），供密钥环离线验签器使用。 */
+    public Map<Integer, String> productKeys() {
+        return productKeys(appKey);
+    }
+
+    public Map<Integer, String> productKeys(String keyAppKey) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("/v1/products/keys?app_key=" + urlencode(requireText(keyAppKey, "app key"))))
+                .timeout(timeout)
+                .header("Accept", "application/json")
+                .header("User-Agent", userAgent)
+                .GET()
+                .build();
+        try {
+            HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            byte[] raw;
+            try (InputStream body = response.body()) {
+                raw = readLimited(body, MAX_RESPONSE_BYTES);
+            }
+            JsonNode envelope = objectMapper.readTree(raw);
+            boolean success = envelope.path("success").asBoolean(false);
+            if (response.statusCode() < 200 || response.statusCode() >= 300 || !success) {
+                JsonNode error = envelope.path("error");
+                throw new APIException(textOr(error.path("code"), "HTTP_ERROR"), textOr(error.path("message"), "request failed"),
+                        response.statusCode(), textOr(envelope.path("request_id"), ""));
+            }
+            Map<Integer, String> keys = new TreeMap<>();
+            for (JsonNode entry : envelope.path("data").path("keys")) {
+                String pem = entry.path("public_key_pem").asText("");
+                if (!pem.isBlank()) {
+                    keys.put(entry.path("key_version").asInt(), pem);
+                }
+            }
+            if (keys.isEmpty()) {
+                throw new LicenseSDKException("ynlicense: product key ring is empty");
+            }
+            return keys;
+        } catch (APIException | LicenseSDKException error) {
+            throw error;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new LicenseSDKException("ynlicense: request interrupted", error);
+        } catch (IOException error) {
+            throw new LicenseSDKException("ynlicense: request failed", error);
+        }
+    }
+
+    /** 拉取公钥环并构造按 key_version 选钥的离线验签器，密钥轮换后旧客户端仍可验证新 token。 */
+    public OfflineVerifier offlineVerifierFromKeyRing(String verifierProductCode) {
+        Map<Integer, String> keys = productKeys(appKey);
+        String code = verifierProductCode == null || verifierProductCode.isBlank() ? null : verifierProductCode;
+        if (code == null) {
+            throw new IllegalArgumentException("ynlicense: product code is required");
+        }
+        return OfflineVerifier.Builder.keyRing(keys, code).build();
+    }
+
+    private static String urlencode(String value) {
+        return java.net.URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private <T> T post(String path, Object input, Class<T> responseType) {

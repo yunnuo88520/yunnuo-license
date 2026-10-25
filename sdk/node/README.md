@@ -86,6 +86,23 @@ const claims = verifier.verifyOfflineToken(license.offline_token, {
 验签覆盖 RSA 签名、产品、授权号、设备绑定摘要、授权有效期、离线窗口和异常未来
 签发时间。旧 token 不含 `bind_digest` 时返回 `BINDING_MISMATCH`，应联网刷新。
 
+### 密钥环模式（支持密钥轮换）
+
+服务器轮换签名密钥后，新 token 由新私钥签发。使用密钥环验签器可按 token 的
+`key_version` 自动选择对应版本的公钥，已部署客户端无需发版升级：
+
+```js
+import { offlineVerifierFromKeyRing } from "@yunnuo/license-sdk";
+
+// 从授权站拉取公钥环（GET /v1/products/keys，含全部历史版本）并构造验签器。
+const verifier = await offlineVerifierFromKeyRing(client, { appKey: "app_xxx" });
+
+// 也可用自带的公钥环直接构造：
+// new OfflineVerifier({ publicKeys: { 1: pemV1, 2: pemV2 }, productCode: "YN" })
+```
+
+未知 `key_version` 返回 `KEY_VERSION_UNKNOWN`，此时应刷新公钥环后重试。
+
 ## 完全离线文件
 
 ```js

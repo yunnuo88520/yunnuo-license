@@ -136,6 +136,53 @@ class OfflineVerifierTest {
         return claims;
     }
 
+    @Test
+    void keyRingSelectsSigningKeyByVersion() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair keyPairV2 = generator.generateKeyPair();
+        String publicKeyPemV2 = "-----BEGIN PUBLIC KEY-----\n" +
+                Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.US_ASCII))
+                        .encodeToString(keyPairV2.getPublic().getEncoded()) +
+                "\n-----END PUBLIC KEY-----\n";
+        Map<Integer, String> ring = Map.of(1, publicKeyPem, 2, publicKeyPemV2);
+        OfflineVerifier ringVerifier = OfflineVerifier.Builder.keyRing(ring, "YN")
+                .clock(Clock.fixed(NOW, ZoneOffset.UTC))
+                .build();
+
+        // v2 签发的新 token（密钥轮换后）与 v1 旧 token 都能通过。
+        Map<String, Object> v2Claims = cacheClaims();
+        v2Claims.put("license_no", "lic_ring");
+        v2Claims.put("key_version", 2);
+        String v2Token = sign(v2Claims, keyPairV2.getPrivate());
+        assertEquals("lic_ring", ringVerifier.verifyOfflineToken(v2Token,
+                new OfflineExpectation("lic_ring", "device", "machine-A")).licenseNo());
+
+        Map<String, Object> v1Claims = cacheClaims();
+        v1Claims.put("license_no", "lic_ring");
+        String v1Token = sign(v1Claims, keyPair.getPrivate());
+        assertEquals("lic_ring", ringVerifier.verifyOfflineToken(v1Token,
+                new OfflineExpectation("lic_ring", "device", "machine-A")).licenseNo());
+
+        // 未知版本拒绝。
+        Map<String, Object> v9Claims = cacheClaims();
+        v9Claims.put("key_version", 9);
+        VerificationException unknown = assertThrows(VerificationException.class,
+                () -> ringVerifier.verifyOfflineToken(sign(v9Claims, keyPairV2.getPrivate()),
+                        new OfflineExpectation("lic_ring", "device", "machine-A")));
+        assertTrue(unknown.hasCode(VerificationCode.KEY_VERSION_UNKNOWN));
+
+        // 环外私钥伪造 key_version=2 不能通过（签名校验仍然生效）。
+        Map<String, Object> forgedClaims = cacheClaims();
+        forgedClaims.put("license_no", "lic_ring");
+        forgedClaims.put("key_version", 2);
+        KeyPair foreign = generator.generateKeyPair();
+        VerificationException forged = assertThrows(VerificationException.class,
+                () -> ringVerifier.verifyOfflineToken(sign(forgedClaims, foreign.getPrivate()),
+                        new OfflineExpectation("lic_ring", "device", "machine-A")));
+        assertTrue(forged.hasCode(VerificationCode.INVALID_SIGNATURE));
+    }
+
     private static String sign(Object claims, PrivateKey privateKey) throws Exception {
         byte[] body = MAPPER.writeValueAsBytes(claims);
         Signature signature = Signature.getInstance("SHA256withRSA");

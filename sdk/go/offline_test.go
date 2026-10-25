@@ -156,3 +156,58 @@ func differentBase64Char(value byte) string {
 	}
 	return "A"
 }
+
+func TestKeyRingVerifierSelectsKeyByVersion(t *testing.T) {
+	privateV1, publicV1 := testKeyPair(t)
+	privateV2, publicV2 := testKeyPair(t)
+	now := time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)
+	licenseExpiry := now.Add(48 * time.Hour)
+	base := OfflineCacheClaims{
+		Type:             "offline_cache",
+		LicenseNo:        "lic_ring",
+		ProductCode:      "YN",
+		BindMode:         "device",
+		BindDigest:       BindingDigest("device", "machine-A"),
+		LicenseExpiredAt: &licenseExpiry,
+		OfflineUntil:     now.Add(24 * time.Hour),
+		IssuedAt:         now,
+		KeyVersion:       1,
+	}
+
+	verifier, err := NewKeyRingOfflineVerifier(map[int]string{1: publicV1, 2: publicV2}, "YN",
+		WithVerifierClock(func() time.Time { return now }))
+	if err != nil {
+		t.Fatalf("new key ring verifier: %v", err)
+	}
+
+	// v2 签发的新 token（密钥轮换后）与 v1 旧 token 都能通过。
+	v2Token := testSignJSON(t, privateV2, func() OfflineCacheClaims { c := base; c.KeyVersion = 2; return c }())
+	if _, err := verifier.VerifyOfflineToken(v2Token, OfflineExpectation{BindMode: "device", BindValue: "machine-A"}); err != nil {
+		t.Fatalf("v2 token should verify: %v", err)
+	}
+	v1Token := testSignJSON(t, privateV1, base)
+	if _, err := verifier.VerifyOfflineToken(v1Token, OfflineExpectation{BindMode: "device", BindValue: "machine-A"}); err != nil {
+		t.Fatalf("v1 token should verify: %v", err)
+	}
+
+	// 未知版本拒绝。
+	v9Token := testSignJSON(t, privateV2, func() OfflineCacheClaims { c := base; c.KeyVersion = 9; return c }())
+	err = func() error {
+		_, err := verifier.VerifyOfflineToken(v9Token, OfflineExpectation{BindMode: "device", BindValue: "machine-A"})
+		return err
+	}()
+	if !IsVerificationErrorCode(err, VerificationKeyVersionUnknown) {
+		t.Fatalf("unknown version should fail with KEY_VERSION_UNKNOWN: %v", err)
+	}
+
+	// 环外私钥伪造 key_version=2 不能通过（签名校验仍然生效）。
+	foreignPrivate, _ := testKeyPair(t)
+	foreignToken := testSignJSON(t, foreignPrivate, func() OfflineCacheClaims { c := base; c.KeyVersion = 2; return c }())
+	err = func() error {
+		_, err := verifier.VerifyOfflineToken(foreignToken, OfflineExpectation{BindMode: "device", BindValue: "machine-A"})
+		return err
+	}()
+	if !IsVerificationErrorCode(err, VerificationInvalidSignature) {
+		t.Fatalf("forged token should fail signature: %v", err)
+	}
+}

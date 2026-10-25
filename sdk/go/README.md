@@ -59,7 +59,26 @@ claims, err := verifier.VerifyOfflineToken(license.OfflineToken, ynlicense.Offli
     BindMode:  "device",
     BindValue: machineCode,
 })
+if err != nil {
+    log.Fatal(err)
+}
 ```
+
+### 密钥环模式（支持密钥轮换）
+
+服务器轮换签名密钥后，新 token 由新私钥签发。密钥环验签器按 token 的
+`key_version` 自动选择对应版本的公钥，已部署客户端无需发版升级：
+
+```go
+// 从授权站拉取公钥环（GET /v1/products/keys）并构造验签器：
+ringVerifier, err := client.OfflineVerifierFromKeyRing(ctx, "", "YN")
+
+// 或用自带的公钥环直接构造：
+ringVerifier, err := ynlicense.NewKeyRingOfflineVerifier(
+    map[int]string{1: pemV1, 2: pemV2}, "YN")
+```
+
+未知 `key_version` 返回 `KEY_VERSION_UNKNOWN`，此时应刷新公钥环后重试。
 
 验签同时检查产品、授权号、当前绑定摘要、授权有效期、离线窗口和异常未来签发时间。
 旧版不含 `bind_digest` 的 token 会返回 `BINDING_MISMATCH`，客户端应联网刷新 token。

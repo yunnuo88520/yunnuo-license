@@ -70,6 +70,10 @@ import com.yunnuo.license.OfflineVerifier;
 import com.yunnuo.license.model.OfflineExpectation;
 
 OfflineVerifier verifier = new OfflineVerifier(productPublicKeyPem, "YN");
+
+// 密钥环模式（支持密钥轮换）：按 token 的 key_version 自动选钥。
+Map<Integer, String> keyRing = client.productKeys();
+OfflineVerifier ringVerifier = OfflineVerifier.Builder.keyRing(keyRing, "YN").build();
 var claims = verifier.verifyOfflineToken(
         license.offlineToken(),
         new OfflineExpectation(license.licenseNo(), "device", machineCode));

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -25,10 +26,12 @@ const (
 	VerificationOfflineWindowExpired = "OFFLINE_WINDOW_EXPIRED"
 	VerificationIssuedInFuture       = "ISSUED_IN_FUTURE"
 	VerificationClockRollback        = "CLOCK_ROLLBACK"
+	VerificationKeyVersionUnknown    = "KEY_VERSION_UNKNOWN"
 )
 
 type OfflineVerifier struct {
 	publicKey   *rsa.PublicKey
+	keyRing     map[int]*rsa.PublicKey
 	productCode string
 	clock       func() time.Time
 	clockSkew   time.Duration
@@ -73,6 +76,66 @@ func NewOfflineVerifier(publicKeyPEM, productCode string, options ...VerifierOpt
 	return verifier, nil
 }
 
+// NewKeyRingOfflineVerifier 构造按 token 的 key_version 选钥的离线验签器：
+// 密钥轮换后，携带着各版本公钥的已部署客户端仍能验证新旧 token。
+// keys 的键为密钥版本号，值为其 SPKI PEM 公钥。
+func NewKeyRingOfflineVerifier(keys map[int]string, productCode string, options ...VerifierOption) (*OfflineVerifier, error) {
+	if len(keys) == 0 {
+		return nil, errors.New("ynlicense: key ring must contain at least one key")
+	}
+	ring := make(map[int]*rsa.PublicKey, len(keys))
+	for version, pem := range keys {
+		if version < 1 {
+			return nil, fmt.Errorf("ynlicense: invalid key version %d", version)
+		}
+		key, err := parsePublicKey(pem)
+		if err != nil {
+			return nil, fmt.Errorf("ynlicense: invalid public key for version %d: %w", version, err)
+		}
+		ring[version] = key
+	}
+	productCode = strings.TrimSpace(productCode)
+	if productCode == "" {
+		return nil, errors.New("ynlicense: product code is required")
+	}
+	verifier := &OfflineVerifier{
+		keyRing:     ring,
+		productCode: productCode,
+		clock:       time.Now,
+		clockSkew:   5 * time.Minute,
+	}
+	for _, option := range options {
+		option(verifier)
+	}
+	return verifier, nil
+}
+
+// selectKey 先解析未验证的 claims 读取 key_version 选出验签公钥（密钥环模式），
+// 验签通过之前 claims 不可信任；单公钥模式直接返回固定公钥。
+func (v *OfflineVerifier) selectKey(token string) (*rsa.PublicKey, OfflineCacheClaims, error) {
+	if v.publicKey != nil {
+		return v.publicKey, OfflineCacheClaims{}, nil
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return nil, OfflineCacheClaims{}, verificationError(VerificationInvalidSignature, "invalid signed token")
+	}
+	body, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, OfflineCacheClaims{}, verificationError(VerificationInvalidSignature, err.Error())
+	}
+	var probe OfflineCacheClaims
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return nil, OfflineCacheClaims{}, verificationError(VerificationInvalidFile, "signed claims are not valid JSON")
+	}
+	key := v.keyRing[probe.KeyVersion]
+	if key == nil {
+		return nil, OfflineCacheClaims{}, verificationError(VerificationKeyVersionUnknown,
+			fmt.Sprintf("no public key for key_version %d", probe.KeyVersion))
+	}
+	return key, OfflineCacheClaims{}, nil
+}
+
 type OfflineExpectation struct {
 	LicenseNo string
 	BindMode  string
@@ -96,7 +159,11 @@ type OfflineCacheClaims struct {
 }
 
 func (v *OfflineVerifier) VerifyOfflineToken(token string, expected OfflineExpectation) (OfflineCacheClaims, error) {
-	claims, err := verifySignedJSON[OfflineCacheClaims](v.publicKey, token)
+	key, _, err := v.selectKey(token)
+	if err != nil {
+		return OfflineCacheClaims{}, err
+	}
+	claims, err := verifySignedJSON[OfflineCacheClaims](key, token)
 	if err != nil {
 		return OfflineCacheClaims{}, verificationError(VerificationInvalidSignature, err.Error())
 	}
@@ -158,7 +225,11 @@ func (v *OfflineVerifier) VerifyLicenseFile(content []byte, machineCode string) 
 	if file.Format != "yn-license-key" || file.Version != 1 || file.Token == "" {
 		return OfflineLicenseClaims{}, verificationError(VerificationInvalidFile, "unsupported file format or version")
 	}
-	claims, err := verifySignedJSON[OfflineLicenseClaims](v.publicKey, file.Token)
+	key, _, err := v.selectKey(file.Token)
+	if err != nil {
+		return OfflineLicenseClaims{}, err
+	}
+	claims, err := verifySignedJSON[OfflineLicenseClaims](key, file.Token)
 	if err != nil {
 		return OfflineLicenseClaims{}, verificationError(VerificationInvalidSignature, err.Error())
 	}

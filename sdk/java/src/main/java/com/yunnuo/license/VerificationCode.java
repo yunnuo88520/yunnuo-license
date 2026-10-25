@@ -10,6 +10,7 @@ public final class VerificationCode {
     public static final String OFFLINE_WINDOW_EXPIRED = "OFFLINE_WINDOW_EXPIRED";
     public static final String ISSUED_IN_FUTURE = "ISSUED_IN_FUTURE";
     public static final String CLOCK_ROLLBACK = "CLOCK_ROLLBACK";
+    public static final String KEY_VERSION_UNKNOWN = "KEY_VERSION_UNKNOWN";
 
     private VerificationCode() {
     }

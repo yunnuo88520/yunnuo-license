@@ -20,10 +20,15 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 
 public final class OfflineVerifier {
+    // 单公钥模式：publicKey 有值，忽略 token 的 key_version（向后兼容）。
     private final RSAPublicKey publicKey;
+    // 密钥环模式：keyRing 有值，按 token 的 key_version 选钥。
+    private final Map<Integer, RSAPublicKey> keyRing;
     private final String productCode;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -34,7 +39,23 @@ public final class OfflineVerifier {
     }
 
     private OfflineVerifier(Builder builder) {
-        this.publicKey = parsePublicKey(builder.publicKeyPem);
+        if (builder.publicKeys != null && !builder.publicKeys.isEmpty()) {
+            if (!isBlank(builder.publicKeyPem)) {
+                throw new IllegalArgumentException("ynlicense: provide either publicKeyPem or publicKeys, not both");
+            }
+            Map<Integer, RSAPublicKey> ring = new TreeMap<>();
+            for (Map.Entry<Integer, String> entry : builder.publicKeys.entrySet()) {
+                if (entry.getKey() == null || entry.getKey() < 1) {
+                    throw new IllegalArgumentException("ynlicense: invalid key version " + entry.getKey());
+                }
+                ring.put(entry.getKey(), parsePublicKey(entry.getValue()));
+            }
+            this.keyRing = Map.copyOf(ring);
+            this.publicKey = null;
+        } else {
+            this.publicKey = parsePublicKey(builder.publicKeyPem);
+            this.keyRing = null;
+        }
         this.productCode = requireText(builder.productCode, "product code");
         this.objectMapper = Objects.requireNonNull(builder.objectMapper, "objectMapper");
         this.clock = Objects.requireNonNull(builder.clock, "clock");
@@ -135,8 +156,9 @@ public final class OfflineVerifier {
         try {
             byte[] body = Base64.getUrlDecoder().decode(parts[0]);
             byte[] signatureBytes = Base64.getUrlDecoder().decode(parts[1]);
+            RSAPublicKey key = selectKey(body);
             Signature signature = Signature.getInstance("SHA256withRSA");
-            signature.initVerify(publicKey);
+            signature.initVerify(key);
             signature.update(body);
             if (!signature.verify(signatureBytes)) {
                 fail(VerificationCode.INVALID_SIGNATURE, "signature verification failed");
@@ -146,6 +168,26 @@ public final class OfflineVerifier {
             throw error;
         } catch (IllegalArgumentException | GeneralSecurityException error) {
             throw new VerificationException(VerificationCode.INVALID_SIGNATURE, "signature verification failed");
+        } catch (IOException error) {
+            throw new VerificationException(VerificationCode.INVALID_FILE, "signed claims are not valid JSON");
+        }
+    }
+
+    // selectKey 先按未验证的 key_version 选出验签公钥（密钥环模式），
+    // 签名校验通过之前这些 claims 不可信任；单公钥模式直接返回固定公钥。
+    private RSAPublicKey selectKey(byte[] body) {
+        if (publicKey != null) {
+            return publicKey;
+        }
+        try {
+            JsonNode claims = objectMapper.readTree(body);
+            JsonNode versionNode = claims.path("key_version");
+            int version = versionNode.isInt() ? versionNode.asInt() : -1;
+            RSAPublicKey key = keyRing.get(version);
+            if (key == null) {
+                fail(VerificationCode.KEY_VERSION_UNKNOWN, "no public key for key_version " + versionNode.asText());
+            }
+            return key;
         } catch (IOException error) {
             throw new VerificationException(VerificationCode.INVALID_FILE, "signed claims are not valid JSON");
         }
@@ -193,6 +235,7 @@ public final class OfflineVerifier {
 
     public static final class Builder {
         private final String publicKeyPem;
+        private final Map<Integer, String> publicKeys;
         private final String productCode;
         private ObjectMapper objectMapper = LicenseClient.defaultObjectMapper();
         private Clock clock = Clock.systemUTC();
@@ -200,7 +243,20 @@ public final class OfflineVerifier {
 
         private Builder(String publicKeyPem, String productCode) {
             this.publicKeyPem = publicKeyPem;
+            this.publicKeys = null;
             this.productCode = productCode;
+        }
+
+        private Builder(Map<Integer, String> publicKeys, String productCode) {
+            this.publicKeyPem = null;
+            this.publicKeys = publicKeys;
+            this.productCode = productCode;
+        }
+
+        // keyRingBuilder 以密钥环模式构造：按 token 的 key_version 自动选钥，
+        // 适用于密钥轮换后需要同时验证新旧 token 的已部署客户端。
+        public static Builder keyRing(Map<Integer, String> publicKeys, String productCode) {
+            return new Builder(publicKeys, productCode);
         }
 
         public Builder objectMapper(ObjectMapper value) {

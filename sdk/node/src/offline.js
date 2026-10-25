@@ -11,27 +11,56 @@ export const VerificationCode = Object.freeze({
   OFFLINE_WINDOW_EXPIRED: "OFFLINE_WINDOW_EXPIRED",
   ISSUED_IN_FUTURE: "ISSUED_IN_FUTURE",
   CLOCK_ROLLBACK: "CLOCK_ROLLBACK",
+  KEY_VERSION_UNKNOWN: "KEY_VERSION_UNKNOWN",
 });
 
 export class OfflineVerifier {
+  // 单公钥模式：#publicKey 有值，忽略 token 的 key_version（向后兼容）。
   #publicKey;
+  // 密钥环模式：#keyRing 有值，按 token 的 key_version 选钥。
+  #keyRing;
   #productCode;
   #clock;
   #clockSkewMs;
 
-  constructor({ publicKeyPem, productCode, clock = () => new Date(), clockSkewMs = 5 * 60 * 1000 }) {
+  constructor({ publicKeyPem, publicKeys, productCode, clock = () => new Date(), clockSkewMs = 5 * 60 * 1000 }) {
     const normalizedProductCode = String(productCode ?? "").trim();
     if (!normalizedProductCode) throw new TypeError("ynlicense: product code is required");
     if (typeof clock !== "function" || !Number.isFinite(clockSkewMs) || clockSkewMs < 0) {
       throw new TypeError("ynlicense: clock must be a function and clockSkewMs cannot be negative");
     }
-    try {
-      this.#publicKey = createPublicKey(publicKeyPem);
-    } catch (error) {
-      throw new TypeError(`ynlicense: invalid RSA public key: ${error.message}`, { cause: error });
-    }
-    if (this.#publicKey.asymmetricKeyType !== "rsa") {
-      throw new TypeError("ynlicense: public key must be RSA");
+    if (publicKeys != null) {
+      if (typeof publicKeys !== "object" || Array.isArray(publicKeys)) {
+        throw new TypeError("ynlicense: publicKeys must map key versions to PEM strings");
+      }
+      const ring = new Map();
+      for (const [version, pem] of Object.entries(publicKeys)) {
+        const numeric = Number(version);
+        if (!Number.isInteger(numeric) || numeric < 1) {
+          throw new TypeError(`ynlicense: invalid key version ${version}`);
+        }
+        try {
+          const key = createPublicKey(pem);
+          if (key.asymmetricKeyType !== "rsa") throw new Error("not an RSA key");
+          ring.set(numeric, key);
+        } catch (error) {
+          throw new TypeError(`ynlicense: invalid RSA public key for version ${version}: ${error.message}`, { cause: error });
+        }
+      }
+      if (ring.size === 0) throw new TypeError("ynlicense: publicKeys must contain at least one key");
+      this.#keyRing = ring;
+    } else {
+      if (publicKeyPem == null) {
+        throw new TypeError("ynlicense: publicKeyPem or publicKeys is required");
+      }
+      try {
+        this.#publicKey = createPublicKey(publicKeyPem);
+      } catch (error) {
+        throw new TypeError(`ynlicense: invalid RSA public key: ${error.message}`, { cause: error });
+      }
+      if (this.#publicKey.asymmetricKeyType !== "rsa") {
+        throw new TypeError("ynlicense: public key must be RSA");
+      }
     }
     this.#productCode = normalizedProductCode;
     this.#clock = clock;
@@ -121,7 +150,11 @@ export class OfflineVerifier {
     } catch {
       fail(VerificationCode.INVALID_SIGNATURE, "invalid base64url token");
     }
-    if (body.length === 0 || signature.length === 0 || !verifySignature("RSA-SHA256", body, this.#publicKey, signature)) {
+    if (body.length === 0 || signature.length === 0) {
+      fail(VerificationCode.INVALID_SIGNATURE, "signature verification failed");
+    }
+    const key = this.#selectKey(body);
+    if (!verifySignature("RSA-SHA256", body, key, signature)) {
       fail(VerificationCode.INVALID_SIGNATURE, "signature verification failed");
     }
     try {
@@ -129,6 +162,22 @@ export class OfflineVerifier {
     } catch {
       fail(VerificationCode.INVALID_FILE, "signed claims are not valid JSON");
     }
+  }
+
+  // #selectKey 先按未验证的 key_version 选出验签公钥（密钥环模式），
+  // 签名校验通过之前这些 claims 不可信任；单公钥模式直接返回固定公钥。
+  #selectKey(body) {
+    if (this.#publicKey) return this.#publicKey;
+    let claims;
+    try {
+      claims = JSON.parse(body.toString("utf8"));
+    } catch {
+      fail(VerificationCode.INVALID_FILE, "signed claims are not valid JSON");
+    }
+    const version = Number(claims?.key_version);
+    const key = Number.isInteger(version) ? this.#keyRing.get(version) : undefined;
+    if (!key) fail(VerificationCode.KEY_VERSION_UNKNOWN, `no public key for key_version ${claims?.key_version}`);
+    return key;
   }
 }
 

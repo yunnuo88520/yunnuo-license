@@ -97,8 +97,55 @@ function expectation() {
   return { licenseNo: "lic_test", bindMode: "device", bindValue: "machine-A" };
 }
 
-function signClaims(claims) {
+function signClaims(claims, signingKey = privateKey) {
   const body = Buffer.from(JSON.stringify(claims));
-  const signature = sign("RSA-SHA256", body, privateKey);
+  const signature = sign("RSA-SHA256", body, signingKey);
   return `${body.toString("base64url")}.${signature.toString("base64url")}`;
 }
+
+test("key ring selects the signing key by key_version", async () => {
+  const { publicKey: keyV2Public, privateKey: keyV2Private } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pemV2 = keyV2Public.export({ type: "spki", format: "pem" });
+  const ringVerifier = new OfflineVerifier({
+    publicKeys: { 1: publicKeyPem, 2: pemV2 },
+    productCode: "YN",
+    clock: () => now,
+  });
+  // v2 私钥签发的新 token（密钥轮换后服务端行为）在密钥环验签器上通过。
+  const v2Token = signClaims({
+    type: "offline_cache", license_no: "lic_ring", product_code: "YN",
+    bind_mode: "device", bind_digest: bindingDigest("device", "machine-A"),
+    license_expired_at: "2026-08-14T03:00:00Z", offline_until: "2026-08-13T03:00:00Z",
+    issued_at: now.toISOString(), key_version: 2,
+  }, keyV2Private);
+  assert.equal(ringVerifier.verifyOfflineToken(v2Token, { licenseNo: "lic_ring", bindMode: "device", bindValue: "machine-A" }).license_no, "lic_ring");
+  // v1 签名的旧 token 同样通过。
+  const v1Token = signClaims({
+    type: "offline_cache", license_no: "lic_ring", product_code: "YN",
+    bind_mode: "device", bind_digest: bindingDigest("device", "machine-A"),
+    license_expired_at: "2026-08-14T03:00:00Z", offline_until: "2026-08-13T03:00:00Z",
+    issued_at: now.toISOString(), key_version: 1,
+  });
+  assert.equal(ringVerifier.verifyOfflineToken(v1Token, { bindMode: "device", bindValue: "machine-A" }).license_no, "lic_ring");
+  // 未知版本拒绝。
+  const v9Token = signClaims({
+    type: "offline_cache", license_no: "lic_ring", product_code: "YN",
+    bind_mode: "device", bind_digest: bindingDigest("device", "machine-A"),
+    license_expired_at: "2026-08-14T03:00:00Z", offline_until: "2026-08-13T03:00:00Z",
+    issued_at: now.toISOString(), key_version: 9,
+  });
+  assert.throws(
+    () => ringVerifier.verifyOfflineToken(v9Token, { bindMode: "device", bindValue: "machine-A" }),
+    (error) => isVerificationErrorCode(error, VerificationCode.KEY_VERSION_UNKNOWN),
+  );
+  // 被未知版本私钥签名的 token 不能用环内公钥伪造通过（签名验证仍生效）。
+  assert.throws(
+    () => ringVerifier.verifyOfflineToken(signClaims({
+      type: "offline_cache", license_no: "lic_ring", product_code: "YN",
+      bind_mode: "device", bind_digest: bindingDigest("device", "machine-A"),
+      license_expired_at: "2026-08-14T03:00:00Z", offline_until: "2026-08-13T03:00:00Z",
+      issued_at: now.toISOString(), key_version: 2,
+    }), { bindMode: "device", bindValue: "machine-A" }),
+    (error) => isVerificationErrorCode(error, VerificationCode.INVALID_SIGNATURE),
+  );
+});

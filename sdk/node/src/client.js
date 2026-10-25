@@ -1,4 +1,5 @@
 import { APIError } from "./errors.js";
+import { OfflineVerifier } from "./offline.js";
 import { verifyReleaseManifest, verifyReleasePackage } from "./updates.js";
 import { createHash } from "node:crypto";
 
@@ -61,6 +62,45 @@ export class LicenseClient {
 
   securityDecision(input, options) { return this.#post("/v1/security/decision", input, options); }
   reportIntegrity(input, options) { return this.#post("/v1/security/report", input, options); }
+
+  // productKeys 拉取产品公钥环（含历史版本），供密钥环离线验签器使用。
+  productKeys(appKey, options) {
+    return this.#get(`/v1/products/keys?app_key=${encodeURIComponent(String(appKey ?? this.#appKey))}`, options);
+  }
+
+  async #get(path, options = {}) {
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(() => timeoutController.abort(new DOMException("Request timed out", "TimeoutError")), this.#timeoutMs);
+    const signal = combineSignals(timeoutController.signal, options.signal);
+    try {
+      const response = await this.#fetch(`${this.#baseUrl}${path}`, {
+        method: "GET",
+        headers: { Accept: "application/json", "User-Agent": this.#userAgent },
+        signal,
+      });
+      const raw = new TextDecoder().decode(await readLimitedResponse(response, MAX_RESPONSE_BYTES));
+      let envelope;
+      try {
+        envelope = JSON.parse(raw);
+      } catch (error) {
+        throw new Error(`ynlicense: decode response (HTTP ${response.status}): ${error.message}`, { cause: error });
+      }
+      if (!response.ok || envelope?.success !== true) {
+        throw new APIError({
+          code: envelope?.error?.code || "HTTP_ERROR",
+          message: envelope?.error?.message || response.statusText || "request failed",
+          httpStatus: response.status,
+          requestId: envelope?.request_id || "",
+        });
+      }
+      return envelope.data;
+    } catch (error) {
+      if (error instanceof APIError || String(error?.message).startsWith("ynlicense:")) throw error;
+      throw new Error(`ynlicense: request failed: ${error?.message || error}`, { cause: error });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 
   async downloadUpdate(release, input, { publicKeyPem, productId, ...options }) {
     const expected = { publicKeyPem, productId };
@@ -163,4 +203,20 @@ function combineSignals(timeoutSignal, callerSignal) {
   if (callerSignal.aborted) abort(callerSignal);
   else callerSignal.addEventListener("abort", () => abort(callerSignal), { once: true });
   return controller.signal;
+}
+
+// offlineVerifierFromKeyRing 拉取产品公钥环并构造按 key_version 选钥的离线验签器，
+// 让密钥轮换后的新 token 仍能在已部署客户端上通过验证。
+export async function offlineVerifierFromKeyRing(client, { appKey, productCode, ...options } = {}) {
+  const key = String(appKey ?? "").trim();
+  if (!key) throw new TypeError("ynlicense: appKey is required");
+  const ring = await client.productKeys(key, options);
+  const publicKeys = {};
+  for (const entry of ring?.keys ?? []) {
+    if (entry?.public_key_pem) publicKeys[entry.key_version] = entry.public_key_pem;
+  }
+  if (Object.keys(publicKeys).length === 0) {
+    throw new Error("ynlicense: product key ring is empty");
+  }
+  return new OfflineVerifier({ publicKeys, productCode: productCode ?? ring.product_code, ...options });
 }
