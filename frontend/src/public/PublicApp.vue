@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from "vue";
 import {
   ArrowRight,
   CheckCircle2,
+  CircleHelp,
   CircleUserRound,
   Crosshair,
   Globe2,
@@ -16,7 +17,9 @@ import {
 } from "lucide-vue-next";
 import { entries } from "../shared/entries";
 import AgentVerify from "./AgentVerify.vue";
-import { request } from "../shared/api";
+import CaptchaField from "../shared/components/CaptchaField.vue";
+import HelpPanel from "../shared/components/HelpPanel.vue";
+import { request, ApiError } from "../shared/api";
 import { formatTime, statusLabel } from "../shared/format";
 import { branding, loadBranding, logoSource } from "../shared/branding";
 
@@ -26,6 +29,10 @@ const queryType = ref("auto");
 const loading = ref(false);
 const error = ref("");
 const result = ref<any>(null);
+const needCaptcha = ref(false);
+const captchaCode = ref("");
+const helpOpen = ref(false);
+const captchaField = ref<any>(null);
 const queryTypes = [
   { value: "auto", label: "智能识别", icon: Crosshair },
   { value: "domain", label: "域名", icon: Globe2 },
@@ -59,15 +66,40 @@ async function submit() {
   error.value = "";
   result.value = null;
   try {
+    const payload: Record<string, string> = {
+      query: value,
+      query_type: queryType.value,
+    };
+    if (needCaptcha.value) {
+      payload.captcha_id = captchaField.value?.captchaId || "";
+      payload.captcha_code = captchaCode.value;
+    }
     result.value = await request("/v1/licenses/query", {
       method: "POST",
-      body: JSON.stringify({ query: value, query_type: queryType.value }),
+      body: JSON.stringify(payload),
     });
   } catch (e: any) {
-    error.value =
-      e.code === "AUTHORIZATION_NOT_FOUND"
-        ? "未查询到该授权"
-        : "查询失败，请稍后重试";
+    if (
+      e instanceof ApiError &&
+      (e.code === "CAPTCHA_REQUIRED" || e.code === "CAPTCHA_INVALID")
+    ) {
+      needCaptcha.value = true;
+      error.value =
+        e.code === "CAPTCHA_REQUIRED"
+          ? "当前查询较为频繁，请输入图形验证码后重试"
+          : "图形验证码不正确，请重新输入";
+      captchaField.value?.refresh();
+    } else if (
+      e instanceof ApiError &&
+      e.code === "RATE_LIMITED"
+    ) {
+      error.value = "查询过于频繁，请稍后再试";
+    } else {
+      error.value =
+        e.code === "AUTHORIZATION_NOT_FOUND"
+          ? "未查询到该授权"
+          : "查询失败，请稍后重试";
+    }
   } finally {
     loading.value = false;
   }
@@ -76,6 +108,8 @@ function clear() {
   query.value = "";
   result.value = null;
   error.value = "";
+  needCaptcha.value = false;
+  captchaCode.value = "";
 }
 function selectQueryType(value: string) {
   queryType.value = value;
@@ -94,7 +128,10 @@ function selectQueryType(value: string) {
       <div class="query-links">
         <a href="/user-console/">用户中心</a>
         <a href="/agent-console/">代理入口 <ArrowRight :size="15" /></a
-        ><a :href="entries.admin">管理控制台</a>
+        ><a :href="entries.admin">管理控制台</a
+        ><a href="#" @click.prevent="helpOpen = true"
+          ><CircleHelp :size="15" />使用帮助</a
+        >
       </div>
       <AppearanceMenu />
     </header>
@@ -157,6 +194,12 @@ function selectQueryType(value: string) {
               />
             </button>
           </div>
+          <CaptchaField
+            v-if="needCaptcha"
+            ref="captchaField"
+            v-model="captchaCode"
+            endpoint="/v1/public-captcha"
+          />
           <p class="error">{{ error }}</p>
         </form>
       </div>
@@ -273,4 +316,5 @@ function selectQueryType(value: string) {
       </section>
     </Transition>
   </main>
+  <HelpPanel :open="helpOpen" @close="helpOpen = false" />
 </template>

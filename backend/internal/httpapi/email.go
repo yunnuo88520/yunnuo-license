@@ -18,15 +18,11 @@ func (api *API) registerEmailRoutes(mux *http.ServeMux) {
 			writeOK(w, r, map[string]any{"enabled": false})
 			return
 		}
-		challenge, err := api.service.NewCaptcha(r.Context())
-		if err != nil {
-			writeError(w, r, err)
-			return
-		}
-		writeOK(w, r, map[string]any{
-			"enabled": true, "id": challenge.ID,
-			"image": challenge.Image, "expires_at": challenge.ExpiresAt,
-		})
+		api.writeCaptchaChallenge(w, r)
+	}))
+	// 公开查询的渐进式验证码挑战，不受登录验证码开关限制。
+	mux.HandleFunc("GET /v1/public-captcha", withRateLimit(api.publicQueryLimit, func(w http.ResponseWriter, r *http.Request) {
+		api.writeCaptchaChallenge(w, r)
 	}))
 	mux.HandleFunc("GET /admin/captcha-settings", api.withAdmin(api.getCaptchaSettings, adminReadRoles...))
 	mux.HandleFunc("POST /admin/captcha-settings", api.withAdmin(api.updateCaptchaSettings, adminWriteRoles...))
@@ -135,4 +131,16 @@ func (api *API) listEmailLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeOK(w, r, logs)
+}
+
+func (api *API) writeCaptchaChallenge(w http.ResponseWriter, r *http.Request) {
+	challenge, err := api.service.NewCaptcha(r.Context())
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, map[string]any{
+		"enabled": true, "id": challenge.ID,
+		"image": challenge.Image, "expires_at": challenge.ExpiresAt,
+	})
 }

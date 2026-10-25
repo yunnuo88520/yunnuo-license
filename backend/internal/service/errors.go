@@ -76,6 +76,8 @@ var (
 	ErrAdminUserDisabled        = forbidden("ADMIN_USER_DISABLED", "admin user disabled")
 	ErrPermissionDenied         = forbidden("PERMISSION_DENIED", "permission denied")
 	ErrRateLimited              = tooManyRequests("RATE_LIMITED", "too many requests")
+	ErrCaptchaRequired          = unauthorized("CAPTCHA_REQUIRED", "请输入图形验证码")
+	ErrCaptchaInvalid           = unauthorized("CAPTCHA_INVALID", "图形验证码错误或已失效，请重试")
 	ErrRiskBlockedIP            = forbidden("RISK_IP_BLOCKED", "this IP address is blocked")
 	ErrRiskBlockedDevice        = forbidden("RISK_DEVICE_BLOCKED", "this device is blocked")
 	ErrRiskBlockNotFound        = notFound("RISK_BLOCK_NOT_FOUND", "risk block not found")

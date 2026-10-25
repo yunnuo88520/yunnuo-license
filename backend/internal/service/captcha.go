@@ -76,15 +76,20 @@ func (s *Service) ensureLoginCaptcha(ctx context.Context, id, answer string) err
 	if settings.LoginEnabled != 1 {
 		return nil
 	}
+	return s.EnsureCaptcha(ctx, id, answer)
+}
+
+// EnsureCaptcha 校验并一次性消费图形验证码；为空返回 CAPTCHA_REQUIRED。
+func (s *Service) EnsureCaptcha(ctx context.Context, id, answer string) error {
 	if strings.TrimSpace(id) == "" || strings.TrimSpace(answer) == "" {
-		return unauthorized("CAPTCHA_REQUIRED", "请输入图形验证码")
+		return ErrCaptchaRequired
 	}
 	ok, err := s.currentStore().ConsumeCaptchaChallenge(ctx, strings.TrimSpace(id), recoveryHash(strings.ToUpper(strings.TrimSpace(answer))), s.now())
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return unauthorized("CAPTCHA_INVALID", "图形验证码错误或已失效，请重试")
+		return ErrCaptchaInvalid
 	}
 	return nil
 }

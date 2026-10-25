@@ -23,10 +23,13 @@ type BindingPolicy struct {
 }
 
 type CustomerBinding struct {
-	ID     string `json:"id"`
-	Mode   string `json:"mode"`
-	Value  string `json:"value"`
-	Status string `json:"status"`
+	ID          string     `json:"id"`
+	Mode        string     `json:"mode"`
+	Value       string     `json:"value"`
+	Status      string     `json:"status"`
+	LastSeenAt  *time.Time `json:"last_seen_at,omitempty"`
+	OnlineState string     `json:"online_state,omitempty"`
+	OfflineDays int        `json:"offline_days,omitempty"`
 }
 
 type CustomerLicense struct {

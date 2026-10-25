@@ -3,7 +3,10 @@ import { onMounted, ref } from "vue";
 import { RefreshCw } from "lucide-vue-next";
 import { request } from "../api";
 
-const props = defineProps<{ modelValue: string }>();
+const props = withDefaults(
+  defineProps<{ modelValue: string; endpoint?: string }>(),
+  { endpoint: "/v1/captcha" },
+);
 const emit = defineEmits<{ "update:modelValue": [string] }>();
 
 const enabled = ref(false);
@@ -15,7 +18,7 @@ async function refresh() {
   if (busy.value) return;
   busy.value = true;
   try {
-    const r = await request<any>("/v1/captcha");
+    const r = await request<any>(props.endpoint);
     enabled.value = !!r?.enabled;
     captchaId.value = r?.id || "";
     image.value = r?.image || "";

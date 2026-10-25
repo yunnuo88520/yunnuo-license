@@ -169,13 +169,17 @@ func (s *Service) CustomerLicense(ctx context.Context, userID, no string) (domai
 	if err != nil {
 		return view, err
 	}
+	bindingOnlineStates(bindings, p.OfflineGraceDays, s.now())
 	view.Bindings = []domain.CustomerBinding{}
 	for _, b := range bindings {
 		value, err := yncrypto.DecryptString(s.dataKey, b.BindValueEncrypted)
 		if err != nil {
 			return view, err
 		}
-		view.Bindings = append(view.Bindings, domain.CustomerBinding{ID: b.ID, Mode: b.BindMode, Value: value, Status: b.Status})
+		view.Bindings = append(view.Bindings, domain.CustomerBinding{
+			ID: b.ID, Mode: b.BindMode, Value: value, Status: b.Status,
+			LastSeenAt: b.LastSeenAt, OnlineState: b.OnlineState, OfflineDays: b.OfflineDays,
+		})
 	}
 	view.CanUse = p.Status == domain.ProductActive && s.ensureUsable(p, lic, s.now()) == nil
 	view.CanUpdate = p.Status == domain.ProductActive && licenseCanUpdate(lic, s.now())

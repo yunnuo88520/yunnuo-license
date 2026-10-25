@@ -14,6 +14,10 @@ import (
 
 const offlineLicenseFileFormat = "yn-license-key"
 
+// maxOfflineLicenseDays 限制离线授权文件的最长有效期：已下载的文件无法远程吊销，
+// 收紧上限可强制长周期离线场景定期重新签发，让吊销在有限时间内生效。
+const maxOfflineLicenseDays = 365
+
 type CreateOfflineLicenseInput struct {
 	ProductID    string `json:"product_id"`
 	MachineCode  string `json:"machine_code"`
@@ -55,8 +59,8 @@ func (s *Service) CreateOfflineLicense(ctx context.Context, input CreateOfflineL
 	if input.ProductID == "" || input.MachineCode == "" || len(input.MachineCode) > 256 || len(input.Label) > 100 {
 		return domain.OfflineLicense{}, ErrInvalidRequest
 	}
-	if !input.IsPermanent && (input.DurationDays <= 0 || input.DurationDays > 36500) {
-		return domain.OfflineLicense{}, ErrInvalidRequest
+	if !input.IsPermanent && (input.DurationDays <= 0 || input.DurationDays > maxOfflineLicenseDays) {
+		return domain.OfflineLicense{}, badRequest("OFFLINE_DURATION_TOO_LONG", "离线授权最长 365 天，更长周期请分多次签发")
 	}
 	product, err := s.currentStore().GetProduct(ctx, input.ProductID)
 	if err != nil {
@@ -220,3 +224,4 @@ func maskMachineCode(value string) string {
 	}
 	return string(runes[:4]) + strings.Repeat("*", len(runes)-8) + string(runes[len(runes)-4:])
 }
+
