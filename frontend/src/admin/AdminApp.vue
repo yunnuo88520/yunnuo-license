@@ -521,6 +521,24 @@ const emailKindLabels: Record<string, string> = {
   recovery_code: "恢复码",
   verify_code: "验证码",
 };
+const myEmail = ref("");
+const myEmailSaving = ref(false);
+async function saveMyEmail() {
+  myEmailSaving.value = true;
+  try {
+    const u = await a.mutate(
+      "/admin/profile/email",
+      { email: myEmail.value },
+      "我的邮箱已更新",
+      false,
+    );
+    a.profile.value = { ...a.profile.value, email: u.email };
+  } catch (e) {
+    toast(e);
+  } finally {
+    myEmailSaving.value = false;
+  }
+}
 const captchaSettings = ref<any>(null);
 const captchaSaving = ref(false);
 async function loadCaptchaSettings() {
@@ -553,6 +571,9 @@ function switchSettingsTab(id: string) {
   }
   if (id === "account" && a.isManager.value) {
     loadCaptchaSettings();
+  }
+  if (id === "account") {
+    myEmail.value = a.profile.value?.email || "";
   }
 }
 async function loadEmailSettings() {
@@ -2886,6 +2907,12 @@ onMounted(async () => {
                 required /></label
             ><label class="field">显示名<input name="display_name" /></label
             ><label class="field"
+              >邮箱<input
+                name="email"
+                type="email"
+                maxlength="254"
+                placeholder="用于找回密码与通知，建议填写" /></label
+            ><label class="field"
               >角色<select name="role">
                 <option value="admin">管理员</option>
                 <option value="operator">运营人员</option>
@@ -2900,6 +2927,25 @@ onMounted(async () => {
           </form>
           </FormDialog>
           <template v-if="settingsTab === 'account'">
+          <div class="captcha-setting">
+            <div class="captcha-setting-copy">
+              <h4>我的邮箱</h4>
+              <p>
+                用于自助找回密码与接收通知（{{ a.profile.value?.username }}）。邮箱在同类账号中唯一，修改后立即生效。
+              </p>
+            </div>
+            <form class="my-email-row" @submit.prevent="saveMyEmail">
+              <input
+                v-model="myEmail"
+                type="email"
+                maxlength="254"
+                placeholder="you@example.com"
+              />
+              <button class="btn" :disabled="myEmailSaving">
+                {{ myEmailSaving ? "保存中…" : "保存邮箱" }}
+              </button>
+            </form>
+          </div>
           <div v-if="a.isManager.value" class="captcha-setting">
             <div class="captcha-setting-copy">
               <h4>登录图形验证码</h4>
@@ -2921,6 +2967,7 @@ onMounted(async () => {
               <thead>
                 <tr>
                   <th>账号</th>
+                  <th>邮箱</th>
                   <th>显示名</th>
                   <th>角色</th>
                   <th>状态</th>
@@ -2933,6 +2980,7 @@ onMounted(async () => {
                   <td>
                     <code>{{ u.username }}</code>
                   </td>
+                  <td><code>{{ u.email || "-" }}</code></td>
                   <td>{{ u.display_name || "-" }}</td>
                   <td>{{ roleLabel(u.role) }}</td>
                   <td><StatusBadge :status="u.status" /></td>

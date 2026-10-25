@@ -283,6 +283,13 @@ func (s *Service) CreateAgent(ctx context.Context, input CreateAgentInput) (doma
 	if strings.TrimSpace(input.Name) == "" {
 		return domain.Agent{}, ErrInvalidRequest
 	}
+	agentEmail, err := normalizeEmail(input.Email)
+	if err != nil {
+		return domain.Agent{}, err
+	}
+	if err := s.ensureEmailAvailable(ctx, "agents", agentEmail); err != nil {
+		return domain.Agent{}, err
+	}
 	loginCode, err := s.newAgentLoginCode(ctx)
 	if err != nil {
 		return domain.Agent{}, err
@@ -295,7 +302,7 @@ func (s *Service) CreateAgent(ctx context.Context, input CreateAgentInput) (doma
 		Name:                strings.TrimSpace(input.Name),
 		ContactName:         strings.TrimSpace(input.ContactName),
 		Phone:               strings.TrimSpace(input.Phone),
-		Email:               strings.TrimSpace(input.Email),
+		Email:               agentEmail,
 		Level:               1,
 		Status:              domain.AgentActive,
 		SettlementMode:      domain.SettlementManual,

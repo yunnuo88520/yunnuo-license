@@ -5,6 +5,7 @@ import "time"
 type Customer struct {
 	ID             string    `json:"id"`
 	Username       string    `json:"username"`
+	Email          string    `json:"email"`
 	PasswordHash   string    `json:"-"`
 	DisplayName    string    `json:"display_name"`
 	Status         string    `json:"status"`

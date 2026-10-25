@@ -30,6 +30,15 @@ func (api *API) registerEmailRoutes(mux *http.ServeMux) {
 	}))
 	mux.HandleFunc("GET /admin/captcha-settings", api.withAdmin(api.getCaptchaSettings, adminReadRoles...))
 	mux.HandleFunc("POST /admin/captcha-settings", api.withAdmin(api.updateCaptchaSettings, adminWriteRoles...))
+	mux.HandleFunc("POST /admin/profile/email", api.withAdmin(func(w http.ResponseWriter, r *http.Request) {
+		var input service.UpdateMyEmailInput
+		if !decode(w, r, &input) {
+			return
+		}
+		input.ActorID = adminSessionFrom(r.Context()).UserID
+		user, err := api.service.UpdateMyEmail(r.Context(), input.ActorID, input)
+		commerceResponse(w, r, user, err)
+	}, adminReadRoles...))
 	mux.HandleFunc("GET /admin/stats", api.withAdmin(func(w http.ResponseWriter, r *http.Request) {
 		stats, err := api.service.OverviewStats(r.Context())
 		commerceResponse(w, r, stats, err)

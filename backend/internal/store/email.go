@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
@@ -101,4 +102,16 @@ func (s *Store) AgentEmailRecipients(ctx context.Context, agentID string) ([]str
 		add(email.String)
 	}
 	return out, rows.Err()
+}
+
+// EmailTaken 检查邮箱是否已被同表其他账号占用（写入前由服务层调用）。
+func (s *Store) EmailTaken(ctx context.Context, table, email string) (bool, error) {
+	switch table {
+	case "admin_users", "customer_users", "agent_users", "agents":
+	default:
+		return false, fmt.Errorf("invalid table")
+	}
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE email = ?`, email).Scan(&count)
+	return count > 0, err
 }

@@ -22,6 +22,7 @@ type CreateAdminUserInput struct {
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
 	Role        string `json:"role"`
+	Email       string `json:"email"`
 }
 
 func (s *Service) EnsureBootstrapAdmin(ctx context.Context, username, password, displayName string) (domain.AdminUser, bool, error) {
@@ -51,6 +52,13 @@ func (s *Service) CreateAdminUser(ctx context.Context, input CreateAdminUserInpu
 	if input.Username == "" || len(input.Password) < 8 || !validAdminRole(input.Role) {
 		return domain.AdminUser{}, ErrInvalidRequest
 	}
+	email, err := normalizeEmail(input.Email)
+	if err != nil {
+		return domain.AdminUser{}, err
+	}
+	if err := s.ensureEmailAvailable(ctx, "admin_users", email); err != nil {
+		return domain.AdminUser{}, err
+	}
 	passwordHash, err := hashAgentPassword(input.Password)
 	if err != nil {
 		return domain.AdminUser{}, err
@@ -59,6 +67,7 @@ func (s *Service) CreateAdminUser(ctx context.Context, input CreateAdminUserInpu
 	user := domain.AdminUser{
 		ID:             yncrypto.NewID("admin"),
 		Username:       input.Username,
+		Email:          email,
 		PasswordHash:   passwordHash,
 		DisplayName:    input.DisplayName,
 		Role:           input.Role,
@@ -267,4 +276,34 @@ func validAdminRole(role string) bool {
 	default:
 		return false
 	}
+}
+
+type UpdateMyEmailInput struct {
+	Email   string `json:"email"`
+	ActorID string `json:"-"`
+}
+
+// UpdateMyEmail 管理员自助更新自己的邮箱（找回密码与通知依赖该邮箱）。
+func (s *Service) UpdateMyEmail(ctx context.Context, actorID string, input UpdateMyEmailInput) (domain.AdminUser, error) {
+	if strings.TrimSpace(actorID) == "" {
+		return domain.AdminUser{}, ErrPermissionDenied
+	}
+	email, err := normalizeEmail(input.Email)
+	if err != nil {
+		return domain.AdminUser{}, err
+	}
+	if email != "" {
+		owner, err := s.currentStore().AdminIDByEmail(ctx, email)
+		if err != nil {
+			return domain.AdminUser{}, err
+		}
+		if owner != "" && owner != actorID {
+			return domain.AdminUser{}, badRequest("EMAIL_TAKEN", "该邮箱已被其他账号使用")
+		}
+	}
+	if err := s.currentStore().UpdateAdminUserEmail(ctx, actorID, email); err != nil {
+		return domain.AdminUser{}, err
+	}
+	_ = s.audit(ctx, "admin", actorID, "", "", "", "admin.email.update", "success", "")
+	return s.currentStore().GetAdminUserByID(ctx, actorID)
 }

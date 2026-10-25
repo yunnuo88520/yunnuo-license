@@ -123,10 +123,11 @@ async function submit() {
           {{ busy ? "正在重置…" : "确认重置密码" }}
         </button>
       </form>
-      <nav v-if="done">
-        <a :href="entries.admin">管理后台</a
-        ><a :href="entries.agent">代理后台</a
-        ><a :href="entries.user">用户中心</a
+      <nav class="recovery-nav">
+        <span v-if="done">密码已重置，请返回对应控制台重新登录：</span>
+        <a :href="entries.admin">管理后台登录</a
+        ><a :href="entries.agent">代理后台登录</a
+        ><a :href="entries.user">用户中心登录</a
         ><a :href="entries.developer">开发者登录</a>
       </nav>
     </section>
@@ -160,11 +161,19 @@ form {
   gap: 20px;
   margin: 26px 0;
 }
-nav {
+.recovery-nav {
   display: flex;
-  gap: 20px;
+  gap: 18px;
   flex-wrap: wrap;
+  align-items: center;
   margin-top: 30px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.recovery-nav span {
+  color: var(--muted);
+  width: 100%;
 }
 .error {
   color: var(--red);

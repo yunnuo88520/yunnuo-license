@@ -29,7 +29,7 @@ func readRecoveryAccount(ctx context.Context, q commerceQuery, kind, id string) 
 	if kind == "customer" {
 		role = "'customer'"
 	}
-	email := "''"
+	email := "COALESCE(email,'')"
 	if kind == "agent" {
 		// 优先账号自身邮箱，其次回退到所属代理的联系邮箱。
 		email = "COALESCE(NULLIF(email,''),(SELECT a.email FROM agents a WHERE a.id = agent_id),'')"

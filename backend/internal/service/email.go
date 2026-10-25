@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	netmail "net/mail"
 	"strings"
 	"time"
 
@@ -137,6 +138,34 @@ func normalizeSiteURL(value string) string {
 		value = "https://" + value
 	}
 	return strings.TrimRight(value, "/")
+}
+
+// normalizeEmail 归一并校验邮箱：小写、去空白、必须可解析；空值合法（表示未绑定）。
+func normalizeEmail(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "", nil
+	}
+	addr, err := netmail.ParseAddress(value)
+	if err != nil || addr.Address != value || len(value) > 254 {
+		return "", badRequest("EMAIL_INVALID", "邮箱地址格式不正确")
+	}
+	return value, nil
+}
+
+// ensureEmailAvailable 校验邮箱在指定账号表中未被占用。
+func (s *Service) ensureEmailAvailable(ctx context.Context, table, email string) error {
+	if email == "" {
+		return nil
+	}
+	taken, err := s.currentStore().EmailTaken(ctx, table, email)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return badRequest("EMAIL_TAKEN", "该邮箱已被其他账号使用")
+	}
+	return nil
 }
 
 func boolToInt(v bool) int {

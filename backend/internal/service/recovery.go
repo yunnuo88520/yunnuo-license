@@ -46,7 +46,7 @@ func (s *Service) RecoveryAccounts(ctx context.Context, kind, agentID, role stri
 			return nil, err
 		}
 		for _, r := range rows {
-			items = append(items, domain.RecoveryAccount{ID: r.ID, Username: r.Username, DisplayName: r.DisplayName, Role: "customer", Status: r.Status})
+			items = append(items, domain.RecoveryAccount{ID: r.ID, Username: r.Username, DisplayName: r.DisplayName, Email: strings.ToLower(strings.TrimSpace(r.Email)), Role: "customer", Status: r.Status})
 		}
 	case "agent":
 		rows, err := s.ListAgentUsers(ctx, agentID)
@@ -72,7 +72,7 @@ func (s *Service) RecoveryAccounts(ctx context.Context, kind, agentID, role stri
 		}
 		for _, r := range rows {
 			if canRecover(role, kind, r.Role) {
-				items = append(items, domain.RecoveryAccount{ID: r.ID, Username: r.Username, DisplayName: r.DisplayName, Role: r.Role, Status: r.Status})
+				items = append(items, domain.RecoveryAccount{ID: r.ID, Username: r.Username, DisplayName: r.DisplayName, Email: strings.ToLower(strings.TrimSpace(r.Email)), Role: r.Role, Status: r.Status})
 			}
 		}
 	default:

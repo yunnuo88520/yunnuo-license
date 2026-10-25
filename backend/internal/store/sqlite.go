@@ -62,10 +62,10 @@ func (s *Store) CountAdminUsers(ctx context.Context) (int, error) {
 func (s *Store) CreateAdminUser(ctx context.Context, user domain.AdminUser) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO admin_users (
-		  id, username, password_hash, display_name, role, status, session_version,
+		  id, username, email, password_hash, display_name, role, status, session_version,
 		  last_login_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		user.ID, user.Username, user.PasswordHash, nullString(user.DisplayName),
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		user.ID, user.Username, user.Email, user.PasswordHash, nullString(user.DisplayName),
 		user.Role, user.Status, user.SessionVersion, nullTime(user.LastLoginAt),
 		ts(user.CreatedAt), ts(user.UpdatedAt),
 	)
@@ -152,7 +152,10 @@ func (s *Store) Migrate(ctx context.Context, dir string) error {
 			return fmt.Errorf("run migration %s: %w", filepath.Base(file), err)
 		}
 	}
-	return s.ensureHistoryIndexes(ctx)
+	if err := s.ensureHistoryIndexes(ctx); err != nil {
+		return err
+	}
+	return s.ensureAccountEmailColumns(ctx)
 }
 
 func (s *Store) WithTx(ctx context.Context, fn func(*Tx) error) error {
@@ -1122,7 +1125,7 @@ const offlineLicenseColumns = `id, license_no, product_id, label, machine_code_h
 const bindingColumns = `id, license_id, product_id, bind_mode, bind_value_hash, bind_value_encrypted, display_name, status, first_seen_ip, last_seen_ip, user_agent, last_heartbeat_at, activated_at, created_at, updated_at`
 const agentColumns = `id, agent_no, parent_agent_id, name, contact_name, phone, email, level, status, settlement_mode, default_discount_rate, credit_limit, remark, created_by, created_at, updated_at, disabled_at`
 const agentUserColumns = `id, agent_id, username, password_hash, display_name, phone, email, role, status, last_login_at, created_at, updated_at, COALESCE((SELECT version FROM agent_session_versions WHERE user_id=agent_users.id),0)`
-const adminUserColumns = `id, username, password_hash, display_name, role, status, session_version, last_login_at, created_at, updated_at`
+const adminUserColumns = `id, username, email, password_hash, display_name, role, status, session_version, last_login_at, created_at, updated_at`
 const agentPolicyColumns = `id, agent_id, product_id, can_generate, can_export_plain_code, allowed_duration_days, allow_permanent, max_batch_quantity, discount_rate, settlement_price, status, created_at, updated_at`
 const agentQuotaLedgerColumns = `id, agent_id, product_id, duration_days, is_permanent, change_type, change_quantity, balance_after, related_batch_id, related_card_id, operator_type, operator_id, remark, created_at`
 const auditColumns = `id, actor_type, actor_id, agent_id, product_id, license_id, card_id, binding_id, action, client_ip, user_agent, request_id, result, error_code, extra_json, created_at`
@@ -1308,7 +1311,7 @@ func scanAdminUser(row scanner) (domain.AdminUser, error) {
 	var u domain.AdminUser
 	var displayName, lastLoginAt sql.NullString
 	var createdAt, updatedAt string
-	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &displayName, &u.Role,
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &displayName, &u.Role,
 		&u.Status, &u.SessionVersion, &lastLoginAt, &createdAt, &updatedAt)
 	if err != nil {
 		return domain.AdminUser{}, err
@@ -1448,4 +1451,19 @@ func requireAffected(result sql.Result) error {
 
 func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
+}
+
+// AdminIDByEmail 返回占用该邮箱的管理员账号 ID（无则返回空串）。
+func (s *Store) AdminIDByEmail(ctx context.Context, email string) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM admin_users WHERE email = ?`, email).Scan(&id)
+	if IsNotFound(err) {
+		return "", nil
+	}
+	return id, err
+}
+
+func (s *Store) UpdateAdminUserEmail(ctx context.Context, userID, email string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE admin_users SET email = ?, updated_at = ? WHERE id = ?`, email, ts(time.Now().UTC()), userID)
+	return err
 }

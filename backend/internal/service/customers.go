@@ -23,6 +23,7 @@ type CustomerInput struct {
 	Username    string `json:"username"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
 }
 type CustomerLoginResponse struct {
 	AccessToken string          `json:"access_token"`
@@ -49,11 +50,18 @@ func (s *Service) CreateCustomer(ctx context.Context, input CustomerInput, actor
 	if input.Username == "" || len(input.Username) > 80 || len(input.Password) < 8 || len(input.Password) > 256 || len(input.DisplayName) > 160 {
 		return domain.Customer{}, ErrInvalidRequest
 	}
+	email, err := normalizeEmail(input.Email)
+	if err != nil {
+		return domain.Customer{}, err
+	}
+	if err := s.ensureEmailAvailable(ctx, "customer_users", email); err != nil {
+		return domain.Customer{}, err
+	}
 	hash, err := hashAgentPassword(input.Password)
 	if err != nil {
 		return domain.Customer{}, err
 	}
-	c := domain.Customer{ID: yncrypto.NewID("usr"), Username: input.Username, DisplayName: strings.TrimSpace(input.DisplayName), PasswordHash: hash, Status: "active", SessionVersion: 1, CreatedAt: s.now()}
+	c := domain.Customer{ID: yncrypto.NewID("usr"), Username: input.Username, Email: email, DisplayName: strings.TrimSpace(input.DisplayName), PasswordHash: hash, Status: "active", SessionVersion: 1, CreatedAt: s.now()}
 	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		if err := tx.CreateCustomer(ctx, c); err != nil {
 			return err

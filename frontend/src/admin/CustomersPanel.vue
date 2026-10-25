@@ -11,7 +11,7 @@ const users = ref<any[]>([]),
   busy = ref(false),
   license = ref<any>(),
   showCreate = ref(false);
-const form = reactive({ username: "", password: "", display_name: "" }),
+const form = reactive({ username: "", password: "", display_name: "", email: "" }),
   owner = reactive({ license_no: "", user_id: "", reason: "" });
 async function load() {
   users.value = await props.api("/admin/customers");
@@ -37,6 +37,7 @@ function create() {
     form.password = "";
     form.username = "";
     form.display_name = "";
+    form.email = "";
     await load();
     showCreate.value = false;
     message.value = "普通用户账号已创建。";
@@ -118,6 +119,12 @@ onMounted(() => run(load));
         ><label class="field"
           >显示名称<input v-model="form.display_name" maxlength="160" /></label
         ><label class="field"
+          >邮箱<input
+            v-model="form.email"
+            type="email"
+            maxlength="254"
+            placeholder="用于自助找回密码与通知，建议填写" /></label
+        ><label class="field"
           >初始密码<input
             v-model="form.password"
             type="password"
@@ -135,6 +142,7 @@ onMounted(() => run(load));
         <thead>
           <tr>
             <th>用户</th>
+            <th>邮箱</th>
             <th>名称</th>
             <th>状态</th>
             <th>操作</th>
@@ -143,6 +151,7 @@ onMounted(() => run(load));
         <tbody>
           <tr v-for="u in users" :key="u.id">
             <td>{{ u.username }}</td>
+            <td><code>{{ u.email || "—" }}</code></td>
             <td>{{ u.display_name || "—" }}</td>
             <td>{{ u.status === "active" ? "正常" : "停用" }}</td>
             <td>

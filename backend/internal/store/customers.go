@@ -8,12 +8,12 @@ import (
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
 )
 
-const customerColumns = `id,username,password_hash,display_name,status,session_version,created_at`
+const customerColumns = `id,username,email,password_hash,display_name,status,session_version,created_at`
 
 func scanCustomer(row scanner) (domain.Customer, error) {
 	var c domain.Customer
 	var created string
-	err := row.Scan(&c.ID, &c.Username, &c.PasswordHash, &c.DisplayName, &c.Status, &c.SessionVersion, &created)
+	err := row.Scan(&c.ID, &c.Username, &c.Email, &c.PasswordHash, &c.DisplayName, &c.Status, &c.SessionVersion, &created)
 	c.CreatedAt = parseTS(created)
 	return c, err
 }
@@ -40,7 +40,7 @@ func (s *Store) Customers(ctx context.Context) ([]domain.Customer, error) {
 	return items, rows.Err()
 }
 func (tx *Tx) CreateCustomer(ctx context.Context, c domain.Customer) error {
-	_, err := tx.tx.ExecContext(ctx, `INSERT INTO customer_users (`+customerColumns+`) VALUES (?,?,?,?,?,?,?)`, c.ID, c.Username, c.PasswordHash, c.DisplayName, c.Status, c.SessionVersion, ts(c.CreatedAt))
+	_, err := tx.tx.ExecContext(ctx, `INSERT INTO customer_users (`+customerColumns+`) VALUES (?,?,?,?,?,?,?,?)`, c.ID, c.Username, c.Email, c.PasswordHash, c.DisplayName, c.Status, c.SessionVersion, ts(c.CreatedAt))
 	return err
 }
 func (tx *Tx) SetCustomerStatus(ctx context.Context, id, status string) error {

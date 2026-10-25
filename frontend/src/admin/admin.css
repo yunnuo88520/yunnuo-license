@@ -722,3 +722,12 @@
     grid-template-columns: 1fr;
   }
 }
+.my-email-row {
+  display: flex;
+  gap: 10px;
+  min-width: 300px;
+}
+.my-email-row input {
+  flex: 1;
+  min-width: 0;
+}
