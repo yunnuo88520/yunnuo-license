@@ -44,6 +44,19 @@ func (api *API) registerRecoveryRoutes(mux *http.ServeMux) {
 		v, e := api.service.CreateRecoveryByEmail(r.Context(), r.PathValue("kind"), r.PathValue("userID"), a.UserID, a.Role, in)
 		commerceResponse(w, r, v, e)
 	}, adminWriteRoles...))
+	mux.HandleFunc("POST /v1/accounts/recovery/request", withRateLimit(api.adminLoginLimit, func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Username string `json:"username"`
+		}
+		if !decode(w, r, &in) {
+			return
+		}
+		// 无论账号是否存在都返回相同提示，防止账号枚举。
+		e := api.service.RequestRecoveryEmail(r.Context(), in.Username)
+		commerceResponse(w, r, map[string]any{
+			"message": "若该账号已绑定邮箱，验证码已发送（30 分钟内有效，请留意垃圾邮件）；若未收到，请联系平台管理员。",
+		}, e)
+	}))
 	mux.HandleFunc("POST /v1/accounts/recovery", withRateLimit(api.adminLoginLimit, func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Username string `json:"username"`

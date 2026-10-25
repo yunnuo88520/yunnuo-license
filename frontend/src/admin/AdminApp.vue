@@ -179,6 +179,50 @@ const dashCards = computed(() => {
     },
   ];
 });
+const cardDonut = computed(() => {
+  const cards = a.data.stats?.cards || { total: 0, unused: 0, used: 0, voided: 0 };
+  const segments = [
+    { label: "未使用", value: cards.unused, color: "#10b981" },
+    { label: "已激活", value: cards.used, color: "#6366f1" },
+    { label: "已作废", value: cards.voided, color: "#ef4444" },
+  ];
+  const total = cards.total || 0;
+  const circumference = 2 * Math.PI * 52;
+  let offset = 0;
+  const arcs = segments
+    .filter((s: { value: number }) => s.value > 0)
+    .map((s) => {
+      const frac = total ? s.value / total : 0;
+      const arc = { ...s, dash: `${frac * circumference} ${circumference}`, offset: -offset };
+      offset += frac * circumference;
+      return arc;
+    });
+  return { total, arcs, segments };
+});
+const trendChart = computed(() => {
+  const points: { date: string; count: number }[] = a.data.stats?.activations || [];
+  const width = 560,
+    height = 180,
+    padX = 26,
+    padTop = 16,
+    padBottom = 28;
+  const max = Math.max(1, ...points.map((p: any) => p.count));
+  const stepX = (width - padX * 2) / Math.max(1, points.length - 1);
+  const pts = points.map((p: any, i: number) => ({
+    date: p.date,
+    count: p.count,
+    x: padX + i * stepX,
+    y: padTop + (1 - p.count / max) * (height - padTop - padBottom),
+  }));
+  const line = pts.map((p: { x: number; y: number }) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const base = height - padBottom;
+  const area = pts.length
+    ? `M${pts[0].x.toFixed(1)},${base} L` +
+      pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" L") +
+      ` L${pts[pts.length - 1].x.toFixed(1)},${base} Z`
+    : "";
+  return { pts, line, area, max, width, height, padX, padTop, padBottom };
+});
 const quickActions = [
   {
     label: "生成卡密",
@@ -750,9 +794,16 @@ async function adminSignIn() {
 }
 onMounted(async () => {
   loadBranding("管理控制台").catch(() => undefined);
-  if (a.isManager.value && !emailSettings.value) {
-    loadEmailSettings().catch(() => undefined);
-  }
+  // 登录后 profile 异步就绪，isManager 变化时再拉取邮件配置供仪表盘展示。
+  watch(
+    () => a.isManager.value,
+    (manager) => {
+      if (manager && !emailSettings.value) {
+        loadEmailSettings().catch(() => undefined);
+      }
+    },
+    { immediate: true },
+  );
   addEventListener(
     "hashchange",
     () => (page.value = location.hash.slice(1) || "overview"),
@@ -927,6 +978,114 @@ onMounted(async () => {
               </button>
             </div>
           </section>
+          <div class="chart-grid">
+            <section class="panel">
+              <div class="panel-head"><h3>卡密状态分布</h3></div>
+              <div class="donut-wrap">
+                <svg viewBox="0 0 140 140" class="donut" role="img" aria-label="卡密状态分布">
+                  <circle cx="70" cy="70" r="52" fill="none" stroke="var(--line)" stroke-width="16" />
+                  <circle
+                    v-for="a in cardDonut.arcs"
+                    :key="a.label"
+                    cx="70"
+                    cy="70"
+                    r="52"
+                    fill="none"
+                    :stroke="a.color"
+                    stroke-width="16"
+                    :stroke-dasharray="a.dash"
+                    :stroke-dashoffset="a.offset"
+                    transform="rotate(-90 70 70)"
+                  />
+                  <text x="70" y="68" text-anchor="middle" class="donut-total">
+                    {{ cardDonut.total }}
+                  </text>
+                  <text x="70" y="86" text-anchor="middle" class="donut-label">
+                    张卡密
+                  </text>
+                </svg>
+                <ul class="donut-legend">
+                  <li v-for="s in cardDonut.segments" :key="s.label">
+                    <span class="legend-dot" :style="{ background: s.color }"></span>
+                    <span>{{ s.label }}</span>
+                    <strong>{{ s.value }}</strong>
+                    <small>{{
+                      cardDonut.total
+                        ? Math.round((s.value / cardDonut.total) * 100)
+                        : 0
+                    }}%</small>
+                  </li>
+                </ul>
+              </div>
+              <p v-if="!cardDonut.total" class="pane-empty chart-empty">
+                暂无卡密数据，生成卡密后展示分布。
+              </p>
+            </section>
+            <section class="panel">
+              <div class="panel-head"><h3>近 14 天激活趋势</h3></div>
+              <div class="trend-wrap">
+                <svg
+                  :viewBox="`0 0 ${trendChart.width} ${trendChart.height}`"
+                  class="trend"
+                  role="img"
+                  aria-label="近 14 天激活趋势"
+                >
+                  <line
+                    :x1="trendChart.padX"
+                    :y1="trendChart.height - trendChart.padBottom"
+                    :x2="trendChart.width - trendChart.padX"
+                    :y2="trendChart.height - trendChart.padBottom"
+                    class="trend-axis"
+                  />
+                  <text
+                    :x="trendChart.padX - 6"
+                    :y="trendChart.padTop + 4"
+                    text-anchor="end"
+                    class="trend-max"
+                  >
+                    {{ trendChart.max }}
+                  </text>
+                  <text
+                    :x="trendChart.padX - 6"
+                    :y="trendChart.height - trendChart.padBottom + 4"
+                    text-anchor="end"
+                    class="trend-max"
+                  >
+                    0
+                  </text>
+                  <polygon v-if="trendChart.area" :points="trendChart.area" class="trend-area" />
+                  <polyline v-if="trendChart.pts.length > 1" :points="trendChart.line" class="trend-line" />
+                  <circle
+                    v-for="p in trendChart.pts"
+                    :key="p.date"
+                    :cx="p.x"
+                    :cy="p.y"
+                    r="3"
+                    class="trend-dot"
+                  >
+                    <title>{{ p.date }}：激活 {{ p.count }} 次</title>
+                  </circle>
+                  <text
+                    v-for="(p, i) in trendChart.pts"
+                    :key="'l' + p.date"
+                    v-show="i % 2 === 0"
+                    :x="p.x"
+                    :y="trendChart.height - 8"
+                    text-anchor="middle"
+                    class="trend-date"
+                  >
+                    {{ p.date.slice(5) }}
+                  </text>
+                </svg>
+                <p
+                  v-if="!trendChart.pts.some((p) => p.count > 0)"
+                  class="pane-empty chart-empty"
+                >
+                  近 14 天暂无激活记录。
+                </p>
+              </div>
+            </section>
+          </div>
           <div class="overview-grid">
             <section class="panel">
               <div class="panel-head">

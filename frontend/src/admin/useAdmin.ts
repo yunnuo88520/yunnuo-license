@@ -108,6 +108,7 @@ export function useAdmin() {
         riskAlerts,
         system,
         siteSettings,
+        stats,
       ] = await Promise.all([
         api("/admin/products"),
         api("/admin/agents"),
@@ -121,6 +122,7 @@ export function useAdmin() {
         api(`/admin/risk/alerts?${params({ ...filters.risk, limit: 100 })}`),
         api("/admin/system/version"),
         api("/v1/site/settings"),
+        api("/admin/stats"),
       ]);
       const arrays = {
         products: products || [],
@@ -139,6 +141,7 @@ export function useAdmin() {
         riskSummary,
         system,
         siteSettings,
+        stats: stats || null,
       });
       applyBranding(siteSettings, "管理控制台");
       if (!selected.product && arrays.products[0]) selected.product = arrays.products[0].id;

@@ -140,3 +140,18 @@ func (tx *Tx) ConsumePasswordReset(ctx context.Context, id string, now time.Time
 	_, err := tx.tx.ExecContext(ctx, `UPDATE account_password_resets SET consumed_at=? WHERE id=?`, ts(now), id)
 	return err
 }
+
+// LastPasswordResetCreated 返回该账号最近一次恢复码的签发时间（无记录返回 false）。
+func (s *Store) LastPasswordResetCreated(ctx context.Context, kind, userID string) (time.Time, bool, error) {
+	var created string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT created_at FROM account_password_resets WHERE account_kind=? AND user_id=? ORDER BY created_at DESC LIMIT 1`,
+		kind, userID).Scan(&created)
+	if IsNotFound(err) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return parseTS(created), true, nil
+}

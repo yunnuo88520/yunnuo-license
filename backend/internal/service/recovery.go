@@ -90,7 +90,7 @@ func (s *Service) CreateRecovery(ctx context.Context, kind, id, actor, role stri
 		return out, err
 	}
 	out.Code = "reset_" + base64.RawURLEncoding.EncodeToString(raw)
-	expiresAt, err := s.issuePasswordReset(ctx, kind, id, actor, role, in, recoveryHash(out.Code))
+	expiresAt, err := s.issuePasswordReset(ctx, kind, id, actor, role, in, recoveryHash(out.Code), true)
 	if err != nil {
 		return RecoveryResult{}, err
 	}
@@ -127,7 +127,7 @@ func (s *Service) CreateRecoveryByEmail(ctx context.Context, kind, id, actor, ro
 		return out, err
 	}
 	scopeHash := recoveryHash(kind + "\x00" + id + "\x00" + code)
-	expiresAt, err := s.issuePasswordReset(ctx, kind, id, actor, role, in, scopeHash)
+	expiresAt, err := s.issuePasswordReset(ctx, kind, id, actor, role, in, scopeHash, true)
 	if err != nil {
 		return out, err
 	}
@@ -158,7 +158,8 @@ func validateRecoveryInput(in *RecoveryInput) error {
 }
 
 // issuePasswordReset 在事务中签发一次性恢复码：作废同账号此前未用的码并落库审计。
-func (s *Service) issuePasswordReset(ctx context.Context, kind, id, actor, role string, in RecoveryInput, tokenHash string) (time.Time, error) {
+// privileged 标记管理员代发流程；自助流程跳过管理员权限校验（仅限绑定邮箱的账号）。
+func (s *Service) issuePasswordReset(ctx context.Context, kind, id, actor, role string, in RecoveryInput, tokenHash string, privileged bool) (time.Time, error) {
 	expiresAt := s.now().Add(time.Duration(in.Minutes) * time.Minute)
 	err := s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		if err := tx.LockAccount(ctx, kind, id); err != nil {
@@ -168,7 +169,7 @@ func (s *Service) issuePasswordReset(ctx context.Context, kind, id, actor, role 
 		if err != nil {
 			return notFound("ACCOUNT_NOT_FOUND", "account not found")
 		}
-		if !canRecover(role, kind, a.Role) {
+		if privileged && !canRecover(role, kind, a.Role) {
 			return ErrPermissionDenied
 		}
 		if a.Status != "active" {
@@ -189,6 +190,69 @@ func sixDigitCode() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%06d", n.Int64()), nil
+}
+
+// RequestRecoveryEmail 自助找回：账号持有人输入登录账号，验证码发送到绑定
+// 邮箱（代理账号未单独绑定邮箱时回退代理联系邮箱）。为防枚举，无论账号是否存在、
+// 是否绑定邮箱都返回相同的通用提示；同一账号 60 秒内只发一封，防止邮箱轰炸。
+func (s *Service) RequestRecoveryEmail(ctx context.Context, username string) error {
+	username = strings.TrimSpace(username)
+	if username == "" || len(username) > 80 {
+		return ErrInvalidRequest
+	}
+	refs, err := s.currentStore().ResetAccountRefsByUsername(ctx, username)
+	if err != nil {
+		return err
+	}
+	var kind, id, email string
+	for _, ref := range refs {
+		if ref.Status != "active" {
+			continue
+		}
+		account, err := s.currentStore().RecoveryAccount(ctx, ref.Kind, ref.ID)
+		if err != nil {
+			continue
+		}
+		if mail := strings.ToLower(strings.TrimSpace(account.Email)); mail != "" {
+			kind, id, email = ref.Kind, ref.ID, mail
+			break
+		}
+	}
+	if kind == "" {
+		return nil
+	}
+	// 冷却期内直接跳过发送（仍返回成功文案，不给探测空间）。
+	if last, ok, err := s.currentStore().LastPasswordResetCreated(ctx, kind, id); err == nil && ok && s.now().Sub(last) < time.Minute {
+		return nil
+	}
+	r, err := s.emailRuntime(ctx)
+	if err != nil {
+		return nil
+	}
+	if !r.usable() {
+		return nil
+	}
+	in := RecoveryInput{Reason: "账号持有人自助找回密码", Minutes: 30}
+	code, err := sixDigitCode()
+	if err != nil {
+		return nil
+	}
+	scopeHash := recoveryHash(kind + "\x00" + id + "\x00" + code)
+	if _, err := s.issuePasswordReset(ctx, kind, id, id, "", in, scopeHash, false); err != nil {
+		return nil
+	}
+	sendErr := s.sendVerificationEmail(ctx, r, []string{email}, domain.EmailKindRecovery, "", verifyCodeEmail{
+		Code: code, Purpose: "密码重置验证码",
+		Greeting:     "您好 " + username + "：",
+		Intro:        "您正在自助重置密码，请在密码恢复页输入登录账号 " + username + " 和下方 6 位验证码：",
+		ValidMinutes: 30, ActionText: "打开密码恢复页", ActionURL: recoverURL(r),
+		Warning: "该验证码仅可使用一次；若非本人操作，请忽略此邮件并尽快联系平台管理员。",
+	})
+	if sendErr != nil {
+		return nil
+	}
+	_ = s.audit(ctx, kind, id, "", "", "", "account.recovery.request", "success", "")
+	return nil
 }
 
 // locateAccountReset 按登录账号定位 6 位验证码对应的恢复记录。代理账号的用户名
