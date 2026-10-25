@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import { onMounted, reactive, ref } from "vue";
+import { CheckCheck } from "lucide-vue-next";
 import { request } from "../shared/api";
 import { entries } from "../shared/entries";
 import { branding, loadBranding } from "../shared/branding";
@@ -10,6 +11,10 @@ const form = reactive({ username: "", code: "", password: "", confirm: "" }),
   done = ref(false),
   requesting = ref(false),
   requestTip = ref("");
+// 从哪个登录页进来就回到哪个登录页；直接访问时回首页。
+const fromKey = new URLSearchParams(location.search).get("from") || "";
+const backURL =
+  ({ admin: entries.value.admin, agent: entries.value.agent, user: entries.value.user, developer: entries.value.developer } as Record<string, string>)[fromKey] || "/";
 async function requestCode() {
   if (requesting.value || !form.username.trim()) return;
   requesting.value = true;
@@ -26,11 +31,6 @@ async function requestCode() {
     requesting.value = false;
   }
 }
-// 从哪个登录页进来就回到哪个登录页；直接访问时回首页。
-const fromKey = new URLSearchParams(location.search).get("from") || "";
-const backURL =
-  ({ admin: entries.value.admin, agent: entries.value.agent, user: entries.value.user, developer: entries.value.developer } as Record<string, string>)[fromKey] || "/";
-onMounted(() => loadBranding("密码恢复").catch(() => {}));
 async function submit() {
   error.value = "";
   if (form.password !== form.confirm) {
@@ -51,7 +51,6 @@ async function submit() {
         password: form.password,
       }),
     });
-    form.username = "";
     form.code = "";
     form.password = "";
     form.confirm = "";
@@ -65,6 +64,7 @@ async function submit() {
     busy.value = false;
   }
 }
+onMounted(() => loadBranding("密码恢复").catch(() => {}));
 </script>
 <template>
   <main>
@@ -75,100 +75,104 @@ async function submit() {
         <AppearanceMenu />
       </span>
     </header>
-    <section class="panel">
-      <span class="eyebrow">账号恢复</span>
-      <h1>{{ done ? "密码已重置" : "重新设置登录密码" }}</h1>
-      <p v-if="!done">输入登录账号获取邮箱验证码；持管理员签发的恢复码可直接使用。</p>
-      <p v-else>原登录会话已失效，请使用新密码重新登录。</p>
-      <p v-if="error" role="alert" class="error">{{ error }}</p>
-      <form v-if="!done" @submit.prevent="submit">
-        <label class="field"
-          >登录账号<div class="recover-request"
-            ><input
-              v-model="form.username"
-              autocomplete="username"
-              maxlength="80"
-              placeholder="登录账号"
-          /><button
-              type="button"
-              class="btn secondary"
-              :disabled="requesting || !form.username.trim()"
-              @click="requestCode"
-            >
-              {{ requesting ? "发送中…" : "发送验证码" }}
-            </button></div
-          ></label
-        ><p v-if="requestTip" role="status" class="recover-tip">
-          {{ requestTip }}
+    <section class="panel recovery-panel">
+      <template v-if="!done">
+        <span class="eyebrow">ACCOUNT RECOVERY</span>
+        <h1>重新设置登录密码</h1>
+        <p class="recovery-intro">
+          输入登录账号获取邮箱验证码；持管理员签发的恢复码可直接使用。
         </p>
-        <label class="field"
-          >恢复码 / 验证码<input
-            v-model="form.code"
-            type="password"
-            autocomplete="off"
-            required
-            maxlength="100" /></label
-        ><label class="field"
-          >新密码<input
-            v-model="form.password"
-            type="password"
-            autocomplete="new-password"
-            required
-            minlength="8"
-            maxlength="256" /></label
-        ><label class="field"
-          >再次输入新密码<input
-            v-model="form.confirm"
-            type="password"
-            autocomplete="new-password"
-            required
-            minlength="8"
-            maxlength="256" /></label
-        ><button class="btn" :disabled="busy">
-          {{ busy ? "正在重置…" : "确认重置密码" }}
-        </button>
-      </form>
-      <nav class="recovery-nav">
-        <a class="btn" :href="backURL">{{
-          done ? "使用新密码返回登录" : "返回登录"
-        }}</a>
-      </nav>
+        <p v-if="error" role="alert" class="error">{{ error }}</p>
+        <form @submit.prevent="submit">
+          <section class="recover-step">
+            <header class="recover-step-head">
+              <b class="recover-step-no">1</b>
+              <span class="recover-step-title"
+                ><b>获取验证码</b><small>发送到账号绑定邮箱，30 分钟内有效</small></span
+              >
+            </header>
+            <div class="recover-request">
+              <input
+                v-model="form.username"
+                autocomplete="username"
+                maxlength="80"
+                placeholder="登录账号"
+              /><button
+                type="button"
+                class="btn secondary"
+                :disabled="requesting || !form.username.trim()"
+                @click="requestCode"
+              >
+                {{ requesting ? "发送中…" : "发送验证码" }}
+              </button>
+            </div>
+            <p v-if="requestTip" role="status" class="recover-tip">
+              {{ requestTip }}
+            </p>
+          </section>
+          <section class="recover-step">
+            <header class="recover-step-head">
+              <b class="recover-step-no">2</b>
+              <span class="recover-step-title"
+                ><b>设置新密码</b><small>验证码校验通过后立即生效</small></span
+              >
+            </header>
+            <label class="field">
+              <span>恢复码 / 验证码</span>
+              <input
+                v-model="form.code"
+                type="password"
+                autocomplete="off"
+                required
+                maxlength="100"
+                placeholder="6 位邮箱验证码，或管理员提供的恢复码"
+            /></label>
+            <div class="recover-grid">
+              <label class="field">
+                <span>新密码</span>
+                <input
+                  v-model="form.password"
+                  type="password"
+                  autocomplete="new-password"
+                  required
+                  minlength="8"
+                  maxlength="256"
+              /></label>
+              <label class="field">
+                <span>确认新密码</span>
+                <input
+                  v-model="form.confirm"
+                  type="password"
+                  autocomplete="new-password"
+                  required
+                  minlength="8"
+                  maxlength="256"
+              /></label>
+            </div>
+          </section>
+          <button class="btn recover-submit" :disabled="busy">
+            {{ busy ? "正在重置…" : "确认重置密码" }}
+          </button>
+        </form>
+      </template>
+      <div v-else class="recover-done">
+        <CheckCheck :size="44" />
+        <h1>密码已重置</h1>
+        <p>原登录会话已失效，请使用新密码重新登录。</p>
+        <a class="btn" :href="backURL">返回登录</a>
+      </div>
     </section>
   </main>
 </template>
 <style scoped>
 main {
-  max-width: 620px;
-  margin: 60px auto;
+  max-width: 640px;
+  margin: 48px auto 60px;
   padding: 24px;
 }
 .brand {
   font-size: 19px;
   font-weight: 600;
-}
-.panel {
-  padding: 32px;
-  margin-top: 28px;
-  border-radius: 16px;
-}
-h1 {
-  font-size: 27px;
-  margin: 12px 0;
-}
-p {
-  color: var(--muted);
-  line-height: 1.8;
-}
-form {
-  display: grid;
-  gap: 20px;
-  margin: 26px 0;
-}
-.recovery-nav {
-  display: flex;
-  margin-top: 30px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
 }
 .recovery-header-right {
   display: inline-flex;
@@ -182,10 +186,60 @@ form {
 .back-link:hover {
   color: var(--ink, inherit);
 }
-.error {
-  color: var(--red);
-  background: var(--red-soft);
-  padding: 14px;
+.panel {
+  padding: 32px;
+  margin-top: 26px;
+  border-radius: 16px;
+}
+h1 {
+  font-size: 26px;
+  margin: 10px 0;
+}
+.recovery-intro {
+  margin: 0 0 4px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+form {
+  display: grid;
+  gap: 14px;
+  margin: 22px 0 0;
+}
+.recover-step {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: grid;
+  gap: 12px;
+  background: var(--field);
+}
+.recover-step-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.recover-step-no {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--green);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  flex: none;
+}
+.recover-step-title {
+  display: grid;
+  gap: 1px;
+}
+.recover-step-title b {
+  font-size: 13px;
+  color: var(--ink, inherit);
+}
+.recover-step-title small {
+  font-size: 11px;
+  color: var(--muted);
 }
 .recover-request {
   display: flex;
@@ -195,12 +249,58 @@ form {
   flex: 1;
   min-width: 0;
 }
-.recover-request button {
+.recover-request .btn {
   flex: none;
 }
 .recover-tip {
-  margin: -8px 0 0;
+  margin: 0;
   font-size: 12px;
   color: var(--muted);
+}
+.recover-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.recover-submit {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 2px;
+}
+.recover-done {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+  padding: 26px 0 12px;
+  color: var(--green);
+}
+.recover-done h1 {
+  margin: 4px 0 0;
+  color: var(--ink, inherit);
+}
+.recover-done p {
+  margin: 0;
+  color: var(--muted);
+}
+.recover-done .btn {
+  margin-top: 10px;
+  min-width: 200px;
+}
+p {
+  color: var(--muted);
+  line-height: 1.8;
+}
+.error {
+  color: var(--red);
+  background: var(--red-soft);
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  line-height: 1.6;
+}
+@media (max-width: 560px) {
+  .recover-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

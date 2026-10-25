@@ -173,9 +173,16 @@ input[type="file"]:focus-visible {
   font-weight: 600;
 }
 /* 必填项标记：字段内含 required 控件时在标签文字前显示红星 */
+label.field:has([required]) {
+  position: relative;
+  padding-left: 11px;
+}
 label.field:has([required])::before {
   content: "*";
-  margin-right: 4px;
+  position: absolute;
+  left: 0;
+  top: 1px;
+  line-height: 15px;
   color: var(--red);
   font-weight: 700;
 }
