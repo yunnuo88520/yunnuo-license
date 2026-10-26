@@ -83,7 +83,7 @@ def main():
                 table = page.get_by_role("table",name="代理等级列表",exact=True)
                 table.get_by_role("cell",name="80%",exact=True).wait_for()
                 panel = page.locator("section.panel").filter(has=page.get_by_role("heading",name="代理等级与价格",exact=True))
-                panel.screenshot(path=str(args.artifacts/"default-three-tiers.png"))
+                panel.screenshot(path=str(args.artifacts/"default-three-tiers.png"),animations="disabled")
                 gold_row = table.get_by_role("row").filter(has=page.get_by_role("cell",name="金牌代理",exact=True))
                 assert gold_row.get_by_role("button",name="删除等级",exact=True).is_disabled()
                 gold_row.get_by_role("button",name="编辑等级",exact=True).click()
@@ -91,13 +91,14 @@ def main():
                 dialog.get_by_label("等级名称").fill(update["name"])
                 dialog.get_by_label("成本比例（%）").fill("75.5")
                 dialog.get_by_label("显示排序").fill("5")
-                page.screenshot(path=str(args.artifacts/"admin-edit-tier-rate.png"),full_page=True)
+                page.screenshot(path=str(args.artifacts/"admin-edit-tier-rate.png"),full_page=True,animations="disabled")
                 page.emulate_media(color_scheme="dark")
+                page.wait_for_function("document.documentElement.dataset.theme === 'dark'")
                 for width in [390,320]:
                     page.set_viewport_size({"width":width,"height":844})
                     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+1")
                     if width==390:
-                        page.screenshot(path=str(args.artifacts/"admin-tier-rate-mobile-dark.png"),full_page=True)
+                        page.screenshot(path=str(args.artifacts/"admin-tier-rate-mobile-dark.png"),animations="disabled")
                 with page.expect_response(lambda r:r.url.endswith("/admin/agent-tiers/tier_gold") and r.request.method=="POST") as response:
                     dialog.get_by_role("button",name="保存等级",exact=True).click()
                 assert response.value.status==200 and response.value.json()["data"]["cost_rate_bps"]==7550
@@ -116,11 +117,12 @@ def main():
                 user.get_by_label("密码",exact=True).fill(password)
                 user.get_by_role("button",name="进入工作台",exact=True).click()
                 user.get_by_role("cell",name="¥7.56",exact=True).wait_for()
-                user.screenshot(path=str(args.artifacts/"agent-discounted-package.png"),full_page=True)
+                user.screenshot(path=str(args.artifacts/"agent-discounted-package.png"),full_page=True,animations="disabled")
                 user.emulate_media(color_scheme="dark")
+                user.wait_for_function("document.documentElement.dataset.theme === 'dark'")
                 user.set_viewport_size({"width":390,"height":844})
                 assert user.evaluate("document.documentElement.scrollWidth <= innerWidth+1")
-                user.screenshot(path=str(args.artifacts/"agent-tier-price-mobile-dark.png"),full_page=True)
+                user.screenshot(path=str(args.artifacts/"agent-tier-price-mobile-dark.png"),animations="disabled")
             report["checks"].append("Administrator edits name, 75.5% rate and display order in the real UI; a 1001-cent package costs 756 cents, visible to the agent on desktop/mobile")
             issue = {"package_id":pkg["id"],"quantity":1,"request_id":uuid.uuid4().hex,"expected_unit_cost":756}
             first = http.api(base,"/agent/card-batches",issue,token)
