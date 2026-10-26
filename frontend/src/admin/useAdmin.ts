@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from "vue";
-import { ApiError, request } from "../shared/api";
+import { ApiError, isInvalidSession, request } from "../shared/api";
 import { toast } from "../shared/useToast";
 import { applyBranding } from "../shared/branding";
 
@@ -8,6 +8,7 @@ export function useAdmin() {
   const profile = ref<any>();
   const loading = ref(false);
   const loginError = ref("");
+  const loginNotice = ref("");
   const loginChallenge = ref<{ challenge: string; expires_at: string } | null>(null);
   const data = reactive<any>({
     products: [],
@@ -52,7 +53,7 @@ export function useAdmin() {
         path.startsWith("/admin/login") ? "" : token.value,
       );
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401 && !path.startsWith("/admin/login"))
+      if (isInvalidSession(e) && !path.startsWith("/admin/login"))
         logout("登录状态已失效，请重新登录");
       throw e;
     }
@@ -76,6 +77,7 @@ export function useAdmin() {
     if (loading.value) return;
     loading.value = true;
     loginError.value = "";
+    loginNotice.value = "";
     try {
       const r = await api("/admin/login/start", {
         method: "POST",
@@ -114,13 +116,15 @@ export function useAdmin() {
   function resetLoginStep() {
     loginChallenge.value = null;
     loginError.value = "";
+    loginNotice.value = "";
   }
-  function logout(message = "") {
+  function logout(message = "", kind: "error" | "notice" = "error") {
     resetLoginStep();
     token.value = "";
     profile.value = null;
     sessionStorage.removeItem("yn.admin_token");
-    loginError.value = message;
+    if (kind === "notice") loginNotice.value = message;
+    else loginError.value = message;
   }
   async function refresh() {
     loading.value = true;
@@ -237,6 +241,7 @@ export function useAdmin() {
     profile,
     loading,
     loginError,
+    loginNotice,
     loginChallenge,
     data,
     selected,

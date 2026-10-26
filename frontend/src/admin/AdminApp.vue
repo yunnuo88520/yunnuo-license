@@ -48,6 +48,8 @@ import BindingPolicy from "./BindingPolicy.vue";
 import OperationLogs from "./OperationLogs.vue";
 import CommercePanel from "./CommercePanel.vue";
 import AdminMFA from "./AdminMFA.vue";
+import PasswordChangeForm from "../shared/components/PasswordChangeForm.vue";
+import type { PasswordChangeInput } from "../shared/password";
 import OperationsPanel from "./OperationsPanel.vue";
 import AgentOnboarding from "./AgentOnboarding.vue";
 import RecoveryPanel from "./RecoveryPanel.vue";
@@ -1091,6 +1093,14 @@ async function adminSignIn() {
     if (!a.loginChallenge.value && !a.profile.value) captchaField.value?.refresh();
   }
 }
+function changeAdminPassword(input: PasswordChangeInput) {
+  return a.api<{ changed: boolean }>("/admin/password", { method: "POST", body: JSON.stringify(input) });
+}
+function adminPasswordChanged() {
+  action.value = "";
+  // Do not refresh with the token which this successful change just revoked.
+  a.logout("密码已修改，请使用新密码重新登录。", "notice");
+}
 onMounted(async () => {
   loadBranding("管理控制台").catch(() => undefined);
   // 登录后 profile 异步就绪，isManager 变化时再拉取邮件配置供仪表盘展示。
@@ -1137,6 +1147,7 @@ onMounted(async () => {
           </div>
         </div>
         <h2>{{ a.loginChallenge.value ? "两步验证" : "管理控制台" }}</h2>
+        <p v-if="a.loginNotice.value" class="notice" role="status">{{ a.loginNotice.value }}</p>
         <p v-if="!a.loginChallenge.value">使用管理员账号登录。</p>
         <p v-else-if="mfaMode === 'totp'">打开你绑定的验证器 App，输入当前显示的 6 位验证码。</p>
         <p v-else>输入开启两步验证时保存的备用恢复码，每个只能使用一次。</p>
@@ -3242,33 +3253,9 @@ onMounted(async () => {
     <FormDialog
       :open="action === 'password'"
       title="修改密码"
-      description="修改成功后将退出登录，请使用新密码重新登录。"
       @close="action = ''"
     >
-      <form
-        class="form-grid"
-        @submit.prevent="
-          create('/admin/password', $event, '密码已修改').then(() =>
-            a.logout('请使用新密码登录'),
-          )
-        "
-      >
-        <label class="field"
-          >当前密码<input
-            name="current_password"
-            type="password"
-            required /></label
-        ><label class="field"
-          >新密码<input
-            name="new_password"
-            type="password"
-            minlength="8"
-            required
-        /></label>
-        <div class="form-actions">
-          <button class="btn">确认修改</button>
-        </div>
-      </form>
+      <PasswordChangeForm :change="changeAdminPassword" submit-label="确认修改" @changed="adminPasswordChanged" />
     </FormDialog>
     <ConfirmDialog
       :open="confirmState.open"

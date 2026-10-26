@@ -441,11 +441,14 @@ curl -X POST http://127.0.0.1:18080/admin/password \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -d '{
     "current_password": "change-this-password",
-    "new_password": "a-new-strong-password"
+    "new_password": "a-new-strong-password",
+    "confirm_password": "a-new-strong-password"
   }'
 ```
 
 密码修改成功后，该账号此前签发的管理员 token 会立即失效，需要重新登录。
+
+当前密码错误返回 `400 CURRENT_PASSWORD_INCORRECT`，确认不一致返回 `400 PASSWORD_CONFIRMATION_MISMATCH`，均不会修改密码或撤销会话。网页始终要求二次确认；兼容原有程序调用，API 可省略 `confirm_password`，提供时必须与 `new_password` 完全一致。成功返回 `changed: true` 后应清除旧 token 并重新登录，不再用旧 token 刷新数据。新密码长度为 8–256 字节，首尾空格不会被自动删除。用户/代理的 `/user/password` 和开发者的 `/developer/password` 使用相同字段和错误规则。
 
 ## 代理状态与审计
 

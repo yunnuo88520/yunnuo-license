@@ -216,13 +216,17 @@ func (s *Service) AuthenticateAdminToken(ctx context.Context, token string) (Adm
 }
 
 type ChangeAdminPasswordInput struct {
-	CurrentPassword string `json:"current_password"`
-	NewPassword     string `json:"new_password"`
+	CurrentPassword string  `json:"current_password"`
+	NewPassword     string  `json:"new_password"`
+	ConfirmPassword *string `json:"confirm_password,omitempty"`
 }
 
 func (s *Service) ChangeAdminPassword(ctx context.Context, userID string, input ChangeAdminPasswordInput) error {
-	if userID == "" || strings.TrimSpace(input.CurrentPassword) == "" || len(strings.TrimSpace(input.NewPassword)) < 8 {
+	if userID == "" {
 		return ErrInvalidRequest
+	}
+	if err := validatePasswordChange(input); err != nil {
+		return err
 	}
 	user, err := s.currentStore().GetAdminUserByID(ctx, userID)
 	if err != nil {
@@ -233,9 +237,9 @@ func (s *Service) ChangeAdminPassword(ctx context.Context, userID string, input 
 	}
 	ok, err := verifyAgentPassword(input.CurrentPassword, user.PasswordHash)
 	if err != nil || !ok {
-		return ErrInvalidCredentials
+		return ErrCurrentPasswordIncorrect
 	}
-	passwordHash, err := hashAgentPassword(strings.TrimSpace(input.NewPassword))
+	passwordHash, err := hashAgentPassword(input.NewPassword)
 	if err != nil {
 		return err
 	}

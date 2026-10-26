@@ -8,6 +8,16 @@ export class ApiError extends Error {
   }
 }
 
+const sessionErrorCodes = new Set([
+  "INVALID_ADMIN_TOKEN",
+  "INVALID_USER_TOKEN",
+  "INVALID_AGENT_TOKEN",
+]);
+
+export function isInvalidSession(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401 && sessionErrorCodes.has(error.code);
+}
+
 export async function request<T>(
   path: string,
   options: RequestInit = {},

@@ -5,7 +5,9 @@ import { CircleHelp } from "lucide-vue-next";
 import CaptchaField from "../shared/components/CaptchaField.vue";
 import SecurityAppeals from "./SecurityAppeals.vue";
 import { onMounted, reactive, ref } from "vue";
-import { ApiError, request } from "../shared/api";
+import { isInvalidSession, request } from "../shared/api";
+import PasswordChangeForm from "../shared/components/PasswordChangeForm.vue";
+import type { PasswordChangeInput } from "../shared/password";
 import { accountToken, saveAccountToken, clearAccountToken } from "../shared/accountSession";
 import { friendlyError } from "../shared/errors";
 import { branding, loadBranding } from "../shared/branding";
@@ -28,7 +30,6 @@ const rebind = reactive({
   reason: "",
   request_id: "",
 });
-const password = reactive({ current_password: "", new_password: "" });
 const helpOpen = ref(false);
 function logout() {
   token.value = "";
@@ -44,7 +45,7 @@ async function api<T = any>(
   try {
     return await request<T>(path, options, token.value);
   } catch (e) {
-    if (e instanceof ApiError && e.status === 401) logout();
+    if (isInvalidSession(e)) logout();
     throw e;
   }
 }
@@ -128,17 +129,13 @@ function save() {
     await refresh();
   });
 }
-function changePassword() {
-  void run(async () => {
-    await api("/user/password", {
-      method: "POST",
-      body: JSON.stringify(password),
-    });
-    password.current_password = "";
-    password.new_password = "";
-    logout();
-    message.value = "密码已修改，请重新登录。";
-  });
+function changePassword(input: PasswordChangeInput) {
+  return api<{ changed: boolean }>("/user/password", { method: "POST", body: JSON.stringify(input) });
+}
+function passwordChanged() {
+  logout();
+  error.value = "";
+  message.value = "密码已修改，请使用新密码重新登录。";
 }
 onMounted(async () => {
   await loadBranding("用户中心");
@@ -370,23 +367,7 @@ onMounted(async () => {
       <section class="panel">
         <details>
           <summary>修改登录密码</summary>
-          <form @submit.prevent="changePassword">
-            <label class="field"
-              >当前密码<input
-                v-model="password.current_password"
-                type="password"
-                required
-                autocomplete="current-password" /></label
-            ><label class="field"
-              >新密码<input
-                v-model="password.new_password"
-                type="password"
-                minlength="8"
-                maxlength="256"
-                required
-                autocomplete="new-password" /></label
-            ><button class="btn" :disabled="busy">保存密码并重新登录</button>
-          </form>
+          <PasswordChangeForm :change="changePassword" @changed="passwordChanged" />
         </details>
       </section></template
     >

@@ -191,6 +191,9 @@ jobs:
       - name: Verify ordinary login, image CAPTCHA and opt-in two-factor login
         timeout-minutes: 4
         run: python .github/scripts/check-command.py "Login flow acceptance" python examples/platform-e2e/test_login.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-login"
+      - name: Verify password confirmation and correct session handling in all consoles
+        timeout-minutes: 4
+        run: python .github/scripts/check-command.py "Password change acceptance" python examples/platform-e2e/test_password.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-password"
       - name: Verify card detection and agent application selection in a real browser
         timeout-minutes: 4
         run: |
@@ -229,6 +232,7 @@ jobs:
             ${{ runner.temp }}/yunnuo-native-deployment
             ${{ runner.temp }}/yunnuo-ci-setup
             ${{ runner.temp }}/yunnuo-login
+            ${{ runner.temp }}/yunnuo-password
 
   docker:
     runs-on: ubuntu-latest

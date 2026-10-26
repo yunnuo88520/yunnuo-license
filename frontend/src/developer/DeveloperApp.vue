@@ -2,7 +2,9 @@
 import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import CaptchaField from "../shared/components/CaptchaField.vue";
 import { onMounted, reactive, ref } from "vue";
-import { request, downloadText, ApiError } from "../shared/api";
+import { request, downloadText, isInvalidSession } from "../shared/api";
+import PasswordChangeForm from "../shared/components/PasswordChangeForm.vue";
+import type { PasswordChangeInput } from "../shared/password";
 import { friendlyError } from "../shared/errors";
 import { branding, loadBranding } from "../shared/branding";
 import ProductReleases from "../shared/components/ProductReleases.vue";
@@ -17,6 +19,7 @@ const error = ref(""),
   busy = ref(false),
   codes = ref<string[]>([]),
   licenses = ref<any>();
+const message = ref("");
 const policyRevision = ref(0);
 const createdSecrets = reactive<Record<string, string>>({});
 const login = reactive({
@@ -39,7 +42,6 @@ const cards = reactive({
   duration_days: 365,
   is_permanent: false,
 });
-const password = reactive({ current_password: "", new_password: "" });
 function logout() {
   Object.keys(createdSecrets).forEach(id => delete createdSecrets[id]);
   token.value = "";
@@ -57,7 +59,7 @@ async function api<T = any>(
   try {
     return await request<T>(path, options, token.value);
   } catch (e) {
-    if (e instanceof ApiError && e.status === 401) logout();
+    if (isInvalidSession(e)) logout();
     throw e;
   }
 }
@@ -78,6 +80,7 @@ async function refresh() {
     selected.value = products.value[0]?.id || "";
 }
 function signIn() {
+  message.value = "";
   void run(async () => {
     login.captcha_id = captchaField.value?.captchaId || "";
     try {
@@ -129,16 +132,13 @@ function selectProduct() {
   codes.value = [];
   licenses.value = null;
 }
-function changePassword() {
-  void run(async () => {
-    await api("/developer/password", {
-      method: "POST",
-      body: JSON.stringify(password),
-    });
-    password.current_password = "";
-    password.new_password = "";
-    logout();
-  });
+function changePassword(input: PasswordChangeInput) {
+  return api<{ changed: boolean }>("/developer/password", { method: "POST", body: JSON.stringify(input) });
+}
+function passwordChanged() {
+  logout();
+  error.value = "";
+  message.value = "密码已修改，请使用新密码重新登录。";
 }
 onMounted(async () => {
   await loadBranding("开发者控制台");
@@ -165,6 +165,7 @@ onMounted(async () => {
       </div>
     </header>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <p v-if="message" class="notice" role="status">{{ message }}</p>
     <section v-if="!profile" class="panel login-box">
       <h2>开发者登录</h2>
       <p>请使用站点管理员为你创建的开发者账号。</p>
@@ -333,22 +334,7 @@ onMounted(async () => {
       <section class="panel">
         <details>
           <summary>修改密码</summary>
-          <form class="developer-form" @submit.prevent="changePassword">
-            <label class="field"
-              >当前密码<input
-                v-model="password.current_password"
-                type="password"
-                autocomplete="current-password"
-                required /></label
-            ><label class="field"
-              >新密码<input
-                v-model="password.new_password"
-                type="password"
-                minlength="8"
-                autocomplete="new-password"
-                required /></label
-            ><button class="btn" :disabled="busy">保存并重新登录</button>
-          </form>
+          <PasswordChangeForm :change="changePassword" @changed="passwordChanged" />
         </details>
       </section>
     </template>

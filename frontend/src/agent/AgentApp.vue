@@ -17,7 +17,10 @@ import {
   TicketCheck,
   Wallet,
 } from "lucide-vue-next";
-import { ApiError, downloadText, request } from "../shared/api";
+import { downloadText, isInvalidSession, request } from "../shared/api";
+import PasswordChangeForm from "../shared/components/PasswordChangeForm.vue";
+import FormDialog from "../shared/components/FormDialog.vue";
+import type { PasswordChangeInput } from "../shared/password";
 import { accountToken, saveAccountToken, clearAccountToken } from "../shared/accountSession";
 import { friendlyError } from "../shared/errors";
 import { formatTime, roleLabel } from "../shared/format";
@@ -31,6 +34,8 @@ const token = ref(accountToken("agent"));
 const profile = ref<any>();
 const loading = ref(false);
 const loginError = ref("");
+const loginNotice = ref("");
+const passwordOpen = ref(false);
 const captchaField = ref<any>(null);
 const page = ref(location.hash.slice(1) || "overview");
 const products = ref<any[]>([]),
@@ -106,7 +111,7 @@ async function api<T>(path: string, options: RequestInit = {}) {
       path === "/agent/login" ? "" : token.value,
     );
   } catch (e) {
-    if (e instanceof ApiError && e.status === 401 && path !== "/agent/login")
+    if (isInvalidSession(e) && path !== "/agent/login")
       logout("登录状态已失效，请重新登录");
     throw e;
   }
@@ -115,6 +120,7 @@ async function signIn() {
   login.captcha_id = captchaField.value?.captchaId || "";
   loading.value = true;
   loginError.value = "";
+  loginNotice.value = "";
   try {
     const data = await api<any>("/agent/login", {
       method: "POST",
@@ -133,10 +139,18 @@ async function signIn() {
   }
 }
 function logout(message = "") {
+  passwordOpen.value = false;
   token.value = "";
   profile.value = null;
   clearAccountToken();
   loginError.value = message;
+}
+function changePassword(input: PasswordChangeInput) {
+  return api<{ changed: boolean }>("/user/password", { method: "POST", body: JSON.stringify(input) });
+}
+function passwordChanged() {
+  logout();
+  loginNotice.value = "密码已修改，请使用新密码重新登录。";
 }
 async function refresh() {
   loading.value = true;
@@ -289,6 +303,7 @@ onMounted(async () => {
               :size="17"
             />进入工作台</button
           ><a href="/recover?from=agent">忘记密码</a><a href="/user-console/">进入用户中心</a>
+          <p v-if="loginNotice" class="notice" role="status">{{ loginNotice }}</p>
           <p class="error">{{ loginError }}</p>
         </form>
       </div>
@@ -339,6 +354,8 @@ onMounted(async () => {
           <UserMenu
             :name="profile.display_name || profile.username"
             :role="roleLabel(profile.role)"
+            password-action="修改密码"
+            @password="passwordOpen = true"
             @logout="logout()"
           />
         </div>
@@ -664,6 +681,9 @@ onMounted(async () => {
         </section>
       </div>
     </main>
+    <FormDialog :open="passwordOpen" title="修改密码" @close="passwordOpen = false">
+      <PasswordChangeForm :change="changePassword" submit-label="确认修改" @changed="passwordChanged" />
+    </FormDialog>
     <AppToast />
   </div>
 </template>

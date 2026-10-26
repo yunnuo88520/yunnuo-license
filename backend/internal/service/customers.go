@@ -155,8 +155,8 @@ func (s *Service) SetCustomerStatus(ctx context.Context, id, status, actor strin
 	})
 }
 func (s *Service) CustomerPassword(ctx context.Context, id string, input ChangeAdminPasswordInput) error {
-	if len(input.NewPassword) < 8 || len(input.NewPassword) > 256 {
-		return ErrInvalidRequest
+	if err := validatePasswordChange(input); err != nil {
+		return err
 	}
 	c, err := s.currentStore().CustomerByID(ctx, id)
 	if err != nil {
@@ -164,7 +164,7 @@ func (s *Service) CustomerPassword(ctx context.Context, id string, input ChangeA
 	}
 	ok, err := verifyAgentPassword(input.CurrentPassword, c.PasswordHash)
 	if err != nil || !ok {
-		return ErrInvalidCredentials
+		return ErrCurrentPasswordIncorrect
 	}
 	hash, err := hashAgentPassword(input.NewPassword)
 	if err != nil {

@@ -211,6 +211,7 @@ YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_ag
 
 restart_and_wait
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_production.py --base-url "$base" --artifacts "$platform_artifacts/production"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_password.py --base-url "$base" --artifacts "$platform_artifacts/password"
 ./docker/test-production-restore.sh "$container" "$update_state" "$((port+1))"
 restart_and_wait
 check_public_license
