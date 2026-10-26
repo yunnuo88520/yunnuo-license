@@ -146,8 +146,8 @@ def main():
                 assert response.value.status == 200
                 generated = response.value.json()["data"]
                 issue = captured[-1]
-                user.get_by_role("link", name="额度流水", exact=True).click()
-                user.get_by_role("heading", name="资金流水", exact=True).wait_for()
+                user.get_by_role("link", name="资金流水", exact=True).click()
+                user.get_by_role("heading", name="资金流水", level=3, exact=True).wait_for()
                 user.get_by_role("cell", name="套餐发卡", exact=True).wait_for()
                 user.screenshot(path=str(args.artifacts / "agent-atomic-ledger.png"), full_page=True)
             else:

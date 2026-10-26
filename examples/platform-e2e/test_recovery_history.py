@@ -118,7 +118,7 @@ def main():
                 agent_page.get_by_label("登录名", exact=True).fill(credentials["username"])
                 agent_page.get_by_label("密码", exact=True).fill(new_password)
                 agent_page.get_by_role("button", name="进入工作台", exact=True).click()
-                agent_page.get_by_role("link", name="额度流水", exact=True).click()
+                agent_page.get_by_role("link", name="资金流水", exact=True).click()
                 agent_page.get_by_text("共 505 条", exact=False).wait_for()
                 agent_page.get_by_role("button", name="下一页", exact=True).click()
                 agent_page.get_by_text("第 2 / 26 页", exact=False).wait_for()

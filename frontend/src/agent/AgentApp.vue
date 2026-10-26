@@ -83,7 +83,7 @@ const navGroups = [
     label: "记录",
     items: [
       { id: "licenses", label: "授权记录", icon: BadgeCheck },
-      { id: "ledgers", label: "额度流水", icon: ListRestart },
+      { id: "ledgers", label: "资金流水", icon: ListRestart },
     ],
   },
 ];
@@ -91,7 +91,7 @@ const canManage = computed(() =>
   ["agent_owner", "agent_manager"].includes(profile.value?.role),
 );
 const metrics = computed(() => [
-  quotas.value.reduce((n, q) => n + Math.max(0, q.balance), 0),
+  money(account.value?.balance || 0),
   batches.value.length,
   batches.value.reduce((n, b) => n + b.quantity, 0),
   licenses.value.length,
@@ -358,7 +358,7 @@ onMounted(async () => {
             <div>
               <span class="hero-eyebrow">PARTNER NODE</span>
               <h2>业务脉搏</h2>
-              <p>额度、卡密与授权状态保持实时同步。</p>
+              <p>余额、套餐成本与授权状态保持实时同步。</p>
             </div>
           </section>
           <div class="metrics">
@@ -370,56 +370,35 @@ onMounted(async () => {
               /></span>
               <strong>{{ m }}</strong>
               <small>{{
-                ["可用额度", "卡密批次", "已生成卡密", "已激活授权"][i]
+                ["可用余额", "卡密批次", "已生成卡密", "已激活授权"][i]
               }}</small>
             </div>
           </div>
           <section class="panel">
-            <div class="panel-head"><h3>可售产品与额度</h3></div>
+            <div class="panel-head"><h3>可售套餐与成本</h3></div>
             <div class="table-wrap">
               <table class="table">
-                <thead>
-                  <tr>
-                    <th>产品</th>
-                    <th>可售时长</th>
-                    <th>剩余额度</th>
-                    <th>单批上限</th>
-                    <th>明文导出</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>应用</th><th>套餐</th><th>时长</th><th>单张成本</th><th>结算方式</th><th>单批上限</th></tr></thead>
                 <tbody>
-                  <tr v-for="p in products" :key="p.id">
-                    <td>
-                      <b>{{ p.name }}</b
-                      ><code>{{ p.id }}</code>
-                    </td>
-                    <td>
-                      {{
-                        [
-                          ...(p.policy.allowed_duration_days || []).map(
-                            (d: number) => `${d} 天`,
-                          ),
-                          ...(p.policy.allow_permanent ? ["永久"] : []),
-                        ].join("、") || "未配置"
-                      }}
-                    </td>
-                    <td>
-                      <span
-                        v-for="q in quotas.filter((q) => q.product_id === p.id)"
-                        :key="q.id"
-                        class="mono"
-                        >{{
-                          q.is_permanent ? "永久" : `${q.duration_days} 天`
-                        }}: {{ q.balance }}<br
-                      /></span>
-                    </td>
-                    <td>{{ p.policy.max_batch_quantity }}</td>
-                    <td>
-                      {{ p.policy.can_export_plain_code ? "允许" : "禁止" }}
-                    </td>
+                  <tr v-for="q in packages" :key="q.package.id">
+                    <td><b>{{ productName(q.package.product_id) }}</b></td>
+                    <td>{{ q.package.name }}</td>
+                    <td>{{ q.package.is_permanent ? "永久" : `${q.package.duration_days} 天` }}</td>
+                    <td>{{ money(q.unit_cost) }}</td>
+                    <td>{{ q.package.use_quota ? "余额 + 附加张数额度" : "余额" }}</td>
+                    <td>{{ products.find(p => p.id === q.package.product_id)?.policy.max_batch_quantity || "—" }}</td>
                   </tr>
                 </tbody>
               </table>
+              <p v-if="!packages.length" class="empty">暂无已授权套餐，请联系管理员配置。</p>
+            </div>
+          </section>
+          <section v-if="quotas.length" class="panel">
+            <div class="panel-body">
+              <details><summary>附加张数额度（可选）</summary>
+                <p>仅限启用附加张数限制的套餐，余额结算的套餐无需这些额度。</p>
+                <p v-for="q in quotas" :key="`${q.product_id}-${q.duration_days}-${q.is_permanent}`">{{ productName(q.product_id) }} · {{ q.is_permanent ? "永久" : `${q.duration_days} 天` }}：{{ q.balance }} 张</p>
+              </details>
             </div>
           </section></template
         >
@@ -633,8 +612,8 @@ onMounted(async () => {
             kind="money"
           />
         </section>
-        <section v-if="page === 'ledgers'" class="panel">
-          <div class="panel-head"><h3>额度流水</h3></div>
+        <section v-if="page === 'ledgers' && ledgers.length" class="panel">
+          <details class="panel-body"><summary>附加张数额度流水（可选）</summary>
           <div class="table-wrap">
             <table class="table">
               <thead>
@@ -681,6 +660,7 @@ onMounted(async () => {
               </tbody>
             </table>
           </div>
+          </details>
         </section>
       </div>
     </main>

@@ -128,6 +128,8 @@ def main():
                 user.screenshot(path=str(args.artifacts / "same-account-personal-licenses-dark.png"), full_page=True)
                 user.get_by_role("link", name="代理工作台", exact=True).click()
                 user.locator(".console .workspace").wait_for()
+                user.locator(".metric").filter(has_text="可用余额").get_by_text("¥20.00", exact=True).wait_for()
+                user.get_by_role("cell", name="¥7.00", exact=True).wait_for()
                 user.set_viewport_size({"width": 390, "height": 844})
                 assert user.evaluate("document.documentElement.scrollWidth <= innerWidth+1")
                 user.screenshot(path=str(args.artifacts / "same-account-agent-mobile-dark.png"), full_page=True)
