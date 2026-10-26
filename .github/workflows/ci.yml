@@ -161,10 +161,22 @@ jobs:
       - name: Install Chromium
         timeout-minutes: 5
         run: python .github/scripts/check-command.py --timeout 120 --attempts 2 --log "$RUNNER_TEMP/yunnuo-ci-setup/chromium.log" "Chromium setup" python -m playwright install chromium
+      - name: Use official Ubuntu HTTPS package mirrors
+        run: |
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          if [ -f /etc/apt/apt-mirrors-security.txt ]; then
+            printf '%s\n' 'https://security.ubuntu.com/ubuntu' | sudo tee /etc/apt/apt-mirrors-security.txt >/dev/null
+          fi
+          for apt_source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+            if [ -f "$apt_source" ]; then
+              sudo sed -i -e 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' -e 's|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' "$apt_source"
+            fi
+          done
+          printf '%s\n' 'Acquire::Retries "1";' 'Acquire::http::Timeout "15";' 'Acquire::https::Timeout "15";' 'Acquire::Languages "none";' 'Dpkg::Use-Pty "0";' | sudo tee /etc/apt/apt.conf.d/99yunnuo-ci-network >/dev/null
       - name: Install browser system dependencies and fonts
         timeout-minutes: 6
         run: |
-          sudo "$(command -v python)" .github/scripts/check-command.py --timeout 120 --log "$RUNNER_TEMP/yunnuo-ci-setup/dependencies.log" "Browser dependency setup" "$(command -v python)" -m playwright install-deps chromium
+          sudo "$(command -v python)" .github/scripts/check-command.py --timeout 180 --log "$RUNNER_TEMP/yunnuo-ci-setup/dependencies.log" "Browser dependency setup" "$(command -v python)" -m playwright install-deps chromium
           sudo "$(command -v python)" .github/scripts/check-command.py --timeout 120 --log "$RUNNER_TEMP/yunnuo-ci-setup/fonts.log" "CJK font setup" apt-get install -y -o Dpkg::Use-Pty=0 fonts-noto-cjk
       - name: Build the server for browser acceptance tests
         timeout-minutes: 3
