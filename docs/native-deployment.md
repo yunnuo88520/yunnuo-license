@@ -26,7 +26,7 @@ cd yunnuo-license-v0.3.0-linux-amd64
 - `backend/`：三个可执行文件、`migrations/`、用于生成接入包的 `sdk/`。
 - `frontend/`：Nginx 站点根目录；只有公开的 HTML、JS、CSS 和图片。
 - `deploy/native/`：配置工具、启动脚本、Nginx 和进程守护模板。
-- `licenses/`：随 Go 二进制再分发的依赖许可证。
+- `licenses/`：Go 工具链、Go 及前端运行依赖的许可证和索引。
 - `BUILD_INFO.json`、`FILES.sha256`：源提交、平台、工具链和内部文件校验。
 
 程序解压到持久目录，例如 `/opt/yunnuo/releases/版本/` 或 `/www/server/yunnuo/releases/版本/`。不要把整个发布目录作为 Nginx 站点根，也不要把数据库/密钥放进 `frontend/`。

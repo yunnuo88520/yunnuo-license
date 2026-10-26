@@ -37,7 +37,7 @@ cd dist
 sha256sum -c SHA256SUMS
 ```
 
-默认生成 Linux amd64/arm64 完整包、相同架构的独立后端包、一个独立前端包及 `SHA256SUMS`。Go 二进制静态编译，包含迁移、接入包所需 SDK、构建元数据、内部校验和及依赖许可证。数据库、密钥、私有环境文件和升级包不进入发布包。正式构建要求源代码已提交；`--allow-dirty` 只用于标记为 `source_dirty: true` 的预览验收包。
+默认生成 Linux amd64/arm64 完整包、相同架构的独立后端包、一个独立前端包及 `SHA256SUMS`。Go 二进制静态编译，包含迁移、接入包所需 SDK、构建元数据、内部校验和及 Go/前端依赖许可证。数据库、密钥、私有环境文件和升级包不进入发布包。正式构建要求源代码已提交；`--allow-dirty` 只用于标记为 `source_dirty: true` 的预览验收包。
 
 GitHub Actions 的 **Release bundles** 支持手动构建并下载 artifacts。推送与 `VERSION` 一致的 `v版本号` 标签时，工作流先核对该提交在 `main` 上且对应 CI 成功，再构建并创建带压缩包和校验和的**草稿 Release**；维护者核对后发布。标签不会自动公开发行版本。
 

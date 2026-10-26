@@ -42,7 +42,7 @@ def archive(stage,output,epoch,selected):
             with path.open('rb') as f:tar.addfile(info,f)
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--arch',action='append',choices=['amd64','arm64']);p.add_argument('--output',type=pathlib.Path,default=ROOT/'dist');p.add_argument('--skip-frontend-build',action='store_true',help='reuse an already verified frontend/dist');p.add_argument('--allow-dirty',action='store_true',help='preview only: mark uncommitted sources explicitly');p.add_argument('--split-only',action='store_true',help='omit the combined bundle');args=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--arch',action='append',choices=['amd64','arm64']);p.add_argument('--output',type=pathlib.Path,default=ROOT/'dist');p.add_argument('--skip-frontend-build',action='store_true',help='reuse verified frontend/dist and installed dependencies for license notices');p.add_argument('--allow-dirty',action='store_true',help='preview only: mark uncommitted sources explicitly');p.add_argument('--split-only',action='store_true',help='omit the combined bundle');args=p.parse_args()
     arches=list(dict.fromkeys(args.arch or ['amd64','arm64']));version=(ROOT/'VERSION').read_text().strip()
     if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?',version):raise ValueError('VERSION must be a semantic version without paths or whitespace')
     commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip();dirty=bool(subprocess.check_output(['git','status','--porcelain','--untracked-files=normal'],cwd=ROOT,text=True))
@@ -65,6 +65,17 @@ def main():
         base=pathlib.Path(temporary)
         common=base/'common';common.mkdir();copy_tree(ROOT/'deploy',common/'deploy');copy_tree(ROOT/'docs',common/'docs');shutil.copy2(ROOT/'LICENSE',common/'LICENSE');shutil.copy2(ROOT/'VERSION',common/'VERSION');shutil.copy2(ROOT/'README.md',common/'PROJECT-README.md');shutil.copy2(ROOT/'deploy/native/ARCHIVE-README.md',common/'README.md');shutil.copy2(ROOT/'deploy/native/ARCHIVE-README.md',common/'DEPLOY.md');shutil.copy2(ROOT/'CHANGELOG.md',common/'CHANGELOG.md')
         notices=common/'licenses';notices.mkdir();goroot=pathlib.Path(subprocess.check_output(['go','env','GOROOT'],text=True).strip());shutil.copy2(goroot/'LICENSE',notices/'Go-LICENSE')
+        frontend_notices=notices/'frontend';frontend_notices.mkdir();frontend_modules=[]
+        installed=subprocess.check_output(['npm','ls','--omit=dev','--all','--parseable'],cwd=ROOT/'frontend',text=True).splitlines()
+        for directory in installed:
+            source=pathlib.Path(directory).resolve()
+            if source==ROOT/'frontend':continue
+            source.relative_to(ROOT/'frontend/node_modules')
+            package=json.loads((source/'package.json').read_text());name=package['name'].replace('/','_')+'@'+package['version'];target=frontend_notices/name;target.mkdir()
+            for candidate in source.iterdir():
+                if candidate.is_file() and candidate.name.upper().startswith(('LICENSE','COPYING','NOTICE')):shutil.copy2(candidate,target/candidate.name)
+            frontend_modules.append({'name':package['name'],'version':package['version'],'license':package.get('license'),'notices':[f.name for f in target.iterdir()]})
+        (frontend_notices/'INDEX.json').write_text(json.dumps(frontend_modules,indent=2))
         for module in packages:
             if module.get('Main') or not module.get('Dir'):continue
             source=pathlib.Path(module['Dir']);name=module['Path'].replace('/','_')+'@'+module.get('Version','unknown')
