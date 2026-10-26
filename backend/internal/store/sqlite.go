@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,6 +32,20 @@ type Tx struct {
 func Open(ctx context.Context, driver, dsn string) (*Store, error) {
 	if driver != "sqlite" && driver != "mysql" {
 		return nil, fmt.Errorf("unsupported database driver %q", driver)
+	}
+	if driver == "sqlite" {
+		path, query, _ := strings.Cut(dsn, "?")
+		params, err := url.ParseQuery(query)
+		if err != nil {
+			return nil, err
+		}
+		// Deferred read-to-write upgrades can return SQLITE_BUSY immediately,
+		// despite busy_timeout, when verification races operation-log writes.
+		// Reserve the writer at BEGIN so contention waits before taking a snapshot.
+		if params.Get("_txlock") == "" {
+			params.Set("_txlock", "immediate")
+		}
+		dsn = path + "?" + params.Encode()
 	}
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
