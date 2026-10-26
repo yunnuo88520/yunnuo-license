@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -143,6 +144,11 @@ func TestActivationFailureBurstAutoBlocksIP(t *testing.T) {
 func TestAutoBlockExpiresAndNotifiesAdmins(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
+	// SMTP can accept a message before its delivery log reads the clock. Keep
+	// advancing the test clock safe while that background worker is finishing.
+	var clock atomic.Value
+	clock.Store(svc.now())
+	svc.now = func() time.Time { return clock.Load().(time.Time) }
 	smtp := startFakeSMTPServer(t)
 	product := createTestProduct(t, ctx, svc, domain.ConflictReject)
 
@@ -201,7 +207,7 @@ func TestAutoBlockExpiresAndNotifiesAdmins(t *testing.T) {
 
 	// TTL 到期后惰性解除，同一 IP 恢复访问（错误回到 CARD_INVALID 而非封禁）。
 	base := svc.now()
-	svc.now = func() time.Time { return base.Add(25 * time.Hour) }
+	clock.Store(base.Add(25 * time.Hour))
 	err = probe()
 	if !errors.As(err, &appErr) || appErr.Code != "CARD_INVALID" {
 		t.Fatalf("after TTL probe should be a plain card failure, got %v", err)

@@ -24,7 +24,12 @@ jobs:
       - run: go test ./...
       - run: go vet ./...
       - name: Race-check authorization, storage and backup transactions
-        run: go test -race ./internal/service ./internal/httpapi ./internal/store ./internal/maintenance
+        run: python3 ../.github/scripts/check-command.py --log "$RUNNER_TEMP/yunnuo-backend/race.log" "Backend race acceptance" go test -race ./internal/service ./internal/httpapi ./internal/store ./internal/maintenance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-race-evidence
+          path: ${{ runner.temp }}/yunnuo-backend
 
   security:
     runs-on: ubuntu-latest
