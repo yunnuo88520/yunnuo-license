@@ -101,8 +101,24 @@ const agentActionTitles: Record<string, string> = {
   quota: "发放额度",
   agentBatch: "代理批量发卡",
 };
-const login = reactive({ username: "", password: "", otp_code:"", captcha_id: "", captcha_code: "" });
+const login = reactive({ username: "", password: "", captcha_id: "", captcha_code: "" });
 const captchaField = ref<any>(null);
+const mfaMode = ref<"totp" | "recovery">("totp");
+const mfaCode = ref("");
+const mfaInput = ref<HTMLInputElement>();
+async function changeMFAMode(mode: "totp" | "recovery") {
+  mfaMode.value = mode;
+  mfaCode.value = "";
+  a.loginError.value = "";
+  await nextTick();
+  mfaInput.value?.focus();
+}
+async function completeAdminSignIn() {
+  await a.completeSignIn(mfaCode.value.trim());
+  mfaCode.value = "";
+  await nextTick();
+  mfaInput.value?.focus();
+}
 const result = ref("{}");
 const codes = ref<string[]>([]);
 const blockKind = ref("ip");
@@ -1067,10 +1083,12 @@ async function saveSiteSettings() {
 async function adminSignIn() {
   login.captcha_id = captchaField.value?.captchaId || "";
   try {
-    await a.signIn(login);
+    const outcome = await a.signIn(login);
+    if (outcome) login.password = "";
+    if (outcome === "mfa") await changeMFAMode("totp");
   } finally {
     login.captcha_code = "";
-    captchaField.value?.refresh();
+    if (!a.loginChallenge.value && !a.profile.value) captchaField.value?.refresh();
   }
 }
 onMounted(async () => {
@@ -1118,9 +1136,11 @@ onMounted(async () => {
             ><span>ADMIN CONSOLE</span>
           </div>
         </div>
-        <h2>管理控制台</h2>
-        <p>使用管理员账号进入安全控制域。</p>
-        <form class="login-form" @submit.prevent="adminSignIn">
+        <h2>{{ a.loginChallenge.value ? "两步验证" : "管理控制台" }}</h2>
+        <p v-if="!a.loginChallenge.value">使用管理员账号登录。</p>
+        <p v-else-if="mfaMode === 'totp'">打开你绑定的验证器 App，输入当前显示的 6 位验证码。</p>
+        <p v-else>输入开启两步验证时保存的备用恢复码，每个只能使用一次。</p>
+        <form v-if="!a.loginChallenge.value" class="login-form" @submit.prevent="adminSignIn">
           <label class="field"
             >账号<input
               v-model="login.username"
@@ -1133,7 +1153,7 @@ onMounted(async () => {
               type="password"
               autocomplete="current-password"
               required /></label
-          ><label class="field">动态验证码或恢复码<input v-model="login.otp_code" autocomplete="one-time-code" maxlength="32" placeholder="已启用动态验证时填写" /></label><CaptchaField ref="captchaField" v-model="login.captcha_code" />
+          ><CaptchaField ref="captchaField" v-model="login.captcha_code" />
           <button class="btn" :disabled="a.loading.value">
             <LoaderCircle
               v-if="a.loading.value"
@@ -1141,7 +1161,27 @@ onMounted(async () => {
               :size="17"
             /><KeyRound v-else :size="17" />安全登录</button
           ><a href="/recover?from=admin">忘记密码</a>
-          <p class="error">{{ a.loginError.value }}</p>
+          <p v-if="a.loginError.value" role="alert" class="error">{{ a.loginError.value }}</p>
+        </form>
+        <form v-else class="login-form" @submit.prevent="completeAdminSignIn">
+          <label v-if="mfaMode === 'totp'" class="field">验证器验证码<input
+            ref="mfaInput" v-model.trim="mfaCode" inputmode="numeric"
+            autocomplete="one-time-code" minlength="6" maxlength="6" pattern="[0-9]{6}"
+            placeholder="6 位数字" required /></label>
+          <label v-else class="field">备用恢复码<input
+            ref="mfaInput" v-model.trim="mfaCode" autocomplete="off"
+            minlength="32" maxlength="32" pattern="[0-9a-fA-F]{32}" required /></label>
+          <p v-if="a.loginError.value" role="alert" class="error">{{ a.loginError.value }}</p>
+          <button class="btn" :disabled="a.loading.value">
+            <LoaderCircle v-if="a.loading.value" class="spin" :size="17" />
+            <KeyRound v-else :size="17" />{{ a.loading.value ? "正在验证…" : "验证并登录" }}
+          </button>
+          <button v-if="mfaMode === 'totp'" type="button" class="mfa-login-link"
+            :disabled="a.loading.value" @click="changeMFAMode('recovery')">无法使用验证器？使用备用恢复码</button>
+          <button v-else type="button" class="mfa-login-link"
+            :disabled="a.loading.value" @click="changeMFAMode('totp')">返回验证器验证</button>
+          <button type="button" class="mfa-login-link" :disabled="a.loading.value"
+            @click="a.resetLoginStep(); mfaCode = ''">返回账号密码登录</button>
         </form>
       </div>
     </section>

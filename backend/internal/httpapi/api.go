@@ -129,6 +129,7 @@ func (api *API) Handler() http.Handler {
 	api.registerEmailRoutes(mux)
 	api.registerOperations(mux)
 	api.registerAdminMFA(mux)
+	api.registerAdminLoginSteps(mux)
 	mux.HandleFunc("GET /healthz", api.health)
 	mux.HandleFunc("GET /readyz", api.ready)
 	mux.HandleFunc("GET /metrics", api.exposeMetrics)

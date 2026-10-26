@@ -154,7 +154,7 @@ func recordClientFailure(lock *failureLockout, clientIP string, err error) {
 		return
 	}
 	switch appErr.Code {
-	case "INVALID_CREDENTIALS", "MFA_REQUIRED", "CARD_INVALID", "CARD_NOT_FOUND", "LICENSE_NOT_FOUND", "INVALID_APP_KEY":
+	case "INVALID_CREDENTIALS", "MFA_REQUIRED", "MFA_CODE_INVALID", "MFA_CHALLENGE_INVALID", "CARD_INVALID", "CARD_NOT_FOUND", "LICENSE_NOT_FOUND", "INVALID_APP_KEY":
 		lock.Fail(clientIP)
 	}
 }

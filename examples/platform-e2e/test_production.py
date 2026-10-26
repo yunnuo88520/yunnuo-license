@@ -42,8 +42,8 @@ def parallel(calls):
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         return list(pool.map(lambda f:f(),calls))
 
-def otp(secret):
-    digest=hmac.new(base64.b32decode(secret+"="*((-len(secret))%8)),struct.pack(">Q",int(time.time())//30),hashlib.sha1).digest()
+def otp(secret, at=None):
+    digest=hmac.new(base64.b32decode(secret+"="*((-len(secret))%8)),struct.pack(">Q",int(time.time() if at is None else at)//30),hashlib.sha1).digest()
     offset=digest[-1]&15
     return f"{(struct.unpack('>I',digest[offset:offset+4])[0]&0x7fffffff)%1000000:06d}"
 
@@ -121,16 +121,23 @@ def main():
         codes=http.api(base,"/admin/mfa/confirm",{"password":password,"code":otp(setup["secret"])},session)["recovery_codes"]
         assert request(base,"/admin/profile",token=session)[0]==401
         assert request(base,"/admin/login",{"username":operator,"password":password})[0]==403
-        mfa=http.api(base,"/admin/login",{"username":operator,"password":password,"otp_code":codes[0]})["access_token"]
+        start=http.api(base,"/admin/login/start",{"username":operator,"password":password})
+        assert "login" not in start and start["mfa"]["challenge"]
+        assert request(base,"/admin/profile",token=start["mfa"]["challenge"])[0]==401
+        mfa=http.api(base,"/admin/login/mfa",{"challenge":start["mfa"]["challenge"],"code":codes[0]})["access_token"]
+        assert request(base,"/admin/login/mfa",{"challenge":start["mfa"]["challenge"],"code":codes[1]})[0]==401
         assert request(base,"/admin/login",{"username":operator,"password":password,"otp_code":codes[0]})[0]==403
-        report["checks"].append("MFA enable revokes old sessions, missing OTP is denied, recovery code logs in once and replay is rejected")
+        competing=http.api(base,"/admin/login/start",{"username":operator,"password":password})["mfa"]["challenge"]
+        results=parallel([lambda code=code:request(base,"/admin/login/mfa",{"challenge":competing,"code":code}) for code in codes[2:4]])
+        assert sorted(r[0] for r in results)==[200,401],[(r[0],r[1].get("error",{}).get("code")) for r in results]
+        report["checks"].append("Password verification yields a restricted MFA challenge; complete login requires a valid second factor, concurrent attempts consume one challenge, and challenge/recovery replay is rejected")
         if args.screenshots:
             from playwright.sync_api import sync_playwright
             pw=sync_playwright().start();browser=pw.chromium.launch(executable_path=None if args.chromium=="bundled" else args.chromium,headless=True,args=["--no-sandbox"])
             context=browser.new_context(viewport={"width":1500,"height":1050},locale="zh-CN");page=context.new_page();errors=[];page.on("pageerror",lambda e:errors.append(str(e)))
             page.goto(base+"/admin#operations");page.get_by_label("账号",exact=True).fill("admin");page.get_by_label("密码",exact=True).fill(password);page.get_by_role("button",name="安全登录",exact=True).click();page.get_by_role("heading",name="运行与容量",exact=True,level=3).wait_for();page.screenshot(path=str(args.artifacts/"operations-desktop-light.png"),full_page=True,animations="disabled")
             page.emulate_media(color_scheme="dark");page.locator("html[data-theme='dark']").wait_for(state="attached");page.set_viewport_size({"width":390,"height":844});assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1");page.screenshot(path=str(args.artifacts/"operations-mobile-dark.png"),full_page=True,animations="disabled")
-            context.close();context=browser.new_context(viewport={"width":1440,"height":1000},locale="zh-CN");page=context.new_page();page.goto(base+"/admin#admins");page.get_by_label("账号",exact=True).fill(operator);page.get_by_label("密码",exact=True).fill(password);page.get_by_label("动态验证码或恢复码",exact=True).fill(codes[1]);page.get_by_role("button",name="安全登录",exact=True).click();page.get_by_role("tab",name="账号与安全",exact=True).click();page.get_by_text("已启用 · 剩余 8 个恢复码",exact=True).wait_for();page.screenshot(path=str(args.artifacts/"admin-mfa-enabled.png"),full_page=True,animations="disabled");assert not errors
+            context.close();context=browser.new_context(viewport={"width":1440,"height":1000},locale="zh-CN");page=context.new_page();page.goto(base+"/admin#admins");page.get_by_label("账号",exact=True).fill(operator);page.get_by_label("密码",exact=True).fill(password);page.get_by_role("button",name="安全登录",exact=True).click();page.get_by_role("heading",name="两步验证",exact=True).wait_for();page.get_by_role("button",name="无法使用验证器？使用备用恢复码",exact=True).click();page.get_by_label("备用恢复码",exact=True).fill(codes[1]);page.get_by_role("button",name="验证并登录",exact=True).click();page.get_by_role("tab",name="账号与安全",exact=True).click();page.get_by_text("已启用 · 剩余 7 个恢复码",exact=True).wait_for();page.screenshot(path=str(args.artifacts/"admin-mfa-enabled.png"),full_page=True,animations="disabled");assert not errors
         # Expose a non-secret descriptor for the independent backup/restore drill.
         report["restoration_fixture"]={"product_id":product["id"],"license_no":credentials["license_no"],"bind_value":credentials["bind_value"]}
         report["result"]="passed"

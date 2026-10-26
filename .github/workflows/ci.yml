@@ -171,6 +171,9 @@ jobs:
       - name: Compile and run the projects downloaded from the integration guide
         timeout-minutes: 8
         run: python .github/scripts/check-command.py "Developer integration acceptance" python examples/platform-e2e/test_integration.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-integration"
+      - name: Verify ordinary login, image CAPTCHA and opt-in two-factor login
+        timeout-minutes: 4
+        run: python .github/scripts/check-command.py "Login flow acceptance" python examples/platform-e2e/test_login.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-login"
       - name: Verify card detection and agent application selection in a real browser
         timeout-minutes: 4
         run: |
@@ -208,6 +211,7 @@ jobs:
             ${{ runner.temp }}/yunnuo-production
             ${{ runner.temp }}/yunnuo-native-deployment
             ${{ runner.temp }}/yunnuo-ci-setup
+            ${{ runner.temp }}/yunnuo-login
 
   docker:
     runs-on: ubuntu-latest

@@ -103,6 +103,10 @@ func (s *Store) GetAdminUserByID(ctx context.Context, userID string) (domain.Adm
 	return scanAdminUser(s.db.QueryRowContext(ctx, `SELECT `+adminUserColumns+` FROM admin_users WHERE id = ?`, userID))
 }
 
+func (tx *Tx) GetAdminUserByID(ctx context.Context, userID string) (domain.AdminUser, error) {
+	return scanAdminUser(tx.tx.QueryRowContext(ctx, `SELECT `+adminUserColumns+` FROM admin_users WHERE id = ?`, userID))
+}
+
 func (s *Store) ListAdminUsers(ctx context.Context) ([]domain.AdminUser, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+adminUserColumns+` FROM admin_users ORDER BY created_at DESC`)
 	if err != nil {

@@ -117,33 +117,47 @@ type adminTokenPayload struct {
 	SessionVersion int    `json:"session_version"`
 	IssuedAt       int64  `json:"iat"`
 	ExpiresAt      int64  `json:"exp"`
+	MFAState       string `json:"mfa_state,omitempty"`
+	ClientIP       string `json:"client_ip,omitempty"`
 }
 
 func (s *Service) AdminLogin(ctx context.Context, input AdminLoginInput) (AdminLoginResponse, error) {
-	if err := s.ensureLoginCaptcha(ctx, input.CaptchaID, input.CaptchaCode); err != nil {
-		return AdminLoginResponse{}, err
-	}
-	input.Username = normalizeUsername(input.Username)
-	if input.Username == "" || strings.TrimSpace(input.Password) == "" {
-		return AdminLoginResponse{}, ErrInvalidCredentials
-	}
-	user, err := s.currentStore().GetAdminUserByUsername(ctx, input.Username)
+	user, err := s.checkAdminLoginCredentials(ctx, input)
 	if err != nil {
-		if store.IsNotFound(err) {
-			return AdminLoginResponse{}, ErrInvalidCredentials
-		}
 		return AdminLoginResponse{}, err
-	}
-	if user.Status != domain.AdminUserActive {
-		return AdminLoginResponse{}, ErrAdminUserDisabled
-	}
-	ok, err := verifyAgentPassword(input.Password, user.PasswordHash)
-	if err != nil || !ok {
-		return AdminLoginResponse{}, ErrInvalidCredentials
 	}
 	if err := s.verifyAdminMFA(ctx, user.ID, input.OTPCode); err != nil {
 		return AdminLoginResponse{}, err
 	}
+	return s.issueAdminLogin(ctx, user)
+}
+
+func (s *Service) checkAdminLoginCredentials(ctx context.Context, input AdminLoginInput) (domain.AdminUser, error) {
+	if err := s.ensureLoginCaptcha(ctx, input.CaptchaID, input.CaptchaCode); err != nil {
+		return domain.AdminUser{}, err
+	}
+	input.Username = normalizeUsername(input.Username)
+	if input.Username == "" || strings.TrimSpace(input.Password) == "" {
+		return domain.AdminUser{}, ErrInvalidCredentials
+	}
+	user, err := s.currentStore().GetAdminUserByUsername(ctx, input.Username)
+	if err != nil {
+		if store.IsNotFound(err) {
+			return domain.AdminUser{}, ErrInvalidCredentials
+		}
+		return domain.AdminUser{}, err
+	}
+	if user.Status != domain.AdminUserActive {
+		return domain.AdminUser{}, ErrAdminUserDisabled
+	}
+	ok, err := verifyAgentPassword(input.Password, user.PasswordHash)
+	if err != nil || !ok {
+		return domain.AdminUser{}, ErrInvalidCredentials
+	}
+	return user, nil
+}
+
+func (s *Service) issueAdminLogin(ctx context.Context, user domain.AdminUser) (AdminLoginResponse, error) {
 	now := s.now()
 	expiresAt := now.Add(adminTokenTTL)
 	token, err := s.signAdminToken(adminTokenPayload{

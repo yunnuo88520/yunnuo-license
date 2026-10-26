@@ -1,6 +1,22 @@
 .admin-art {
   background-position: 62% center;
 }
+.mfa-login-link {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.mfa-login-link:hover {
+  color: var(--ink);
+}
+.mfa-login-link:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 .page-head {
   display: grid;
   gap: 4px;

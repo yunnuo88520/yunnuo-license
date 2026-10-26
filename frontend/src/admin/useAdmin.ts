@@ -8,6 +8,7 @@ export function useAdmin() {
   const profile = ref<any>();
   const loading = ref(false);
   const loginError = ref("");
+  const loginChallenge = ref<{ challenge: string; expires_at: string } | null>(null);
   const data = reactive<any>({
     products: [],
     agents: [],
@@ -48,10 +49,10 @@ export function useAdmin() {
       return await request<T>(
         path,
         options,
-        path === "/admin/login" ? "" : token.value,
+        path.startsWith("/admin/login") ? "" : token.value,
       );
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401 && path !== "/admin/login")
+      if (e instanceof ApiError && e.status === 401 && !path.startsWith("/admin/login"))
         logout("登录状态已失效，请重新登录");
       throw e;
     }
@@ -63,25 +64,59 @@ export function useAdmin() {
     });
     return p.toString();
   };
+  const loginMessage = (error: any) => String(error.message || error).replace(/^[A-Z_]+:\s*/, "");
+  async function finishLogin(result: any) {
+    token.value = result.access_token;
+    sessionStorage.setItem("yn.admin_token", token.value);
+    loginChallenge.value = null;
+    profile.value = await api("/admin/profile");
+    await refresh();
+  }
   async function signIn(input: any) {
+    if (loading.value) return;
     loading.value = true;
     loginError.value = "";
     try {
-      const r = await api("/admin/login", {
+      const r = await api("/admin/login/start", {
         method: "POST",
         body: JSON.stringify(input),
       });
-      token.value = r.access_token;
-      sessionStorage.setItem("yn.admin_token", token.value);
-      profile.value = await api("/admin/profile");
-      await refresh();
+      if (r.mfa) {
+        loginChallenge.value = r.mfa;
+        return "mfa";
+      }
+      await finishLogin(r.login);
+      return "signed_in";
     } catch (e: any) {
-      loginError.value = e.message;
+      loginError.value = loginMessage(e);
     } finally {
       loading.value = false;
     }
   }
+  async function completeSignIn(code: string) {
+    if (!loginChallenge.value || loading.value) return;
+    loading.value = true;
+    loginError.value = "";
+    try {
+      const result = await api("/admin/login/mfa", {
+        method: "POST",
+        body: JSON.stringify({ challenge: loginChallenge.value.challenge, code }),
+      });
+      await finishLogin(result);
+    } catch (e: any) {
+      if (e instanceof ApiError && ["MFA_CHALLENGE_INVALID", "MFA_CHALLENGE_EXPIRED"].includes(e.code))
+        loginChallenge.value = null;
+      loginError.value = loginMessage(e);
+    } finally {
+      loading.value = false;
+    }
+  }
+  function resetLoginStep() {
+    loginChallenge.value = null;
+    loginError.value = "";
+  }
   function logout(message = "") {
+    resetLoginStep();
     token.value = "";
     profile.value = null;
     sessionStorage.removeItem("yn.admin_token");
@@ -202,6 +237,7 @@ export function useAdmin() {
     profile,
     loading,
     loginError,
+    loginChallenge,
     data,
     selected,
     filters,
@@ -209,6 +245,8 @@ export function useAdmin() {
     isSuper,
     api,
     signIn,
+    completeSignIn,
+    resetLoginStep,
     logout,
     refresh,
     mutate,

@@ -46,7 +46,7 @@ docker compose exec license cat /var/lib/mysql/.yunnuo/database.json.install-tok
 | 数据库密码 | `.env` 的 `MYSQL_PASSWORD` |
 | 管理员账号、密码 | 在向导中设置，环境变量不能跳过安装 |
 
-MySQL 只在容器回环地址监听，不发布 3306 或 33060。安装后给出所有角色入口：前台 `/`、管理员 `/admin`、代理 `/agent-console/`、用户 `/user-console/`、开发者 `/developer-console/`。管理员在安装之后开启动态验证。
+MySQL 只在容器回环地址监听，不发布 3306 或 33060。安装后给出所有角色入口：前台 `/`、管理员 `/admin`、代理 `/agent-console/`、用户 `/user-console/`、开发者 `/developer-console/`。管理员可在安装之后为自己的账号选择开启两步验证；登录图形验证码由站点独立开关控制。
 
 ## 3. HTTPS 与可选监控
 

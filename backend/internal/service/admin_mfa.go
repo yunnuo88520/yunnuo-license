@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-var ErrMFARequired = AppError{Code: "MFA_REQUIRED", Message: "请输入动态验证码或一次性恢复码", HTTPStatus: 403}
+var ErrMFARequired = AppError{Code: "MFA_REQUIRED", Message: "请完成账号的两步验证", HTTPStatus: 403}
 
 func totp(secret string, step int64) string {
 	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)

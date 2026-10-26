@@ -49,14 +49,14 @@ async function act(action: string) {
 </script>
 <template>
   <div class="mfa-card">
-    <h4>管理员动态验证</h4>
+    <h4>管理员两步验证（可选）</h4>
     <p>
-      使用验证器的六位动态码保护登录。启用或关闭后，已有登录会话全部失效。丢失验证器时使用一次性恢复码。
+      自愿绑定验证器 App 后，登录时先验证账号密码，再输入验证器中的六位验证码。此功能与登录图形验证码独立。启用或关闭后，已有登录会话全部失效。
     </p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <template v-if="codes.length"
       ><p class="notice">
-        动态验证已启用。请离线保存以下恢复码，每个只能使用一次；关闭此页后不会再次展示。
+        两步验证已启用。以下是刚为你生成的备用恢复码，仅在无法使用验证器时应急。请离线保存，每个只能使用一次；关闭此页后不会再次展示。
       </p>
       <pre class="backup-codes">{{ codes.join("\n") }}</pre>
       <button class="btn" @click="emit('signed-out')">
@@ -73,7 +73,7 @@ async function act(action: string) {
         {{
           state.enabled
             ? "已启用 · 剩余 " + state.recovery_remaining + " 个恢复码"
-            : "尚未启用，建议公网部署前开启"
+            : "尚未启用，普通登录无需验证器或恢复码"
         }}
       </p>
       <label class="field"
@@ -85,12 +85,12 @@ async function act(action: string) {
       ><template v-if="secret"
         ><p>
           在验证器中手动添加账户：名称 Yunnuo，时间型 TOTP、六位、30
-          秒。安装密钥十分钟内有效。
+          秒。请在十分钟内完成绑定。
         </p>
         <label class="field"
-          >验证器安装密钥<input :value="secret" readonly /></label></template
+          >验证器绑定密钥<input :value="secret" readonly /></label></template
       ><label v-if="secret || state.enabled" class="field"
-        >验证器动态码或恢复码<input
+        >{{ secret ? "验证器验证码" : "验证器验证码或备用恢复码" }}<input
           v-model="code"
           autocomplete="one-time-code"
           maxlength="32"
@@ -100,10 +100,10 @@ async function act(action: string) {
           busy
             ? "处理中…"
             : state.enabled
-              ? "关闭动态验证"
+              ? "关闭两步验证"
               : secret
                 ? "验证并启用"
-                : "配置动态验证"
+                : "设置两步验证"
         }}
       </button>
     </form>
