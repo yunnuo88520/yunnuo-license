@@ -22,6 +22,8 @@ const friendlyMessages: Record<string, string> = {
   INVALID_CREDENTIALS: "账号或密码不正确",
   USERNAME_TAKEN: "登录账号或邮箱已存在，请选择已有用户开通代理",
   AGENT_ALREADY_GRANTED: "该用户已开通代理资格或已加入代理团队",
+  AGENT_TIER_NOT_FOUND: "代理等级不存在，请重新选择",
+  AGENT_TIER_IN_USE: "该等级仍有代理使用，请先为这些代理分配其他等级",
   PERMISSION_DENIED: "当前账号没有此操作权限；代理资格需由管理员开通",
   AGENT_SUSPENDED: "代理资格已暂停，请联系管理员；仍可前往用户中心管理个人授权",
   AGENT_DISABLED: "代理资格已停用，请联系管理员；仍可前往用户中心管理个人授权",

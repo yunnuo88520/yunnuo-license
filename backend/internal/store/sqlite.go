@@ -26,7 +26,8 @@ type Store struct {
 }
 
 type Tx struct {
-	tx *sql.Tx
+	tx     *sql.Tx
+	driver string
 }
 
 func Open(ctx context.Context, driver, dsn string) (*Store, error) {
@@ -177,6 +178,9 @@ func (s *Store) Migrate(ctx context.Context, dir string) error {
 	if err := s.ensureAgentIdentities(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureDefaultAgentTiers(ctx); err != nil {
+		return err
+	}
 	return s.ensureRiskBlockExpiresAt(ctx)
 }
 
@@ -185,7 +189,7 @@ func (s *Store) WithTx(ctx context.Context, fn func(*Tx) error) error {
 	if err != nil {
 		return err
 	}
-	if err := fn(&Tx{tx: tx}); err != nil {
+	if err := fn(&Tx{tx: tx, driver: s.driver}); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

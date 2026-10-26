@@ -85,17 +85,65 @@ func (s *Service) SetPackage(ctx context.Context, id, actor string, enabled bool
 	})
 }
 func (s *Service) CreateTier(ctx context.Context, name, actor string) (domain.AgentTier, error) {
-	t := domain.AgentTier{ID: yncrypto.NewID("tier"), Name: strings.TrimSpace(name)}
-	if t.Name == "" || len(t.Name) > 160 {
+	return s.SaveAgentTier(ctx, domain.AgentTier{Name: name, CostRateBPS: 10000, SortOrder: 100}, actor)
+}
+
+var ErrTierNotFound = notFound("AGENT_TIER_NOT_FOUND", "代理等级不存在")
+
+func (s *Service) SaveAgentTier(ctx context.Context, t domain.AgentTier, actor string) (domain.AgentTier, error) {
+	t.Name = strings.TrimSpace(t.Name)
+	if t.Name == "" || len(t.Name) > 160 || t.CostRateBPS < 1 || t.CostRateBPS > 10000 || t.SortOrder < 0 || t.SortOrder > 10000 {
 		return t, ErrInvalidRequest
 	}
+	create := t.ID == ""
+	if create {
+		t.ID = yncrypto.NewID("tier")
+	}
 	err := s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
-		if err := tx.CreateTier(ctx, t); err != nil {
+		if create {
+			if err := tx.CreateTier(ctx, t); err != nil {
+				return err
+			}
+			return s.transactionAudit(ctx, tx, "admin", actor, "", "", "agent_tier.create", t)
+		}
+		if err := tx.LockTier(ctx, t.ID); err != nil {
 			return err
 		}
-		return s.transactionAudit(ctx, tx, "admin", actor, "", "", "agent_tier.create", t)
+		before, err := tx.Tier(ctx, t.ID)
+		if store.IsNotFound(err) {
+			return ErrTierNotFound
+		}
+		if err != nil {
+			return err
+		}
+		t.AgentCount = before.AgentCount
+		if err = tx.UpdateTier(ctx, t); err != nil {
+			return err
+		}
+		return s.transactionAudit(ctx, tx, "admin", actor, "", "", "agent_tier.update", map[string]any{"before": before, "after": t})
 	})
 	return t, err
+}
+func (s *Service) DeleteAgentTier(ctx context.Context, id, actor string) error {
+	return s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
+		if err := tx.LockTier(ctx, id); err != nil {
+			return err
+		}
+		t, err := tx.Tier(ctx, id)
+		if store.IsNotFound(err) {
+			return ErrTierNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if t.AgentCount > 0 {
+			return AppError{Code: "AGENT_TIER_IN_USE", Message: "该等级仍有代理使用，请先调整这些代理的等级", HTTPStatus: 409}
+		}
+		if err = tx.DeleteTier(ctx, id); err != nil {
+			return err
+		}
+		return s.transactionAudit(ctx, tx, "admin", actor, "", "", "agent_tier.delete", t)
+	})
 }
 func (s *Service) SetTierPrice(ctx context.Context, tier, pkg, actor string, cost *int64) error {
 	if cost != nil && (*cost < 0 || *cost > maxMoney) {
@@ -110,6 +158,9 @@ func (s *Service) SetTierPrice(ctx context.Context, tier, pkg, actor string, cos
 			return err
 		}
 		if err := tx.SetTierPrice(ctx, tier, pkg, cost); err != nil {
+			if store.IsNotFound(err) {
+				return ErrTierNotFound
+			}
 			return err
 		}
 		return s.transactionAudit(ctx, tx, "admin", actor, p.ProductID, "", "agent_tier.price", map[string]any{"tier_id": tier, "package_id": pkg, "unit_cost": cost})
@@ -129,6 +180,9 @@ func (s *Service) SetAgentTier(ctx context.Context, agent, tier, actor string) e
 		}
 		a.TierID = tier
 		if err := tx.SaveAccount(ctx, a); err != nil {
+			if store.IsNotFound(err) {
+				return ErrTierNotFound
+			}
 			return err
 		}
 		return s.transactionAudit(ctx, tx, "admin", actor, "", "", "agent_tier.assign", a)
@@ -339,6 +393,9 @@ func (s *Service) generatePackageCards(ctx context.Context, in AgentCreateCardBa
 			return err
 		}
 		if err := tx.LockProduct(ctx, pkg.ProductID); err != nil {
+			return err
+		}
+		if err := tx.LockAgentTierPricing(ctx, in.AgentID); err != nil {
 			return err
 		}
 		agent, err := tx.GetAgent(ctx, in.AgentID)

@@ -19,8 +19,11 @@ type CardPackage struct {
 	Enabled      bool   `json:"enabled"`
 }
 type AgentTier struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	CostRateBPS int64  `json:"cost_rate_bps"`
+	SortOrder   int    `json:"sort_order"`
+	AgentCount  int    `json:"agent_count"`
 }
 type PackageGrant struct {
 	AgentID      string `json:"agent_id"`

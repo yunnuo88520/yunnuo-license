@@ -66,6 +66,9 @@ export const roleLabel = (value?: string) =>
   value ||
   "-";
 
+export const costRateLabel = (bps = 10000) =>
+  `${(bps / 100).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}%`;
+
 // 服务端心跳视图：online 24 小时内有上报，idle 超一天但在容忍期内，offline 已失联。
 export const onlineStateLabel = (state?: string, days?: number) => {
   switch (state) {

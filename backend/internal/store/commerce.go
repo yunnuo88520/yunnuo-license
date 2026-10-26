@@ -150,16 +150,16 @@ func (tx *Tx) GroupPackages(ctx context.Context, id string) ([]domain.CardPackag
 	return items, rows.Err()
 }
 func (s *Store) Tiers(ctx context.Context) ([]domain.AgentTier, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,name FROM agent_tiers ORDER BY name,id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+tierColumns+tierJoin+` ORDER BY COALESCE(s.sort_order,100),t.name,t.id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	items := []domain.AgentTier{}
 	for rows.Next() {
-		var t domain.AgentTier
-		if err = rows.Scan(&t.ID, &t.Name); err != nil {
-			return nil, err
+		t, e := scanTier(rows)
+		if e != nil {
+			return nil, e
 		}
 		items = append(items, t)
 	}
@@ -167,11 +167,13 @@ func (s *Store) Tiers(ctx context.Context) ([]domain.AgentTier, error) {
 }
 func (tx *Tx) CreateTier(ctx context.Context, t domain.AgentTier) error {
 	_, err := tx.tx.ExecContext(ctx, `INSERT INTO agent_tiers (id,name) VALUES (?,?)`, t.ID, t.Name)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.saveTierSettings(ctx, t)
 }
 func (tx *Tx) SetTierPrice(ctx context.Context, tier, pkg string, cost *int64) error {
-	var id string
-	if err := tx.tx.QueryRowContext(ctx, `SELECT id FROM agent_tiers WHERE id=?`, tier).Scan(&id); err != nil {
+	if err := tx.lockTierReference(ctx, tier); err != nil {
 		return err
 	}
 	if _, err := tx.tx.ExecContext(ctx, `DELETE FROM agent_tier_prices WHERE tier_id=? AND package_id=?`, tier, pkg); err != nil {
@@ -199,8 +201,7 @@ func (tx *Tx) Account(ctx context.Context, id string) (domain.AgentAccount, erro
 }
 func (tx *Tx) SaveAccount(ctx context.Context, a domain.AgentAccount) error {
 	if a.TierID != "" {
-		var id string
-		if err := tx.tx.QueryRowContext(ctx, `SELECT id FROM agent_tiers WHERE id=?`, a.TierID).Scan(&id); err != nil {
+		if err := tx.lockTierReference(ctx, a.TierID); err != nil {
 			return err
 		}
 	}
@@ -258,11 +259,22 @@ func quotePackage(ctx context.Context, q commerceQuery, agent string, p domain.C
 	if err == nil {
 		quote.UnitCost = tierPrice
 		quote.PriceSource = "tier"
+		return quote, nil
 	}
+	if !IsNotFound(err) {
+		return quote, err
+	}
+	var rate int64
+	err = q.QueryRowContext(ctx, `SELECT COALESCE(s.cost_rate_bps,10000) FROM agent_tiers t LEFT JOIN agent_tier_settings s ON s.tier_id=t.id WHERE t.id=(SELECT tier_id FROM agent_accounts WHERE agent_id=?)`, agent).Scan(&rate)
 	if IsNotFound(err) {
-		err = nil
+		return quote, nil
 	}
-	return quote, err
+	if err != nil {
+		return quote, err
+	}
+	quote.UnitCost = (p.BaseCost*rate + 9999) / 10000
+	quote.PriceSource = "tier_ratio"
+	return quote, nil
 }
 func (s *Store) Quote(ctx context.Context, agent string, p domain.CardPackage) (domain.PackageQuote, error) {
 	return quotePackage(ctx, s.db, agent, p)

@@ -59,13 +59,42 @@ func (api *API) registerCommerceRoutes(mux *http.ServeMux) {
 	}, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/agent-tiers", api.withAdmin(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Name string `json:"name"`
+			Name        string `json:"name"`
+			CostRateBPS *int64 `json:"cost_rate_bps"`
+			SortOrder   *int   `json:"sort_order"`
 		}
 		if !decode(w, r, &in) {
 			return
 		}
-		v, e := api.service.CreateTier(r.Context(), in.Name, adminSessionFrom(r.Context()).UserID)
+		t := domain.AgentTier{Name: in.Name, CostRateBPS: 10000, SortOrder: 100}
+		if in.CostRateBPS != nil {
+			t.CostRateBPS = *in.CostRateBPS
+		}
+		if in.SortOrder != nil {
+			t.SortOrder = *in.SortOrder
+		}
+		v, e := api.service.SaveAgentTier(r.Context(), t, adminSessionFrom(r.Context()).UserID)
 		commerceResponse(w, r, v, e)
+	}, adminWriteRoles...))
+	mux.HandleFunc("POST /admin/agent-tiers/{tierID}", api.withAdmin(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Name        string `json:"name"`
+			CostRateBPS *int64 `json:"cost_rate_bps"`
+			SortOrder   *int   `json:"sort_order"`
+		}
+		if !decode(w, r, &in) {
+			return
+		}
+		if in.CostRateBPS == nil || in.SortOrder == nil {
+			writeError(w, r, service.ErrInvalidRequest)
+			return
+		}
+		v, e := api.service.SaveAgentTier(r.Context(), domain.AgentTier{ID: r.PathValue("tierID"), Name: in.Name, CostRateBPS: *in.CostRateBPS, SortOrder: *in.SortOrder}, adminSessionFrom(r.Context()).UserID)
+		commerceResponse(w, r, v, e)
+	}, adminWriteRoles...))
+	mux.HandleFunc("DELETE /admin/agent-tiers/{tierID}", api.withAdmin(func(w http.ResponseWriter, r *http.Request) {
+		e := api.service.DeleteAgentTier(r.Context(), r.PathValue("tierID"), adminSessionFrom(r.Context()).UserID)
+		commerceResponse(w, r, map[string]bool{"deleted": e == nil}, e)
 	}, adminWriteRoles...))
 	mux.HandleFunc("POST /admin/agent-tiers/{tierID}/prices", api.withAdmin(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import FormDialog from "../shared/components/FormDialog.vue";
 import { friendlyError } from "../shared/errors";
+import { costRateLabel } from "../shared/format";
 const props = defineProps<{
   open: boolean;
   initialUserId?: string;
@@ -61,6 +62,9 @@ watch(
         props.api<any[]>("/admin/agent-accounts/eligible-users"),
         props.api("/admin/commerce"),
       ]);
+      form.value.tier_id =
+        catalog.value.tiers.find((t: any) => t.id === "tier_standard")?.id ||
+        "";
     } catch (e) {
       error.value = friendlyError(e);
     } finally {
@@ -155,7 +159,7 @@ async function submit() {
         >代理等级<select v-model="form.tier_id">
           <option value="">基础等级 · 按套餐基础价</option>
           <option v-for="t in catalog.tiers" :key="t.id" :value="t.id">
-            {{ t.name }}
+            {{ t.name }} · {{ costRateLabel(t.cost_rate_bps) }}
           </option>
         </select></label
       >

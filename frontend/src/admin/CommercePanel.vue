@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import PagedRecords from "../shared/components/PagedRecords.vue";
 import FormDialog from "../shared/components/FormDialog.vue";
+import ConfirmDialog from "../shared/components/ConfirmDialog.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { Plus } from "lucide-vue-next";
-import { formatTime } from "../shared/format";
+import { formatTime, costRateLabel } from "../shared/format";
 const props = defineProps<{
   api: <T = any>(path: string, options?: RequestInit) => Promise<T>;
   products: any[];
@@ -29,8 +30,45 @@ const pkg = reactive({
   base_cost: 1000,
   use_quota: false,
 });
-const tierName = ref(""),
-  tierID = ref("");
+const tierID = ref("");
+const tierForm = reactive({
+  id: "",
+  name: "",
+  cost_rate_percent: 100,
+  sort_order: 100,
+});
+const deleteTier = ref<any>();
+function editTier(t?: any) {
+  Object.assign(
+    tierForm,
+    t
+      ? {
+          id: t.id,
+          name: t.name,
+          cost_rate_percent: t.cost_rate_bps / 100,
+          sort_order: t.sort_order,
+        }
+      : { id: "", name: "", cost_rate_percent: 100, sort_order: 100 },
+  );
+  show.tier = true;
+}
+async function saveTier() {
+  await post(
+    tierForm.id ? `/admin/agent-tiers/${tierForm.id}` : "/admin/agent-tiers",
+    {
+      name: tierForm.name,
+      cost_rate_bps: Math.round(tierForm.cost_rate_percent * 100),
+      sort_order: tierForm.sort_order,
+    },
+  );
+  show.tier = false;
+}
+async function removeTier() {
+  await props.api(`/admin/agent-tiers/${deleteTier.value.id}`, {
+    method: "DELETE",
+  });
+  deleteTier.value = undefined;
+}
 const price = reactive({ tier_id: "", package_id: "", unit_cost: 700 });
 const grant = reactive({
   package_id: "",
@@ -150,7 +188,12 @@ onMounted(() => run(load));
     </section>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
     <p v-if="message" class="notice" role="status">{{ message }}</p>
-    <div v-if="!agentId" class="tabbar plain" role="tablist" aria-label="套餐与结算视图">
+    <div
+      v-if="!agentId"
+      class="tabbar plain"
+      role="tablist"
+      aria-label="套餐与结算视图"
+    >
       <button
         type="button"
         role="tab"
@@ -201,7 +244,11 @@ onMounted(() => run(load));
       <FormDialog
         :open="show.group"
         :title="group.id ? '编辑分组' : '新增分组'"
-        :description="group.id ? '调整分组包含的应用后保存。' : '分组用于按批向代理授予套餐。'"
+        :description="
+          group.id
+            ? '调整分组包含的应用后保存。'
+            : '分组用于按批向代理授予套餐。'
+        "
         @close="show.group = false"
       >
         <p v-if="error" class="modal-error" role="alert">{{ error }}</p>
@@ -219,9 +266,9 @@ onMounted(() => run(load));
             >
           </div>
           <div class="form-actions">
-            <button class="btn" :disabled="busy">{{
-              group.id ? "更新分组" : "创建分组"
-            }}</button>
+            <button class="btn" :disabled="busy">
+              {{ group.id ? "更新分组" : "创建分组" }}
+            </button>
           </div>
         </form>
       </FormDialog>
@@ -354,7 +401,7 @@ onMounted(() => run(load));
               class="btn small"
               type="button"
               :disabled="busy || !canWrite"
-              @click="show.tier = true"
+              @click="editTier()"
             >
               <Plus :size="14" />创建等级
             </button>
@@ -369,40 +416,100 @@ onMounted(() => run(load));
           </div>
         </div>
         <p>
-          为代理等级设置专属成本价；未定价的套餐按套餐基础价结算。
+          默认普通、高级、金牌三个等级，可调整名称与成本比例。成本按套餐基础价 ×
+          等级比例计算，不足 1 分向上取整。
         </p>
+        <p>
+          价格优先级：代理专属价 → 等级套餐专属价 → 等级比例 →
+          未分配等级时的套餐基础价。修改比例只影响后续发卡，历史成本与流水保持原值。
+        </p>
+        <div class="table-wrap">
+          <table class="table" aria-label="代理等级列表">
+            <thead>
+              <tr>
+                <th>等级名称</th>
+                <th>成本比例</th>
+                <th>排序</th>
+                <th>使用代理数</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="t in catalog.tiers" :key="t.id">
+                <td>{{ t.name }}</td>
+                <td>{{ costRateLabel(t.cost_rate_bps) }}</td>
+                <td>{{ t.sort_order }}</td>
+                <td>{{ t.agent_count }}</td>
+                <td>
+                  <div class="row-actions">
+                    <button
+                      class="btn secondary small"
+                      type="button"
+                      :disabled="busy || !canWrite"
+                      @click="editTier(t)"
+                    >
+                      编辑等级</button
+                    ><button
+                      class="btn danger small"
+                      type="button"
+                      :disabled="busy || !canWrite || t.agent_count > 0"
+                      :title="
+                        t.agent_count > 0
+                          ? '请先为使用此等级的代理分配其他等级'
+                          : '删除未使用的等级'
+                      "
+                      @click="deleteTier = t"
+                    >
+                      删除等级
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
       <FormDialog
         :open="show.tier"
-        title="创建代理等级"
+        :title="tierForm.id ? '编辑代理等级' : '创建代理等级'"
+        description="比例 80% 表示按套餐基础成本的八折结算，支持两位小数。等级不会扩大可售应用范围。"
         @close="show.tier = false"
       >
         <p v-if="error" class="modal-error" role="alert">{{ error }}</p>
-        <form
-          class="form-grid"
-          @submit.prevent="
-            run(async () => {
-              await post('/admin/agent-tiers', { name: tierName });
-              tierName = '';
-              show.tier = false;
-            })
-          "
-        >
+        <form class="form-grid" @submit.prevent="run(saveTier)">
           <label class="field"
-            >等级名称<input
-              v-model="tierName"
+            >等级名称<input v-model="tierForm.name" required maxlength="160"
+          /></label>
+          <label class="field"
+            >成本比例（%）<input
+              v-model.number="tierForm.cost_rate_percent"
+              type="number"
+              min="0.01"
+              max="100"
+              step="0.01"
               required
-              maxlength="160" /></label
+          /></label>
+          <label class="field"
+            >显示排序<input
+              v-model.number="tierForm.sort_order"
+              type="number"
+              min="0"
+              max="10000"
+              step="1"
+              required
+            /><small>数值越小越靠前。</small></label
           >
           <div class="form-actions">
-            <button class="btn" :disabled="busy">创建等级</button>
+            <button class="btn" :disabled="busy">
+              {{ tierForm.id ? "保存等级" : "创建等级" }}
+            </button>
           </div>
         </form>
       </FormDialog>
       <FormDialog
         :open="show.price"
         title="等级定价"
-        description="为等级的指定套餐设置专属成本；恢复基础价即删除等级价。"
+        description="为等级的指定套餐设置专属成本；删除专属价后恢复按等级比例计算。"
         @close="show.price = false"
       >
         <p v-if="error" class="modal-error" role="alert">{{ error }}</p>
@@ -410,10 +517,10 @@ onMounted(() => run(load));
           class="form-grid"
           @submit.prevent="
             run(async () => {
-              await post(
-                `/admin/agent-tiers/${price.tier_id}/prices`,
-                { package_id: price.package_id, unit_cost: Number(price.unit_cost) },
-              );
+              await post(`/admin/agent-tiers/${price.tier_id}/prices`, {
+                package_id: price.package_id,
+                unit_cost: Number(price.unit_cost),
+              });
               show.price = false;
             })
           "
@@ -422,7 +529,7 @@ onMounted(() => run(load));
             >代理等级<select v-model="price.tier_id" required>
               <option value="" disabled>选择等级</option>
               <option v-for="t in catalog.tiers" :value="t.id">
-                {{ t.name }}
+                {{ t.name }} · {{ costRateLabel(t.cost_rate_bps) }}
               </option>
             </select></label
           ><label class="field"
@@ -456,7 +563,7 @@ onMounted(() => run(load));
                 })
               "
             >
-              恢复套餐基础价
+              恢复按等级比例
             </button>
           </div>
         </form>
@@ -487,7 +594,7 @@ onMounted(() => run(load));
               >分配等级<select v-model="tierID">
                 <option value="">未分配（套餐基础价）</option>
                 <option v-for="t in catalog.tiers" :value="t.id">
-                  {{ t.name }}
+                  {{ t.name }} · {{ costRateLabel(t.cost_rate_bps) }}
                 </option>
               </select></label
             >
@@ -620,6 +727,7 @@ onMounted(() => run(load));
                       {
                         agent: "代理专属价",
                         tier: "等级价",
+                        tier_ratio: "等级比例",
                         package: "套餐基础价",
                       } as any
                     )[q.price_source]
@@ -640,6 +748,14 @@ onMounted(() => run(load));
         />
       </template>
     </section>
+    <ConfirmDialog
+      :open="!!deleteTier"
+      title="删除代理等级"
+      :description="`删除 ${deleteTier?.name || ''} 及其套餐专属价。已被代理使用的等级不能删除，历史发卡成本不会改变。`"
+      confirm-text="确认删除等级"
+      @close="deleteTier = undefined"
+      @confirm="run(removeTier)"
+    />
   </div>
 </template>
 <style scoped>

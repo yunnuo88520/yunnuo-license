@@ -204,12 +204,14 @@ YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_re
 # Isolate the additional login-heavy suite's rate-limit window while retaining MySQL data.
 restart_and_wait
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_agent_accounts.py --base-url "$base" --artifacts "$platform_artifacts/agent-accounts"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_agent_tiers.py --base-url "$base" --artifacts "$platform_artifacts/agent-tiers"
 
 restart_and_wait
 check_public_license
 
 python3 ./docker/test-product-updates.py verify "$base" "$update_state"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_agent_accounts.py --base-url "$base" --artifacts "$platform_artifacts/agent-accounts" --verify-state "$platform_artifacts/agent-accounts/report.json"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_agent_tiers.py --base-url "$base" --artifacts "$platform_artifacts/agent-tiers" --verify-state "$platform_artifacts/agent-tiers/report.json"
 curl --fail --silent --show-error "$base/v1/app/profile" -H "Authorization: Bearer $application_token" | grep -Fq "$product_id"
 curl --fail --silent --show-error -X POST "$base/v1/app/token" -H 'Content-Type: application/json' -d "$application_token_payload" | grep -q '"expires_in":7200'
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2" --verify-state "$platform_artifacts/stage2/report.json"

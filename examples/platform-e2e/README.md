@@ -1,5 +1,7 @@
 # 平台分阶段真实服务验收
 
+`test_agent_tiers.py` 使用相同参数，验证三个默认等级、管理员编辑名称/比例/排序、按比例结算及分位取整、专属价格优先级、旧报价拒绝、幂等重试保留历史成本、权限与删除限制。浏览器模式保存电脑和手机深浅色截图；CI 上传证据，Docker/MySQL 在重启后核对编辑配置和成交成本。后端另外覆盖默认等级只初始化一次及配置不被重启覆盖。
+
 `test_agent_accounts.py` 使用相同的 `--server`、`--artifacts`、`--screenshots`、`--chromium` 参数，验证统一身份、一次开通、两端免重复登录、等级结算及发卡幂等、跨代理隔离、暂停不影响个人与已售授权、改密撤销两端会话。截图覆盖后台开通、统一配置、个人授权与手机深色工作台，前端 CI 上传证据。Docker 使用 `--base-url` 在 MySQL 执行，并在重启后通过 `--verify-state <report.json>` 核对用户关联、余额和流水。后端测试额外注入审计失败验证开通回滚，以及旧同名用户迁移不会误合并。
 
 开发者接入验收：先构建前端和后端，再运行 `python3 examples/platform-e2e/test_integration.py --server <二进制> --artifacts <目录> --screenshots`。需要 Node.js 18+、Go 1.22+、Java 17+、Maven 3 与 Playwright。脚本从页面创建应用、下载三种 SDK 接入包，并实际编译运行；覆盖 HTTP 示例、业务接口拒绝路径、使用/更新期限分离与 Node 签名升级下载。使用 Playwright 自带浏览器可传 `--chromium bundled`。
