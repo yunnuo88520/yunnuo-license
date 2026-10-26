@@ -128,3 +128,32 @@ func TestEncryptedBackupRestoresCompleteUsableInstance(t *testing.T) {
 	}
 
 }
+
+func TestAuthorizationOnlyInstanceRestoresWithoutAnyUpgradePackages(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := config.Config{DatabaseDriver: "sqlite", Database: "file:" + filepath.Join(dir, "authorization-only.db"), CardPepper: []byte(strings.Repeat("p", 32)), DataKey: []byte(strings.Repeat("k", 32)), ReleaseDir: filepath.Join(dir, "unused-packages")}
+	st, err := store.Open(ctx, "sqlite", cfg.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = st.Migrate(ctx, "../../migrations"); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	identity, _ := age.GenerateX25519Identity()
+	identityPath := filepath.Join(dir, "identity")
+	os.WriteFile(identityPath, []byte(identity.String()), 0600)
+	archive := filepath.Join(dir, "auth-only.age")
+	if _, err = Backup(ctx, cfg, identity.Recipient().String(), archive); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(dir, "restored-auth-only")
+	if _, err = Restore(ctx, RestoreOptions{Input: archive, IdentityFile: identityPath, Destination: destination}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(destination, "releases"))
+	if err != nil || !info.IsDir() {
+		t.Fatal("empty release storage not prepared", err)
+	}
+}

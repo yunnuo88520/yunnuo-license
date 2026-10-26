@@ -130,6 +130,9 @@ func (s *Service) UploadRelease(ctx context.Context, input UploadReleaseInput, c
 	if size == 0 {
 		return result, ErrInvalidRequest
 	}
+	if err := tmp.Sync(); err != nil {
+		return result, err
+	}
 	if err := tmp.Close(); err != nil {
 		return result, err
 	}
@@ -177,6 +180,9 @@ func (s *Service) UploadRelease(ctx context.Context, input UploadReleaseInput, c
 			return ErrReleaseExists
 		}
 		if e = os.Rename(tmp.Name(), path); e != nil {
+			return e
+		}
+		if e = filelock.SyncDirectory(s.releaseDir); e != nil {
 			return e
 		}
 		if e = tx.CreateRelease(ctx, result); e != nil {

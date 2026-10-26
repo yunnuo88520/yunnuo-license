@@ -90,7 +90,7 @@ YN_DOCKER_ARTIFACTS=/tmp/yunnuo-mysql ./docker/test-image.sh yunnuo-license:test
 构建 `go -C backend build -o /opt/yunnuo/yunnuo-ops ./cmd/maintenance`，镜像内已自带 `yunnuo-ops`。
 
 1. 在独立运维机器生成密钥：`yunnuo-ops keygen --output /secure/offline-identity`。输出的 `age1...` 是备份公钥；私钥文件始终留在运维机器，权限 0600。
-2. 以与服务器相同的环境配置运行：`yunnuo-ops backup --recipient age1... --output /private/backups/license.age`。备份包含一致性数据库快照、所有保留版本的文件、实际生效的数据密钥/卡密盐/后台入口及 SHA-256 清单；环境变量覆盖的密钥也会保存。包发布、删除与备份互斥，授权业务可继续运行。
+2. 以与服务器相同的环境配置运行：`yunnuo-ops backup --recipient age1... --output /private/backups/license.age`。备份包含一致性数据库快照、所有保留版本的文件、实际生效的数据密钥/卡密盐/后台入口及 SHA-256 清单；环境变量覆盖的密钥也会保存。包发布、删除与备份互斥，备份也与结构迁移协调，授权业务可继续运行。包文件及目录先持久化再提交版本记录；备份和日志归档先持久化文件及目录再报告成功或删除旧日志。
 3. SQLite 使用 `VACUUM INTO`，MySQL 使用 `mysqldump --single-transaction`；不复制活动数据库文件。数据库凭据经 0600 临时选项文件传入，不放在进程命令行。
 4. 使用 `deploy/backup.sh` 和 `deploy/systemd/` 定时任务，每天上海时间 03:00 后随机延迟不超过 15 分钟。配置 `YN_BACKUP_DIR`、`YN_BACKUP_RECIPIENT`、`YN_BACKUP_REMOTE`、`YN_BACKUP_OPS`，通过私有 rclone 配置连接不同机器/账号的远端。脚本复制后下载比对字节，成功后才标记监控并清理超过 30 天的本地备份，不自动删除远端历史。
 5. 从可信远端取回文件，在停止旧实例或隔离的全新环境执行：`yunnuo-ops restore --input license.age --identity /secure/offline-identity --destination /new/instance`。目标路径必须不存在；先解密和核对所有文件，再生成可运行配置。拒绝软链接、路径穿越、重复条目、超限解压、损坏和错密钥。

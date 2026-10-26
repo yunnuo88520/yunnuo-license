@@ -38,6 +38,9 @@ func (s *Service) DeleteRelease(ctx context.Context, product, id, actor string) 
 		}
 		if e = os.Rename(path, trash); e == nil {
 			moved = true
+			if e = filelock.SyncDirectory(s.releaseDir); e != nil {
+				return e
+			}
 		} else if !os.IsNotExist(e) {
 			return e
 		}

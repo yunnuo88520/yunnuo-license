@@ -7,6 +7,7 @@ import (
 	"errors"
 	"filippo.io/age"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/config"
+	"github.com/yunnuo88520/yunnuo-license/backend/internal/filelock"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/store"
 	"os"
 	"path/filepath"
@@ -57,6 +58,9 @@ func ArchiveLogs(ctx context.Context, cfg config.Config, table, recipient, outpu
 		if err != nil {
 			return err
 		}
-		return os.Link(f.Name(), output)
+		if err = os.Link(f.Name(), output); err != nil {
+			return err
+		}
+		return filelock.SyncDirectory(filepath.Dir(output))
 	})
 }

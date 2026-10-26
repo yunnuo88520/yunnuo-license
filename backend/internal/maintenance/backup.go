@@ -217,6 +217,9 @@ func Backup(ctx context.Context, cfg config.Config, recipient, output string) (M
 	if err = os.Link(filepath.Join(stage, "archive.age"), output); err != nil {
 		return m, err
 	}
+	if err = filelock.SyncDirectory(filepath.Dir(output)); err != nil {
+		return m, err
+	}
 	return m, nil
 }
 
@@ -301,7 +304,7 @@ func Restore(ctx context.Context, o RestoreOptions) (Manifest, error) {
 			return m, e
 		}
 		_, e = io.Copy(f, archive)
-		e = errors.Join(e, f.Close())
+		e = errors.Join(e, f.Sync(), f.Close())
 		if e != nil {
 			return m, e
 		}
@@ -400,7 +403,27 @@ func Restore(ctx context.Context, o RestoreOptions) (Manifest, error) {
 	if err = os.WriteFile(filepath.Join(stage, "runtime.env"), []byte(runtime), 0600); err != nil {
 		return m, err
 	}
+	if err = os.MkdirAll(filepath.Join(stage, "releases"), 0700); err != nil {
+		return m, err
+	}
+	runtimeFile, e := os.OpenFile(filepath.Join(stage, "runtime.env"), os.O_RDWR, 0600)
+	if e != nil {
+		return m, e
+	}
+	e = errors.Join(runtimeFile.Sync(), runtimeFile.Close())
+	if e != nil {
+		return m, e
+	}
+	if err = filelock.SyncDirectory(filepath.Join(stage, "releases")); err != nil {
+		return m, err
+	}
+	if err = filelock.SyncDirectory(stage); err != nil {
+		return m, err
+	}
 	if err = os.Rename(stage, destination); err != nil {
+		return m, err
+	}
+	if err = filelock.SyncDirectory(parent); err != nil {
 		return m, err
 	}
 	return m, nil
