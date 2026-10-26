@@ -20,6 +20,7 @@ const labels: Record<string, string> = {
   security: "安全处置",
   audit: "日志审计",
   platform: "平台设置",
+  operations: "运行与维护",
   packages: "套餐与成本",
   finance: "资金流水",
 };

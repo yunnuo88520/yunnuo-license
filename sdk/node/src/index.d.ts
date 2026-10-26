@@ -109,6 +109,7 @@ export class LicenseClient {
   renew(input: RenewRequest, options?: RequestOptions): Promise<LicenseResponse>;
   unbind(input: UnbindRequest, options?: RequestOptions): Promise<UnbindResponse>;
   checkUpdate(input: CheckUpdateRequest, options?: RequestOptions): Promise<CheckUpdateResponse>;
+  authorizeUpdate(releaseId: string, input: VerifyRequest, options?: RequestOptions): Promise<{ authorized: boolean; release_id: string }>;
   downloadUpdate(release: ProductRelease, input: VerifyRequest, options: RequestOptions & ReleaseExpectation): Promise<Uint8Array>;
 }
 

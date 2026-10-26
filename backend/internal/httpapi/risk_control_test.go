@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
@@ -20,6 +21,7 @@ func TestClientIPOnlyTrustsForwardingHeadersWhenConfigured(t *testing.T) {
 		t.Fatalf("untrusted forwarding header changed client IP: %q", got)
 	}
 	api.WithTrustedProxyHeaders(true)
+	api.WithTrustedProxyNetworks([]netip.Prefix{netip.MustParsePrefix("192.0.2.0/24"), netip.MustParsePrefix("198.51.100.0/24")})
 	if got := api.clientIP(request); got != "203.0.113.20" {
 		t.Fatalf("trusted forwarding header was not used: %q", got)
 	}

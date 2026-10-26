@@ -394,8 +394,8 @@ func (s *Service) SendVerificationCode(ctx context.Context, to, code, purpose st
 // ---------- 自动通知 ----------
 
 // notifyAgentEmail 异步发送代理通知：不阻塞业务事务，未启用或无收件人时静默跳过。
-func (s *Service) notifyAgentEmail(kind, agentID, subject string, build func(base mailer.Data) mailer.Data) {
-	go func() {
+func (s *Service) notifyAgentEmail(kind, agentID, subject string, build func(base mailer.Data) mailer.Data, dedupKeys ...string) {
+	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("agent email notify panic kind=%s agent=%s: %v", kind, agentID, r)
@@ -427,16 +427,21 @@ func (s *Service) notifyAgentEmail(kind, agentID, subject string, build func(bas
 			log.Printf("agent email render failed kind=%s agent=%s: %v", kind, agentID, err)
 			return
 		}
-		if err := s.deliverEmail(ctx, r, to, subject, kind, agentID, html); err != nil {
+		dedup := ""
+		if len(dedupKeys) > 0 {
+			dedup = kind + "|" + agentID + "|" + dedupKeys[0]
+		}
+		if _, err := s.queueEmail(ctx, to, subject, kind, agentID, html, dedup); err != nil {
 			log.Printf("agent email notify failed kind=%s agent=%s: %v", kind, agentID, err)
 		}
+		s.StartNotificationWorker()
 	}()
 }
 
 // notifyAdminRiskBlock 异步向全部启用邮箱的管理员发送风控自动封禁通知：
 // 未启用邮件或无收件人时静默跳过；仅在封禁创建时触发一次，不会重复发送。
 func (s *Service) notifyAdminRiskBlock(ip, reason string, expiresAt time.Time) {
-	go func() {
+	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("admin risk email notify panic: %v", r)
@@ -472,9 +477,10 @@ func (s *Service) notifyAdminRiskBlock(ip, reason string, expiresAt time.Time) {
 			log.Printf("admin risk email render failed: %v", err)
 			return
 		}
-		if err := s.deliverEmail(ctx, r, to, base.SiteName+"｜风控自动封禁通知", domain.EmailKindRisk, "", html); err != nil {
+		if _, err := s.queueEmail(ctx, to, base.SiteName+"｜风控自动封禁通知", domain.EmailKindRisk, "", html, ""); err != nil {
 			log.Printf("admin risk email notify failed: %v", err)
 		}
+		s.StartNotificationWorker()
 	}()
 }
 
@@ -517,7 +523,7 @@ func (s *Service) notifyAgentBalance(agentID string, ledger domain.MoneyLedger) 
 		}
 		base.Warning = "如对变动有疑问，请联系平台管理员核实。"
 		return base
-	})
+	}, ledger.ID)
 }
 
 func (s *Service) notifyAgentQuota(agentID string, ledger domain.AgentQuotaLedger, productName string) {
@@ -543,7 +549,7 @@ func (s *Service) notifyAgentQuota(agentID string, ledger domain.AgentQuotaLedge
 			{Label: "操作时间", Value: ledger.CreatedAt.Format("2006-01-02 15:04:05 UTC")},
 		}
 		return base
-	})
+	}, ledger.ID)
 }
 
 func (s *Service) notifyAgentAccountCreated(agentID string, user domain.AgentUser, agentName, loginURL string) {

@@ -429,6 +429,7 @@ node app.mjs download 1.0.0</code></pre>
         快速接入包目前提供授权能力，升级下载、验签和安装需按这些接口集成。
       </p>
       <p>
+        下载完成后及真正安装前，再 POST /v1/updates/{releaseID}/authorize，提交相同授权与绑定，确认版本仍已发布、更新服务已启用且授权未到期；验证失败或网络不可用时中止升级。Node SDK 下载后已自动复验，安装前调用 authorizeUpdate(releaseID, binding)。
         保存升级包不等于在线安装完成。真实应用还需要备份、文件切换、数据迁移、健康检查和失败回滚。可参考仓库
         <a
           href="https://github.com/yunnuo88520/yunnuo-license/tree/main/examples/update-demo"

@@ -1,0 +1,11 @@
+[Unit]
+Description=Encrypted Yunnuo backup and offsite verification
+[Service]
+Type=oneshot
+User=yunnuo
+EnvironmentFile=/etc/yunnuo/runtime.env
+WorkingDirectory=/opt/yunnuo/backend
+ExecStart=/opt/yunnuo/deploy/backup.sh
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes

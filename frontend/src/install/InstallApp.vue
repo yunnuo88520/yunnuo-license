@@ -13,6 +13,7 @@ const ready = ref(false),
   done = ref(false),
   busy = ref(false),
   error = ref("");
+const setupToken=ref(""),requiresToken=ref(false);
 const links = ref<Record<string, string>>({
   admin: "/admin",
   agent: "/agent-console/",
@@ -36,6 +37,7 @@ onMounted(async () => {
   try {
     const status = await request<any>("/v1/setup/status");
     done.value = status.initialized;
+    requiresToken.value=!!status.setup_token_required;
     links.value = status.entries || links.value;
     form.database_driver = status.database_driver || "sqlite";
     form.database_path = (status.suggested_sqlite_dsn || "file:yn-license.db")
@@ -52,12 +54,14 @@ async function install() {
   try {
     const result = await request<any>("/v1/setup/initialize", {
       method: "POST",
+      headers:{"X-Setup-Token":setupToken.value},
       body: JSON.stringify(form),
     });
     links.value = result.entries;
     done.value = true;
     form.admin_password = "";
     form.database_password = "";
+    setupToken.value="";
   } catch (e: any) {
     error.value = e.message;
   } finally {
@@ -83,6 +87,10 @@ async function install() {
     <p v-if="!ready && !error">正在检查安装状态…</p>
     <form v-if="ready && !done" @submit.prevent="install">
       <fieldset :disabled="busy">
+        <section v-if="requiresToken" class="setup-card">
+          <div class="card-title"><ShieldCheck :size="23" /><div><h2>验证服务器所有权</h2><p>安装令牌仅保存在服务器配置文件旁的 .install-token 文件，或由运维通过 YN_SETUP_TOKEN 设置。</p></div></div>
+          <label class="field">安装令牌<input aria-label="安装令牌" v-model="setupToken" type="password" required minlength="32" maxlength="256" autocomplete="off" /><small>请从自己的服务器读取；网页不会提供令牌。完成安装后不能再次初始化。</small></label>
+        </section>
         <section class="setup-card">
           <div class="card-title">
             <Database :size="23" />

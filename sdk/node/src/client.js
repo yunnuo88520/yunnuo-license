@@ -102,6 +102,8 @@ export class LicenseClient {
     }
   }
 
+  authorizeUpdate(releaseId,input,options) { return this.#post(`/v1/updates/${encodeURIComponent(releaseId)}/authorize`,input,options); }
+
   async downloadUpdate(release, input, { publicKeyPem, productId, ...options }) {
     const expected = { publicKeyPem, productId };
     verifyReleaseManifest(release, expected);
@@ -114,6 +116,7 @@ export class LicenseClient {
       }
       throw error;
     }
+    await this.authorizeUpdate(release.id,input,options);
     return bytes;
   }
 

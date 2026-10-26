@@ -23,6 +23,7 @@ import (
 type Store struct {
 	db     *sql.DB
 	driver string
+	dsn    string
 }
 
 type Tx struct {
@@ -61,7 +62,7 @@ func Open(ctx context.Context, driver, dsn string) (*Store, error) {
 		db.SetMaxIdleConns(10)
 		db.SetConnMaxLifetime(5 * time.Minute)
 	}
-	return &Store{db: db, driver: driver}, nil
+	return &Store{db: db, driver: driver, dsn: dsn}, nil
 }
 
 func (s *Store) Close() error {
@@ -152,6 +153,14 @@ func (s *Store) UpdateSiteSettings(ctx context.Context, settings domain.SiteSett
 }
 
 func (s *Store) Migrate(ctx context.Context, dir string) error {
+	unlock, err := s.migrationLock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err = s.initializeMigrationHistory(ctx); err != nil {
+		return err
+	}
 	if s.driver == "mysql" {
 		dir = filepath.Join(dir, "mysql")
 	}
@@ -165,7 +174,7 @@ func (s *Store) Migrate(ctx context.Context, dir string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := s.db.ExecContext(ctx, string(sqlText)); err != nil {
+		if err := s.applyMigration(ctx, filepath.Base(file), sqlText); err != nil {
 			return fmt.Errorf("run migration %s: %w", filepath.Base(file), err)
 		}
 	}
@@ -185,7 +194,13 @@ func (s *Store) Migrate(ctx context.Context, dir string) error {
 }
 
 func (s *Store) WithTx(ctx context.Context, fn func(*Tx) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	var options *sql.TxOptions
+	if s.driver == "mysql" {
+		// Row locks protect each business aggregate. Read committed also keeps
+		// entitlement/owner subqueries fresh after waiting for another writer.
+		options = &sql.TxOptions{Isolation: sql.LevelReadCommitted}
+	}
+	tx, err := s.db.BeginTx(ctx, options)
 	if err != nil {
 		return err
 	}
@@ -1066,6 +1081,9 @@ func (tx *Tx) CreateCard(ctx context.Context, card domain.Card) error {
 }
 
 func (tx *Tx) GetCardByHash(ctx context.Context, codeHash string) (domain.Card, error) {
+	if _, err := tx.tx.ExecContext(ctx, `UPDATE cards SET updated_at=updated_at WHERE code_hash=?`, codeHash); err != nil {
+		return domain.Card{}, err
+	}
 	return scanCard(tx.tx.QueryRowContext(ctx, `SELECT `+cardColumns+` FROM cards WHERE code_hash = ?`, codeHash))
 }
 
@@ -1078,10 +1096,10 @@ func (tx *Tx) UpdateCardActivated(ctx context.Context, cardID, licenseID string,
 	return err
 }
 
-func (tx *Tx) UpdateCardConsumed(ctx context.Context, cardID string, now time.Time) error {
+func (tx *Tx) UpdateCardConsumed(ctx context.Context, cardID, licenseID string, now time.Time) error {
 	_, err := tx.tx.ExecContext(ctx, `
-		UPDATE cards SET status = ?, consumed_at = ?, updated_at = ? WHERE id = ?`,
-		domain.CardConsumedForRenewal, ts(now), ts(now), cardID,
+		UPDATE cards SET status = ?, activated_license_id = ?, consumed_at = ?, updated_at = ? WHERE id = ?`,
+		domain.CardConsumedForRenewal, licenseID, ts(now), ts(now), cardID,
 	)
 	return err
 }
@@ -1114,10 +1132,16 @@ func (tx *Tx) CreateLicense(ctx context.Context, lic domain.License) error {
 }
 
 func (tx *Tx) GetLicenseByID(ctx context.Context, id string) (domain.License, error) {
+	if err := tx.LockLicense(ctx, id); err != nil {
+		return domain.License{}, err
+	}
 	return scanLicense(tx.tx.QueryRowContext(ctx, `SELECT `+licenseColumns+` FROM licenses WHERE id = ?`, id))
 }
 
 func (tx *Tx) GetLicenseByNo(ctx context.Context, licenseNo string) (domain.License, error) {
+	if _, err := tx.tx.ExecContext(ctx, `UPDATE licenses SET updated_at=updated_at WHERE license_no=?`, licenseNo); err != nil {
+		return domain.License{}, err
+	}
 	return scanLicense(tx.tx.QueryRowContext(ctx, `SELECT `+licenseColumns+` FROM licenses WHERE license_no = ?`, licenseNo))
 }
 

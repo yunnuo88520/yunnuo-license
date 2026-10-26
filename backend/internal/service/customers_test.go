@@ -58,8 +58,10 @@ func TestCustomerOwnershipIsolationAndRenewal(t *testing.T) {
 	if err != nil || updated.UsageExpiredAt != nil || !updated.UpdatesExpiredAt.After(*lic.UpdatesExpiredAt) {
 		t.Fatalf("owned renewal: %+v %v", updated, err)
 	}
-	_, err = s.CustomerRenew(ctx, a.ID, lic.LicenseNo, owned[0].Bindings[0].ID, renew)
-	assertCode(t, err, "CARD_INVALID")
+	replayed, err := s.CustomerRenew(ctx, a.ID, lic.LicenseNo, owned[0].Bindings[0].ID, renew)
+	if err != nil || !sameDeadline(updated.UpdatesExpiredAt, replayed.UpdatesExpiredAt) {
+		t.Fatal("renewal retry changed rights", err)
+	}
 }
 
 func TestCustomerRebindLimitsCooldownIdempotencyAndOldBindingInvalidation(t *testing.T) {

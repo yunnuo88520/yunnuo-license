@@ -29,8 +29,9 @@ def free_port():
         return sock.getsockname()[1]
 
 
-def http(base, path, data=None, token="", content_type="application/json", expected=200):
+def http(base, path, data=None, token="", content_type="application/json", expected=200, extra_headers=None):
     headers = {"Content-Type": content_type}
+    headers.update(extra_headers or {})
     if token:
         headers["Authorization"] = "Bearer " + token
     payload = data if isinstance(data, bytes) else json.dumps(data).encode() if data is not None else None
@@ -54,8 +55,15 @@ def api(base, path, data=None, token="", content_type="application/json"):
 
 
 def initialize(base, username, password, dsn):
-    if not api(base, "/v1/setup/status")["initialized"]:
-        return api(base, "/v1/setup/initialize", {"database_driver":"sqlite", "database_dsn":dsn, "admin_username":username, "admin_password":password})
+    status=api(base, "/v1/setup/status")
+    if not status["initialized"]:
+        headers={}
+        if status.get("setup_token_required"):
+            folder=pathlib.Path(dsn.removeprefix("file:").split("?")[0]).parent
+            candidates=list(folder.glob("*.install-token"))
+            assert len(candidates)==1,"isolated test must have one private setup token file"
+            headers["X-Setup-Token"]=candidates[0].read_text().strip()
+        return http(base,"/v1/setup/initialize",{"database_driver":"sqlite","database_dsn":dsn,"admin_username":username,"admin_password":password},extra_headers=headers)["data"]
 
 
 def wait_ready(base, path, process):

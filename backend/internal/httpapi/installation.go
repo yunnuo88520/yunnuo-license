@@ -17,7 +17,7 @@ func (api *API) installApp(w http.ResponseWriter, r *http.Request) {
 func (api *API) installationGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if api.installReady.Load() || path == "/healthz" || path == "/install" || path == "/install/" || path == "/v1/setup/status" || path == "/v1/setup/initialize" || strings.HasPrefix(path, "/assets/") {
+		if api.installReady.Load() || path == "/healthz" || path == "/readyz" || path == "/metrics" || path == "/install" || path == "/install/" || path == "/v1/setup/status" || path == "/v1/setup/initialize" || strings.HasPrefix(path, "/assets/") {
 			next.ServeHTTP(w, r)
 			return
 		}

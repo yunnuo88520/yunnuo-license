@@ -46,7 +46,7 @@ func (s *Store) GetRelease(ctx context.Context, id string) (domain.ProductReleas
 }
 
 func (s *Store) ListReleases(ctx context.Context, productID string) ([]domain.ProductRelease, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+releaseColumns+` FROM product_releases WHERE product_id = ? ORDER BY created_at DESC, id DESC`, productID)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+releaseColumns+` FROM product_releases WHERE product_id = ? AND status<>'deleted' ORDER BY created_at DESC, id DESC`, productID)
 	if err != nil {
 		return nil, err
 	}

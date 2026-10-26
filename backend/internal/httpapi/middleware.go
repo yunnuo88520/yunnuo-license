@@ -154,7 +154,7 @@ func recordClientFailure(lock *failureLockout, clientIP string, err error) {
 		return
 	}
 	switch appErr.Code {
-	case "CARD_INVALID", "CARD_NOT_FOUND", "LICENSE_NOT_FOUND", "INVALID_APP_KEY":
+	case "INVALID_CREDENTIALS", "MFA_REQUIRED", "CARD_INVALID", "CARD_NOT_FOUND", "LICENSE_NOT_FOUND", "INVALID_APP_KEY":
 		lock.Fail(clientIP)
 	}
 }
@@ -186,6 +186,9 @@ func withRateLimit(limiter *fixedWindowLimiter, next http.HandlerFunc) http.Hand
 }
 
 func remoteClientIP(r *http.Request) string {
+	if ip, ok := r.Context().Value(clientIPContext).(string); ok {
+		return ip
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil && host != "" {
 		return host

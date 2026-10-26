@@ -33,14 +33,20 @@ func (api *API) registerReleaseRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("POST "+prefix+"/products/{productID}/updates", wrap(api.configureProductUpdates, writeRoles))
 		mux.HandleFunc("GET "+prefix+"/products/{productID}/releases", wrap(api.listReleases, readRoles))
 		mux.HandleFunc("POST "+prefix+"/products/{productID}/releases", wrap(api.uploadRelease, writeRoles))
+		mux.HandleFunc("DELETE "+prefix+"/products/{productID}/releases/{releaseID}", wrap(api.deleteRelease, writeRoles))
 		mux.HandleFunc("POST "+prefix+"/products/{productID}/releases/{releaseID}/{action}", wrap(api.changeReleaseStatus, writeRoles))
 	}
 	mux.HandleFunc("POST /v1/updates/check", withRateLimit(api.publicQueryLimit, api.checkUpdate))
+	mux.HandleFunc("POST /v1/updates/{releaseID}/authorize", withRateLimit(api.publicQueryLimit, api.authorizeRelease))
 	mux.HandleFunc("POST /v1/updates/{releaseID}/download", withRateLimit(api.publicQueryLimit, api.downloadRelease))
 	mux.HandleFunc("GET /v1/updates/{releaseID}/download", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "POST")
 		http.Error(w, "use authenticated POST to download", http.StatusMethodNotAllowed)
 	})
+}
+func (api *API) deleteRelease(w http.ResponseWriter, r *http.Request) {
+	err := api.service.DeleteRelease(r.Context(), r.PathValue("productID"), r.PathValue("releaseID"), adminSessionFrom(r.Context()).UserID)
+	commerceResponse(w, r, map[string]bool{"deleted": err == nil}, err)
 }
 
 func (api *API) licensePolicy(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +105,13 @@ func (api *API) listReleases(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) uploadRelease(w http.ResponseWriter, r *http.Request) {
+	releaseSlot, err := api.service.BeginReleaseUpload(r.Context())
+	if err != nil {
+		w.Header().Set("Retry-After", "5")
+		writeError(w, r, err)
+		return
+	}
+	defer releaseSlot()
 	r.Body = http.MaxBytesReader(w, r.Body, service.MaxReleaseSize+(1<<20))
 	defer r.Body.Close()
 	if err := r.ParseMultipartForm(1 << 20); err != nil {
@@ -154,6 +167,21 @@ func (api *API) checkUpdate(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, r, result)
 }
 
+func (api *API) authorizeRelease(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var input service.VerifyInput
+	if !decode(w, r, &input) {
+		return
+	}
+	input.ClientIP, input.UserAgent = api.clientIP(r), r.UserAgent()
+	release, err := api.service.AuthorizeRelease(r.Context(), r.PathValue("releaseID"), input)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeOK(w, r, map[string]any{"authorized": true, "release_id": release.ID})
+}
+
 func (api *API) downloadRelease(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	var input service.VerifyInput
@@ -161,6 +189,13 @@ func (api *API) downloadRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.ClientIP, input.UserAgent = api.clientIP(r), r.UserAgent()
+	releaseSlot, err := api.service.BeginReleaseDownload(r.Context())
+	if err != nil {
+		w.Header().Set("Retry-After", "5")
+		writeError(w, r, err)
+		return
+	}
+	defer releaseSlot()
 	release, file, err := api.service.DownloadRelease(r.Context(), r.PathValue("releaseID"), input)
 	w.Header().Set("Cache-Control", "private, no-store")
 	if err != nil {

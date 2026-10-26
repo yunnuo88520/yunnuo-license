@@ -18,16 +18,24 @@ import (
 )
 
 type Service struct {
-	store          atomic.Pointer[store.Store]
-	setupMu        sync.Mutex
-	retiredMu      sync.Mutex
-	retired        []*store.Store
-	cardPepper     []byte
-	dataKey        []byte
-	releaseDir     string
-	now            func() time.Time
-	expiryOnce     sync.Once
-	stopExpiryScan context.CancelFunc
+	store             atomic.Pointer[store.Store]
+	setupMu           sync.Mutex
+	retiredMu         sync.Mutex
+	retired           []*store.Store
+	cardPepper        []byte
+	dataKey           []byte
+	releaseDir        string
+	now               func() time.Time
+	expiryOnce        sync.Once
+	stopExpiryScan    context.CancelFunc
+	expiryDone        chan struct{}
+	notificationOnce  sync.Once
+	stopNotifications context.CancelFunc
+	notificationDone  chan struct{}
+	notificationWake  chan struct{}
+	resourceLimits    ResourceLimits
+	downloadSlots     chan struct{}
+	uploadSlots       chan struct{}
 }
 
 func (s *Service) currentStore() *store.Store {
@@ -48,6 +56,7 @@ func (s *Service) replaceStore(st *store.Store) {
 // be using a store retained during first-run installation.
 func (s *Service) Close() error {
 	s.stopExpiryReminderScheduler()
+	s.stopNotificationWorker()
 	current := s.store.Swap(nil)
 	s.retiredMu.Lock()
 	stores := append(s.retired, current)
@@ -64,9 +73,13 @@ func (s *Service) Close() error {
 
 func New(st *store.Store, cardPepper, dataKey []byte) *Service {
 	s := &Service{
-		cardPepper: cardPepper,
-		dataKey:    dataKey,
-		now:        func() time.Time { return time.Now().UTC() },
+		cardPepper:       cardPepper,
+		notificationWake: make(chan struct{}, 1),
+		dataKey:          dataKey,
+		now:              func() time.Time { return time.Now().UTC() },
+		resourceLimits:   DefaultResourceLimits(),
+		uploadSlots:      make(chan struct{}, DefaultResourceLimits().ConcurrentUploads),
+		downloadSlots:    make(chan struct{}, DefaultResourceLimits().ConcurrentDownloads),
 	}
 	s.store.Store(st)
 	return s
@@ -1198,7 +1211,18 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 	var lic domain.License
 	var binding domain.Binding
 	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
-		var err error
+		// Always lock cards before licenses, as activation does. The same
+		// renewal card cannot extend two licenses and cannot race activation.
+		card, err := tx.GetCardByHash(ctx, codeHash)
+		if err != nil {
+			if store.IsNotFound(err) {
+				return ErrCardInvalid
+			}
+			return err
+		}
+		if card.ProductID != product.ID || (card.Status != domain.CardUnused && card.Status != domain.CardConsumedForRenewal) {
+			return ErrCardInvalid
+		}
 		lic, err = tx.GetLicenseByNo(ctx, input.LicenseNo)
 		if err != nil {
 			if store.IsNotFound(err) {
@@ -1225,9 +1249,6 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 		if err := enforceSecurity(ctx, tx, lic, false); err != nil {
 			return err
 		}
-		if lic.ExpiredAt == nil && lic.UpdatesExpiredAt == nil {
-			return ErrLicensePermanent
-		}
 		binding, err = tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
 		if err != nil {
 			if store.IsNotFound(err) {
@@ -1235,15 +1256,16 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 			}
 			return err
 		}
-		card, err := tx.GetCardByHash(ctx, codeHash)
-		if err != nil {
-			if store.IsNotFound(err) {
+		if card.Status == domain.CardConsumedForRenewal {
+			if card.ActivatedLicenseID != lic.ID {
 				return ErrCardInvalid
 			}
-			return err
+			// A lost response may be retried with the same card and binding.
+			// Return current rights without extending either deadline again.
+			return nil
 		}
-		if card.ProductID != product.ID || card.Status != domain.CardUnused {
-			return ErrCardInvalid
+		if lic.ExpiredAt == nil && lic.UpdatesExpiredAt == nil {
+			return ErrLicensePermanent
 		}
 		lic.ExpiredAt = extendExpiry(lic.ExpiredAt, card.DurationDays, card.IsPermanent, now)
 		updateDays := product.UpdateDurationDays
@@ -1257,7 +1279,7 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 		if err := tx.UpdateLicenseRights(ctx, lic, now); err != nil {
 			return err
 		}
-		if err := tx.UpdateCardConsumed(ctx, card.ID, now); err != nil {
+		if err := tx.UpdateCardConsumed(ctx, card.ID, lic.ID, now); err != nil {
 			return err
 		}
 		lic.UsageExpiredAt = lic.ExpiredAt

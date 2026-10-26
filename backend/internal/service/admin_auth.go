@@ -88,6 +88,7 @@ func (s *Service) ListAdminUsers(ctx context.Context) ([]domain.AdminUser, error
 }
 
 type AdminLoginInput struct {
+	OTPCode  string `json:"otp_code"`
 	Username string `json:"username"`
 	Password string `json:"password"`
 	// 登录图形验证码：开关开启时必填（管理员/开发者/用户中心登录共用）。
@@ -139,6 +140,9 @@ func (s *Service) AdminLogin(ctx context.Context, input AdminLoginInput) (AdminL
 	ok, err := verifyAgentPassword(input.Password, user.PasswordHash)
 	if err != nil || !ok {
 		return AdminLoginResponse{}, ErrInvalidCredentials
+	}
+	if err := s.verifyAdminMFA(ctx, user.ID, input.OTPCode); err != nil {
+		return AdminLoginResponse{}, err
 	}
 	now := s.now()
 	expiresAt := now.Add(adminTokenTTL)

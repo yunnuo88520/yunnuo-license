@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	yncrypto "github.com/yunnuo88520/yunnuo-license/backend/internal/crypto"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/mailer"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/store"
@@ -81,23 +80,12 @@ func (s *Service) RunExpiryReminderScan(ctx context.Context) (int, error) {
 			})
 		}
 		for _, refs := range groups {
-			anyNew := false
-			for _, ref := range refs {
-				inserted, err := s.currentStore().InsertExpiryReminderIfAbsent(ctx, domain.ExpiryReminder{
-					ID: yncrypto.NewID("expr"), LicenseID: item.LicenseID, UserID: item.UserID,
-					Kind:        expiryReminderKind(ref.kind, ref.threshold),
-					ExpiryValue: ref.at.UTC().Format(time.RFC3339), SentAt: now, CreatedAt: now,
-				})
-				if err != nil {
-					return sent, err
-				}
-				anyNew = anyNew || inserted
+			queued, err := s.sendExpiryReminderEmail(ctx, r, item, refs)
+			if err != nil {
+				log.Printf("expiry reminder enqueue failed license=%s: %v", item.LicenseNo, err)
+				return sent, err
 			}
-			if !anyNew {
-				continue
-			}
-			if err := s.sendExpiryReminderEmail(ctx, r, item, refs); err != nil {
-				log.Printf("expiry reminder send failed license=%s: %v", item.LicenseNo, err)
+			if !queued {
 				continue
 			}
 			sent++
@@ -106,7 +94,7 @@ func (s *Service) RunExpiryReminderScan(ctx context.Context) (int, error) {
 	return sent, nil
 }
 
-func (s *Service) sendExpiryReminderEmail(ctx context.Context, r *emailRuntime, item store.ExpiringLicense, refs []reminderRef) error {
+func (s *Service) sendExpiryReminderEmail(ctx context.Context, r *emailRuntime, item store.ExpiringLicense, refs []reminderRef) (bool, error) {
 	labels := make([]string, 0, len(refs))
 	for _, ref := range refs {
 		labels = append(labels, ref.label)
@@ -135,10 +123,11 @@ func (s *Service) sendExpiryReminderEmail(ctx context.Context, r *emailRuntime, 
 	}
 	html, err := mailer.Render(mailer.TemplateNotification, data)
 	if err != nil {
-		return err
+		return false, err
 	}
 	subject := fmt.Sprintf("%s｜授权到期提醒（%s 剩约 %d 天）", data.SiteName, labelText, days)
-	return s.deliverEmail(ctx, r, []string{item.Email}, subject, domain.EmailKindExpiry, "", html)
+	dedup := fmt.Sprintf("expiry|%s|%d|%s", item.LicenseID, refs[0].threshold, refs[0].at.UTC().Format(time.RFC3339))
+	return s.queueEmail(ctx, []string{item.Email}, subject, domain.EmailKindExpiry, "", html, dedup)
 }
 
 // StartExpiryReminderScheduler 启动每小时一次的到期提醒扫描，随 Service 关闭停止。
@@ -146,7 +135,9 @@ func (s *Service) StartExpiryReminderScheduler() {
 	s.expiryOnce.Do(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		s.stopExpiryScan = cancel
+		s.expiryDone = make(chan struct{})
 		go func() {
+			defer close(s.expiryDone)
 			timer := time.NewTimer(time.Minute)
 			defer timer.Stop()
 			for {
@@ -169,5 +160,6 @@ func (s *Service) StartExpiryReminderScheduler() {
 func (s *Service) stopExpiryReminderScheduler() {
 	if s.stopExpiryScan != nil {
 		s.stopExpiryScan()
+		<-s.expiryDone
 	}
 }

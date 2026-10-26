@@ -33,6 +33,7 @@
 - 可选的产品升级服务：上传升级包、发布/下架版本，有效授权检查及下载更新
 - 独立的使用期限与更新期限，支持订阅到期停用和永久使用、限期更新
 - 单 Docker 镜像部署，内置 MySQL，仅需开放 Web 端口
+- 首次安装私有令牌、管理员动态验证、运行指标与容量管理、加密全量备份/恢复和通知重试
 
 平台支持内部预付余额与发卡成本核算，余额由管理员登记。第三方支付、退款及分佣对账需业务系统另行接入。
 代理采用统一用户账号加代理资格，一次开通即可用账号或邮箱登录，用户中心与代理工作台可直接切换。等级、套餐和余额在代理详情统一配置，多人协作为可选功能。张数额度为套餐的可选附加限制。流程见 [用户与代理账号](docs/agent-accounts.md)。
@@ -76,6 +77,8 @@ docker run -d \
   yunnuo-license:latest
 ```
 
+首次安装前读取服务器私有令牌：`docker exec yunnuo-license cat /var/lib/mysql/.yunnuo/database.json.install-token`，在 `/install` 填入令牌并配置数据库与管理员。安装完成会显示各端入口；不要把令牌放进公开链接。
+
 启动后访问：
 
 | 入口 | 地址 |
@@ -91,7 +94,8 @@ docker run -d \
 
 MySQL 只监听容器内部 `127.0.0.1:3306`，不会映射至宿主机。生产环境建议在服务前增加
 HTTPS 反向代理，并妥善备份 Docker 数据卷。完整参数与升级说明见
-[Docker 部署文档](docs/docker-deployment.md)。
+[Docker 部署文档](docs/docker-deployment.md)。商用配置、期限规则、备份恢复与完整验收映射见
+[商用部署与验收](docs/production-readiness.md)。
 
 ## 本地开发
 

@@ -48,6 +48,9 @@ async function update() {
   try {
     const archive = join(staging, "package.zip");
     await writeFile(archive, bytes, { mode: 0o600, flag: "wx" });
+    // The package can take time to transfer and stage. Authorize this exact
+    // published release again immediately before modifying files or data.
+    await client.authorizeUpdate(release.id,config.binding);
     await install("apply", archive, release.version);
     applied = true;
     events.push(`已备份数据库并切换网站文件至 v${release.version}`);

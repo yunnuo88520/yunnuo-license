@@ -45,7 +45,19 @@ func main() {
 	if err := cfg.PrepareInstallationKeys(adminCount > 0); err != nil {
 		log.Fatal(err)
 	}
+	setupToken, err := cfg.PrepareSetupToken(adminCount > 0)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if adminCount == 0 {
+		log.Printf("installation requires the private setup token (%s or YN_SETUP_TOKEN)", cfg.SetupTokenPath())
+	}
 	svc := service.New(st, cfg.CardPepper, cfg.DataKey).WithReleaseDir(cfg.ReleaseDir)
+	limits, err := service.ResourceLimitsFromEnvironment()
+	if err != nil {
+		log.Fatal(err)
+	}
+	svc.WithResourceLimits(limits)
 	defer svc.Close()
 	if *resetUsername != "" {
 		if err := resetAdministrator(ctx, svc, *resetUsername, *resetReason, os.Stdin); err != nil {
@@ -58,13 +70,22 @@ func main() {
 		log.Fatal(err)
 	}
 	svc.StartExpiryReminderScheduler()
+	svc.StartNotificationWorker()
 	server := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(svc, cfg.PublicStaticDir, cfg.AdminStaticDir, cfg.AgentStaticDir).
 			WithTrustedProxyHeaders(cfg.TrustProxyHeaders).
+			WithTrustedProxyNetworks(cfg.TrustedProxyNetworks).
+			WithAdminNetworks(cfg.AdminNetworks).
+			WithSetupToken(setupToken).
+			WithMetricsToken(os.Getenv("YN_METRICS_TOKEN")).
 			WithAdminPath(cfg.AdminPath).
 			WithSetupConfig(migrationDir, cfg.DatabaseConfigFile).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       120 * time.Second,
+		WriteTimeout:      15 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 << 10,
 	}
 
 	go func() {
@@ -78,9 +99,10 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Fatal(err)
+		log.Printf("graceful shutdown deadline: %v", err)
+		_ = server.Close()
 	}
 }

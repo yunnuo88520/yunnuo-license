@@ -9,12 +9,13 @@ port="${YN_DOCKER_TEST_PORT:-18083}"
 admin_password="docker-test-admin-password"
 update_state="$(mktemp)"
 kit_archive="$(mktemp)"
-platform_artifacts="$(mktemp -d)"
+platform_artifacts="${YN_DOCKER_ARTIFACTS:-$(mktemp -d)}"
+mkdir -p "$platform_artifacts"
 
 cleanup() {
   rm -f "$update_state"
   rm -f "$kit_archive"
-  rm -r "$platform_artifacts"
+  if [[ -z "${YN_DOCKER_ARTIFACTS:-}" ]]; then rm -r "$platform_artifacts"; fi
   docker rm -f "$container" >/dev/null 2>&1 || true
   docker volume rm "$volume" >/dev/null 2>&1 || true
 }
@@ -53,13 +54,15 @@ if [[ "$skip_build" != "1" ]]; then
   docker build -t "$image" .
 fi
 docker run -d --name "$container" \
-  -p "127.0.0.1:${port}:8080" \
+  -p "127.0.0.1:${port}:8080" -p "127.0.0.1:$((port+1)):8081" \
   -v "$volume:/var/lib/mysql" \
   -e MYSQL_PASSWORD=docker-test-db-password \
   -e MYSQL_ROOT_PASSWORD=docker-test-root-password \
   -e YN_ADMIN_PASSWORD="$admin_password" \
   -e YN_ADMIN_USERNAME=admin \
   -e YN_TRUST_PROXY_HEADERS=true \
+  -e YN_TRUSTED_PROXY_CIDRS='127.0.0.1/32,172.16.0.0/12' \
+  -e YN_SETUP_TOKEN='docker-test-installation-token-32-characters' \
   "$image" >/dev/null
 
 for attempt in $(seq 1 120); do
@@ -83,7 +86,7 @@ base="http://127.0.0.1:${port}"
 curl --fail --silent --show-error "$base/healthz" | grep -q '"status":"ok"'
 [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' "$base/")" == "307" ]]
 curl --fail --silent --show-error "$base/install" | grep -q '安装授权平台'
-curl --fail --silent --show-error -X POST "$base/v1/setup/initialize" -H 'Content-Type: application/json' -d '{"database_driver":"mysql","database_host":"127.0.0.1","database_port":3306,"database_name":"yunnuo_license","database_user":"yunnuo","database_password":"docker-test-db-password","admin_username":"admin","admin_password":"docker-test-admin-password"}' | grep -q '"initialized":true'
+curl --fail --silent --show-error -X POST "$base/v1/setup/initialize" -H 'Content-Type: application/json' -H 'X-Setup-Token: docker-test-installation-token-32-characters' -d '{"database_driver":"mysql","database_host":"127.0.0.1","database_port":3306,"database_name":"yunnuo_license","database_user":"yunnuo","database_password":"docker-test-db-password","admin_username":"admin","admin_password":"docker-test-admin-password"}' | grep -q '"initialized":true'
 curl --fail --silent --show-error "$base/v1/site/settings" | grep -q '"site_name":"允诺云授权"'
 curl --fail --silent --show-error "$base/" | grep -q '允诺云授权'
 curl --fail --silent --show-error "$base/assets/yunnuo-mark.svg" | grep -q '<svg'
@@ -206,6 +209,9 @@ restart_and_wait
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_agent_accounts.py --base-url "$base" --artifacts "$platform_artifacts/agent-accounts"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_agent_tiers.py --base-url "$base" --artifacts "$platform_artifacts/agent-tiers"
 
+restart_and_wait
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_production.py --base-url "$base" --artifacts "$platform_artifacts/production"
+./docker/test-production-restore.sh "$container" "$update_state" "$((port+1))"
 restart_and_wait
 check_public_license
 

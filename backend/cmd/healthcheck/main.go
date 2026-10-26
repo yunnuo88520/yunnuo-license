@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -9,7 +10,16 @@ import (
 
 func main() {
 	client := &http.Client{Timeout: 3 * time.Second}
-	response, err := client.Get("http://127.0.0.1:8080/healthz")
+	addr := os.Getenv("YN_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "invalid YN_ADDR")
+		os.Exit(1)
+	}
+	response, err := client.Get("http://127.0.0.1:" + port + "/readyz")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

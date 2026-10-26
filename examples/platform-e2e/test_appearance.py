@@ -25,7 +25,7 @@ def select_theme(page, label):
 
 
 def theme_is(page, expected):
-    page.wait_for_function("theme => document.documentElement.dataset.theme === theme", arg=expected)
+    page.locator(f"html[data-theme='{expected}']").wait_for(state="attached")
     assert page.locator("html").evaluate("e => getComputedStyle(e).colorScheme") == expected
     colors = page.locator("html").evaluate("e => { const s = getComputedStyle(e); return ['--canvas', '--paper', '--field', '--red-soft', '--amber-soft'].map(k => s.getPropertyValue(k).trim()); }")
     assert all(colors), colors

@@ -15,17 +15,17 @@ shutdown() {
     kill -TERM "$app_pid" 2>/dev/null || true
   fi
   if [[ -n "$mysql_pid" ]] && kill -0 "$mysql_pid" 2>/dev/null; then
-    mysqladmin --protocol=socket -uroot -p"$MYSQL_ROOT_PASSWORD" shutdown >/dev/null 2>&1 || kill -TERM "$mysql_pid" 2>/dev/null || true
+    MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin --protocol=socket -uroot shutdown >/dev/null 2>&1 || kill -TERM "$mysql_pid" 2>/dev/null || true
   fi
   wait || true
 }
 trap shutdown TERM INT EXIT
 
-docker-entrypoint.sh mysqld --bind-address=127.0.0.1 &
+docker-entrypoint.sh mysqld --bind-address=127.0.0.1 --mysqlx=OFF &
 mysql_pid=$!
 
 for attempt in $(seq 1 120); do
-  if mysqladmin --protocol=tcp -h127.0.0.1 -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" ping --silent >/dev/null 2>&1; then
+  if MYSQL_PWD="$MYSQL_PASSWORD" mysqladmin --protocol=tcp -h127.0.0.1 -u"$MYSQL_USER" ping --silent >/dev/null 2>&1; then
     break
   fi
   if ! kill -0 "$mysql_pid" 2>/dev/null; then

@@ -1,0 +1,32 @@
+rule_files: [alerts.yml]
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'yunnuo_ready{instance="fixture"}'
+        values: '0 0 0 0'
+      - series: 'up{job="yunnuo",instance="fixture"}'
+        values: '1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: LicenseServiceUnavailable
+        exp_alerts:
+          - exp_labels: {instance: fixture, severity: critical}
+            exp_annotations: {summary: '授权站数据库、审计写入或包存储不可用'}
+  - interval: 1m
+    input_series:
+      - series: 'yunnuo_ready{instance="fixture"}'
+        values: '1 1 1 1 1 1 1'
+      - series: 'up{job="yunnuo",instance="fixture"}'
+        values: '1 1 1 1 1 1 1'
+      - series: 'yunnuo_disk_free_bytes{instance="fixture"}'
+        values: '100000000 100000000 100000000 100000000 100000000 100000000 100000000'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: LicenseServiceUnavailable
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: LicenseStorageLow
+        exp_alerts:
+          - exp_labels: {instance: fixture, severity: warning}
+            exp_annotations: {summary: '升级包容量或磁盘剩余空间不足'}

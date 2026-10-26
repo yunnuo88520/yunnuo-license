@@ -136,6 +136,7 @@ func TestExpiryReminderScanSendsOnceAndRearmsAfterRenewal(t *testing.T) {
 	}
 
 	sent, err := svc.RunExpiryReminderScan(ctx)
+	svc.RunNotificationOutbox(ctx, 20)
 	if err != nil || sent != 1 {
 		t.Fatalf("first scan should send exactly one combined reminder: sent=%d err=%v", sent, err)
 	}
@@ -144,6 +145,7 @@ func TestExpiryReminderScanSendsOnceAndRearmsAfterRenewal(t *testing.T) {
 	}
 	// 重复扫描不得重复发送。
 	sent, err = svc.RunExpiryReminderScan(ctx)
+	svc.RunNotificationOutbox(ctx, 20)
 	if err != nil || sent != 0 {
 		t.Fatalf("second scan must not resend: sent=%d err=%v", sent, err)
 	}
@@ -161,6 +163,7 @@ func TestExpiryReminderScanSendsOnceAndRearmsAfterRenewal(t *testing.T) {
 		t.Fatalf("renew: %v", err)
 	}
 	sent, err = svc.RunExpiryReminderScan(ctx)
+	svc.RunNotificationOutbox(ctx, 20)
 	if err != nil || sent != 1 {
 		t.Fatalf("scan after renewal should send for the new expiry: sent=%d err=%v", sent, err)
 	}
@@ -187,6 +190,7 @@ func TestExpiryReminderScanSkipsWithoutEmail(t *testing.T) {
 	}
 	// 邮件未启用：扫描静默返回 0，不报错。
 	sent, err := svc.RunExpiryReminderScan(ctx)
+	svc.RunNotificationOutbox(ctx, 20)
 	if err != nil || sent != 0 {
 		t.Fatalf("scan without email settings should be a no-op: sent=%d err=%v", sent, err)
 	}

@@ -33,13 +33,14 @@ def main():
             assert http.http(base,"/admin/login",{"username":"must-not-bootstrap","password":password},expected=503)["error"]["code"]=="INSTALL_REQUIRED"
             report["checks"].append("First-run pages redirect to /install and environment administrator credentials cannot bypass installation")
             db=folder/"installed.sqlite";setup={"database_driver":"sqlite","database_path":str(db),"admin_username":"platform-owner","admin_password":password,"admin_name":"平台管理员"}
+            setup_token=pathlib.Path(str(config)+".install-token").read_text().strip()
             if args.screenshots:
                 from playwright.sync_api import sync_playwright
                 playwright=sync_playwright().start();browser=playwright.chromium.launch(executable_path="/usr/bin/chromium",headless=True,args=["--no-sandbox"]);page=browser.new_page(viewport={"width":1440,"height":1180},locale="zh-CN")
                 errors=[];page.on("pageerror",lambda e:errors.append(str(e)));page.goto(base);assert page.url==base+"/install"
-                page.get_by_role("button",name="SQLite",exact=False).click();page.get_by_label("数据库文件路径",exact=True).fill(str(db));page.get_by_label("管理员用户名",exact=True).fill(setup["admin_username"]);page.get_by_label("管理员密码",exact=True).fill(password);page.screenshot(path=str(args.artifacts/"first-run-installer.png"),full_page=True)
+                page.get_by_role("button",name="SQLite",exact=False).click();page.get_by_label("安装令牌",exact=True).fill(setup_token);page.get_by_label("数据库文件路径",exact=True).fill(str(db));page.get_by_label("管理员用户名",exact=True).fill(setup["admin_username"]);page.get_by_label("管理员密码",exact=True).fill(password);page.screenshot(path=str(args.artifacts/"first-run-installer.png"),full_page=True)
                 page.get_by_role("button",name="完成安装",exact=True).click();page.get_by_role("heading",name="您的授权平台已就绪",exact=True).wait_for();assert page.get_by_role("link",name="管理后台",exact=False).get_attribute("href")=="/admin";page.screenshot(path=str(args.artifacts/"installation-complete-entries.png"),full_page=True)
-            else:http.api(base,"/v1/setup/initialize",setup)
+            else:http.http(base,"/v1/setup/initialize",setup,extra_headers={"X-Setup-Token":setup_token})
             settings=json.loads(config.read_text());assert settings["admin_path"]=="/admin" and len(settings["data_key"])==64 and len(settings["card_pepper"])==64 and password not in config.read_text();assert config.stat().st_mode&0o077==0
             token=http.api(base,"/admin/login",{"username":setup["admin_username"],"password":password})["access_token"]
             http.http(base,"/v1/setup/initialize",setup,expected=403);http.http(base,"/admin-console/",expected=404)

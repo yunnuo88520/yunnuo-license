@@ -223,6 +223,10 @@ func TestLegacyLicenseMigrationPreservesBothDeadlines(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A real pre-migration-history database has no applied-version ledger.
+	if _, err = raw.ExecContext(ctx, "DROP TABLE schema_migrations"); err != nil {
+		t.Fatal(err)
+	}
 	for range 2 {
 		if err = st.Migrate(ctx, filepath.Join("..", "..", "migrations")); err != nil {
 			t.Fatal(err)

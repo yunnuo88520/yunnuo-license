@@ -1,0 +1,13 @@
+# Configure a real receiver before production. The empty receiver intentionally
+# sends no messages until the operator supplies an authorized destination.
+route:
+  receiver: operator-config-required
+  group_by: [alertname, instance]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: operator-config-required
+    # webhook_configs:
+    #   - url: https://your-authorized-alert-receiver.example/hooks/license
+    #     send_resolved: true

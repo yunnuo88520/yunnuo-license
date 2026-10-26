@@ -1,0 +1,7 @@
+{$YN_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy license:8080
+    # Caddy replaces incoming forwarding headers; the application trusts only
+    # this proxy's fixed address. No database or metrics port is published.
+    header Strict-Transport-Security "max-age=31536000"
+}

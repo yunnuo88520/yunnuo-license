@@ -41,3 +41,12 @@ coverage/
 
 # ZCode workspace
 .zcode/
+
+# Private installation and production operations artifacts
+*.install-token
+deploy/secrets/
+deploy/backups/
+deploy/monitoring/textfile/
+backend/yn-releases.lock
+/yn-releases.lock
+*.db.migrate.lock

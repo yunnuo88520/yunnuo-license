@@ -93,7 +93,7 @@ def main():
                 dialog.get_by_label("显示排序").fill("5")
                 page.screenshot(path=str(args.artifacts/"admin-edit-tier-rate.png"),full_page=True,animations="disabled")
                 page.emulate_media(color_scheme="dark")
-                page.wait_for_function("document.documentElement.dataset.theme === 'dark'")
+                page.locator("html[data-theme='dark']").wait_for(state="attached")
                 for width in [390,320]:
                     page.set_viewport_size({"width":width,"height":844})
                     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+1")
@@ -119,7 +119,7 @@ def main():
                 user.get_by_role("cell",name="¥7.56",exact=True).wait_for()
                 user.screenshot(path=str(args.artifacts/"agent-discounted-package.png"),full_page=True,animations="disabled")
                 user.emulate_media(color_scheme="dark")
-                user.wait_for_function("document.documentElement.dataset.theme === 'dark'")
+                user.locator("html[data-theme='dark']").wait_for(state="attached")
                 user.set_viewport_size({"width":390,"height":844})
                 assert user.evaluate("document.documentElement.scrollWidth <= innerWidth+1")
                 user.screenshot(path=str(args.artifacts/"agent-tier-price-mobile-dark.png"),animations="disabled")

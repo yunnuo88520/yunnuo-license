@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { formatTime } from "../format";
+import ConfirmDialog from "./ConfirmDialog.vue";
+const deleting=ref<Release>();
 
 interface Release {
   id: string;
@@ -99,6 +101,7 @@ function changeStatus(id: string, action: string) {
     props.api(`${base()}/releases/${id}/${action}`, { method: "POST" }),
   );
 }
+function removeRelease(){const item=deleting.value;if(!item)return;deleting.value=undefined;void run(()=>props.api(`${base()}/releases/${item.id}`,{method:"DELETE"}));}
 </script>
 
 <template>
@@ -189,8 +192,10 @@ function changeStatus(id: string, action: string) {
         >
           下架版本
         </button>
+        <button v-if="release.status!=='published'" class="btn danger small" :disabled="busy" @click="deleting=release">删除升级包</button>
       </div>
     </article>
+    <ConfirmDialog :open="!!deleting" title="删除升级包" :description="`删除 ${deleting?.version || ''} 的文件并释放存储额度。该版本号不能重新用于不同内容，历史授权和资金流水保留。`" confirm-text="确认删除升级包" @close="deleting=undefined" @confirm="removeRelease" />
   </section>
 </template>
 

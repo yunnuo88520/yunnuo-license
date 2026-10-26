@@ -21,12 +21,13 @@ test("update client checks and downloads a signed package with license credentia
       assert.equal(input.current_version, "1.0.0");
       return Response.json({ success: true, data: { enabled: true, update_available: true, release } });
     }
+    if(path.endsWith("/authorize")) return Response.json({success:true,data:{authorized:true,release_id:release.id}});
     return new Response(bytes);
   } });
   const update = await client.checkUpdate({ ...binding, current_version: "1.0.0" });
   const download = await client.downloadUpdate(update.release, binding, expected);
   assert.deepEqual(Buffer.from(download), bytes);
-  assert.deepEqual(paths, ["/v1/updates/check", "/v1/updates/rel_1/download"]);
+  assert.deepEqual(paths, ["/v1/updates/check", "/v1/updates/rel_1/download", "/v1/updates/rel_1/authorize"]);
 });
 
 test("package verification rejects wrong product, tampered signature, metadata and content", () => {
@@ -55,3 +56,8 @@ test("update download enforces size and preserves expired-license errors", async
   const client = new LicenseClient({ baseUrl: "https://license.example.com", appKey: "app_ebox", fetch: async () => Response.json({ success: false, error: { code: "LICENSE_EXPIRED", message: "license expired" } }, { status: 403 }) });
   await assert.rejects(client.downloadUpdate(release, {}, expected), e => isAPIErrorCode(e, "LICENSE_EXPIRED"));
 });
+
+ test("package downloaded before expiry is not returned when post-download authorization expires",async()=>{
+ const client=new LicenseClient({baseUrl:"https://license.example.com",appKey:"app_ebox",fetch:async(url)=>url.endsWith("/download")?new Response(bytes):Response.json({success:false,error:{code:"UPDATES_EXPIRED",message:"expired during transfer"}},{status:403})});
+ await assert.rejects(client.downloadUpdate(release,{},expected),e=>isAPIErrorCode(e,"UPDATES_EXPIRED"));
+ });

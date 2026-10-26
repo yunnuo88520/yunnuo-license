@@ -47,6 +47,8 @@ import CustomersPanel from "./CustomersPanel.vue";
 import BindingPolicy from "./BindingPolicy.vue";
 import OperationLogs from "./OperationLogs.vue";
 import CommercePanel from "./CommercePanel.vue";
+import AdminMFA from "./AdminMFA.vue";
+import OperationsPanel from "./OperationsPanel.vue";
 import AgentOnboarding from "./AgentOnboarding.vue";
 import RecoveryPanel from "./RecoveryPanel.vue";
 import SecurityPanel from "./SecurityPanel.vue";
@@ -99,7 +101,7 @@ const agentActionTitles: Record<string, string> = {
   quota: "发放额度",
   agentBatch: "代理批量发卡",
 };
-const login = reactive({ username: "", password: "", captcha_id: "", captcha_code: "" });
+const login = reactive({ username: "", password: "", otp_code:"", captcha_id: "", captcha_code: "" });
 const captchaField = ref<any>(null);
 const result = ref("{}");
 const codes = ref<string[]>([]);
@@ -351,6 +353,7 @@ const navGroups = [
       { id: "tools", label: "联调工具", icon: Terminal },
       { id: "audit", label: "审计", icon: ScrollText },
       { id: "admins", label: "系统", icon: Settings2 },
+      { id: "operations", label: "运行与容量", icon: Activity },
     ],
   },
 ];
@@ -1130,7 +1133,7 @@ onMounted(async () => {
               type="password"
               autocomplete="current-password"
               required /></label
-          ><CaptchaField ref="captchaField" v-model="login.captcha_code" />
+          ><label class="field">动态验证码或恢复码<input v-model="login.otp_code" autocomplete="one-time-code" maxlength="32" placeholder="已启用动态验证时填写" /></label><CaptchaField ref="captchaField" v-model="login.captcha_code" />
           <button class="btn" :disabled="a.loading.value">
             <LoaderCircle
               v-if="a.loading.value"
@@ -1630,6 +1633,7 @@ onMounted(async () => {
           :agents="a.data.agents"
           :can-write="a.isManager.value"
         />
+        <OperationsPanel v-if="page === 'operations'" :api="a.api" :can-retry="a.isSuper.value" />
         <CustomersPanel
           v-if="page === 'customers'"
           :api="a.api"
@@ -3116,6 +3120,7 @@ onMounted(async () => {
           </form>
           </FormDialog>
           <template v-if="settingsTab === 'account'">
+ <AdminMFA :api="a.api" @signed-out="a.logout('安全设置已变更，请重新登录')" />
           <div class="captcha-setting">
             <div class="captcha-setting-copy">
               <h4>我的邮箱</h4>

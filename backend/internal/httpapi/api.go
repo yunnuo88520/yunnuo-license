@@ -2,11 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -50,6 +52,7 @@ type API struct {
 	developerStaticDir   string
 	customerStaticDir    string
 	adminLoginLimit      *fixedWindowLimiter
+	adminAuthFailLock    *failureLockout
 	appTokenLimit        *fixedWindowLimiter
 	agentLoginLimit      *fixedWindowLimiter
 	publicQueryLimit     *fixedWindowLimiter
@@ -61,9 +64,14 @@ type API struct {
 	activateFailLock     *failureLockout
 	verifyFailLock       *failureLockout
 	trustProxyHeaders    bool
+	trustedProxyNetworks []netip.Prefix
+	adminNetworks        []netip.Prefix
 	migrationDir         string
 	databaseConfigFile   string
 	sqliteSetupDSN       string
+	setupToken           string
+	metrics              [11]requestMetric
+	metricsToken         string
 }
 
 func (api *API) WithTrustedProxyHeaders(enabled bool) *API {
@@ -74,12 +82,14 @@ func (api *API) WithTrustedProxyHeaders(enabled bool) *API {
 func New(svc *service.Service, publicStaticDir, adminStaticDir, agentStaticDir string) *API {
 	return &API{
 		service:              svc,
+		trustedProxyNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32"), netip.MustParsePrefix("::1/128")},
 		adminPath:            "/admin",
 		publicStaticDir:      publicStaticDir,
 		adminStaticDir:       adminStaticDir,
 		agentStaticDir:       agentStaticDir,
 		developerStaticDir:   envOr("YN_DEVELOPER_STATIC_DIR", "../frontend/dist/developer-console"),
 		customerStaticDir:    envOr("YN_CUSTOMER_STATIC_DIR", "../frontend/dist/user-console"),
+		adminAuthFailLock:    newFailureLockout(10, 10*time.Minute),
 		adminLoginLimit:      newFixedWindowLimiter(20, 5*time.Minute),
 		appTokenLimit:        newFixedWindowLimiter(30, 5*time.Minute),
 		agentLoginLimit:      newFixedWindowLimiter(30, 5*time.Minute),
@@ -101,6 +111,7 @@ func (api *API) WithSetupConfig(migrationDir, databaseConfigFile string) *API {
 	api.databaseConfigFile = databaseConfigFile
 	return api
 }
+func (api *API) WithSetupToken(token string) *API { api.setupToken = token; return api }
 
 func (api *API) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -114,13 +125,17 @@ func (api *API) Handler() http.Handler {
 	api.registerRecoveryRoutes(mux)
 	api.registerHistoryRoutes(mux)
 	api.registerEmailRoutes(mux)
+	api.registerOperations(mux)
+	api.registerAdminMFA(mux)
 	mux.HandleFunc("GET /healthz", api.health)
+	mux.HandleFunc("GET /readyz", api.ready)
+	mux.HandleFunc("GET /metrics", api.exposeMetrics)
 	mux.HandleFunc("GET /v1/setup/status", api.setupStatus)
 	mux.HandleFunc("POST /v1/setup/initialize", withRateLimit(api.setupLimit, api.setupInitialize))
 	mux.HandleFunc("GET /v1/site/settings", api.siteSettings)
 	mux.HandleFunc("GET /admin/system/version", api.withAdmin(api.systemVersion, adminReadRoles...))
 	mux.HandleFunc("POST /admin/site-settings", api.withAdmin(api.updateSiteSettings, adminWriteRoles...))
-	mux.HandleFunc("POST /admin/login", withRateLimit(api.adminLoginLimit, api.adminLogin))
+	mux.HandleFunc("POST /admin/login", withClientFailureLock(api.adminAuthFailLock, withRateLimit(api.adminLoginLimit, api.adminLogin)))
 	mux.HandleFunc("GET /admin/profile", api.withAdmin(api.adminProfile, adminReadRoles...))
 	mux.HandleFunc("POST /admin/password", api.withAdmin(api.changeAdminPassword, adminReadRoles...))
 	mux.HandleFunc("GET /admin/users", api.withAdmin(api.listAdminUsers, adminSuperRoles...))
@@ -199,7 +214,7 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("GET /admin-console", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	mux.HandleFunc("GET /admin-console/", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	mux.HandleFunc("GET /", api.publicApp)
-	return requestID(api.operationAudit(api.installationGate(mux), mux))
+	return requestID(api.observeRequests(api.productionSecurity(api.operationAudit(api.installationGate(mux), mux))))
 }
 
 func (api *API) publicApp(w http.ResponseWriter, r *http.Request) {
@@ -260,7 +275,7 @@ func (api *API) setupStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status.SuggestedSQLiteDSN = api.sqliteSetupDSN
-	writeOK(w, r, map[string]any{"initialized": status.Initialized, "database_driver": status.DatabaseDriver, "suggested_sqlite_dsn": status.SuggestedSQLiteDSN, "entries": api.entries()})
+	writeOK(w, r, map[string]any{"initialized": status.Initialized, "setup_token_required": !status.Initialized && api.setupToken != "", "database_driver": status.DatabaseDriver, "suggested_sqlite_dsn": status.SuggestedSQLiteDSN, "entries": api.entries()})
 }
 
 func envOr(key, fallback string) string {
@@ -280,6 +295,14 @@ func envIntOr(key string, fallback int) int {
 }
 
 func (api *API) setupInitialize(w http.ResponseWriter, r *http.Request) {
+	if api.setupToken != "" {
+		expected := sha256.Sum256([]byte(api.setupToken))
+		provided := sha256.Sum256([]byte(r.Header.Get("X-Setup-Token")))
+		if subtle.ConstantTimeCompare(expected[:], provided[:]) != 1 {
+			writeError(w, r, service.AppError{Code: "SETUP_TOKEN_REQUIRED", Message: "请输入服务器私有文件中的安装令牌", HTTPStatus: 403})
+			return
+		}
+	}
 	if origin := r.Header.Get("Origin"); origin != "" {
 		u, err := url.Parse(origin)
 		if err != nil || u.Host != r.Host || (u.Scheme != "http" && u.Scheme != "https") {
@@ -366,6 +389,7 @@ func (api *API) adminLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := api.service.AdminLogin(r.Context(), input)
 	if err != nil {
+		recordClientFailure(api.adminAuthFailLock, remoteClientIP(r), err)
 		writeError(w, r, err)
 		return
 	}
@@ -1217,9 +1241,15 @@ func bearerToken(r *http.Request) string {
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
+		var sizeErr *http.MaxBytesError
+		if errors.As(err, &sizeErr) {
+			writeError(w, r, service.AppError{Code: "REQUEST_TOO_LARGE", Message: "JSON request exceeds 1 MiB", HTTPStatus: 413})
+			return false
+		}
 		writeError(w, r, service.ErrInvalidRequest)
 		return false
 	}
@@ -1261,22 +1291,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 func (api *API) clientIP(r *http.Request) string {
-	if api.trustProxyHeaders {
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			if ip := net.ParseIP(strings.TrimSpace(strings.Split(forwarded, ",")[0])); ip != nil {
-				return ip.String()
-			}
-		}
-		if realIP := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); realIP != nil {
-			return realIP.String()
-		}
+	if ip, ok := r.Context().Value(clientIPContext).(string); ok {
+		return ip
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.String()
-	}
-	return host
+	return api.resolveClientIP(r)
 }

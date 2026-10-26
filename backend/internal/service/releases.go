@@ -10,9 +10,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	yncrypto "github.com/yunnuo88520/yunnuo-license/backend/internal/crypto"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
+	"github.com/yunnuo88520/yunnuo-license/backend/internal/filelock"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/store"
 )
 
@@ -108,6 +110,9 @@ func (s *Service) UploadRelease(ctx context.Context, input UploadReleaseInput, c
 	if err := os.MkdirAll(s.releaseDir, 0700); err != nil {
 		return result, err
 	}
+	if err := s.checkReleaseDisk(uint64(MaxReleaseSize)); err != nil {
+		return result, err
+	}
 	tmp, err := os.CreateTemp(s.releaseDir, ".upload-*")
 	if err != nil {
 		return result, err
@@ -138,44 +143,103 @@ func (s *Service) UploadRelease(ctx context.Context, input UploadReleaseInput, c
 		return domain.ProductRelease{}, err
 	}
 	path := filepath.Join(s.releaseDir, result.ID)
-	if err := os.Rename(tmp.Name(), path); err != nil {
+	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	unlock, err := filelock.Acquire(lockCtx, s.releaseDir+".lock", false)
+	if err != nil {
 		return domain.ProductRelease{}, err
 	}
-	if err := s.currentStore().CreateRelease(ctx, result); err != nil {
-		_ = os.Remove(path)
+	defer unlock()
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
+		if e := tx.LockReleaseStorage(ctx); e != nil {
+			return e
+		}
+		if e := tx.LockProduct(ctx, product.ID); e != nil {
+			return e
+		}
+		fresh, e := tx.GetProduct(ctx, product.ID)
+		if e != nil {
+			return e
+		}
+		total, developer, used, count, e := tx.ReleaseCapacity(ctx, fresh)
+		if e != nil {
+			return e
+		}
+		limits := s.resourceLimits
+		if size > limits.TotalBytes-total || size > limits.ProductBytes-used || count >= limits.ProductVersions || fresh.DeveloperID != "" && size > limits.DeveloperBytes-developer {
+			return AppError{Code: "STORAGE_QUOTA_EXCEEDED", Message: "应用、开发者或平台的升级包存储额度已用完", HTTPStatus: 409}
+		}
+		exists, e := tx.ReleaseVersionExists(ctx, product.ID, result.Version)
+		if e != nil {
+			return e
+		}
+		if exists {
+			return ErrReleaseExists
+		}
+		if e = os.Rename(tmp.Name(), path); e != nil {
+			return e
+		}
+		if e = tx.CreateRelease(ctx, result); e != nil {
+			return e
+		}
+		return s.transactionAudit(ctx, tx, "admin", actorID, product.ID, "", "product.release.upload", map[string]any{"release_id": result.ID, "size": result.Size, "sha256": result.SHA256})
+	})
+	if err != nil {
+		// Do not destroy a successfully committed file after an ambiguous connection error.
+		if _, e := s.currentStore().GetRelease(ctx, result.ID); store.IsNotFound(e) {
+			_ = os.Remove(path)
+		}
 		return domain.ProductRelease{}, err
 	}
-	_ = s.audit(ctx, "admin", actorID, product.ID, "", "", "product.release.upload", "success", "")
 	return result, nil
 }
 
 func (s *Service) ChangeReleaseStatus(ctx context.Context, productID, releaseID, status, actorID string) (domain.ProductRelease, error) {
-	r, err := s.currentStore().GetRelease(ctx, releaseID)
-	if err != nil {
-		if store.IsNotFound(err) {
-			return r, ErrReleaseNotFound
-		}
-		return r, err
-	}
-	if r.ProductID != productID {
-		return domain.ProductRelease{}, ErrReleaseNotFound
-	}
+	var r domain.ProductRelease
 	if status != "published" && status != "withdrawn" {
-		return domain.ProductRelease{}, ErrInvalidRequest
+		return r, ErrInvalidRequest
 	}
-	if status == "published" {
-		file, err := s.openRelease(r)
-		if err != nil {
-			return r, err
-		}
-		_ = file.Close()
-	}
-	if err := s.currentStore().SetReleaseStatus(ctx, r.ID, status); err != nil {
+	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	unlock, err := filelock.Acquire(lockCtx, s.releaseDir+".lock", false)
+	if err != nil {
 		return r, err
 	}
-	r.Status = status
-	_ = s.audit(ctx, "admin", actorID, r.ProductID, "", "", "product.release."+status, "success", "")
-	return r, nil
+	defer unlock()
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
+		if err := tx.LockReleaseStorage(ctx); err != nil {
+			return err
+		}
+		var err error
+		r, err = tx.GetRelease(ctx, releaseID)
+		if store.IsNotFound(err) {
+			return ErrReleaseNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if r.Status == "deleted" || r.ProductID != productID {
+			return ErrReleaseNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if status == "published" {
+			f, err := s.openRelease(r)
+			if err != nil {
+				return err
+			}
+			f.Close()
+		}
+		if err = tx.SetReleaseStatus(ctx, r.ID, status); err != nil {
+			return err
+		}
+		return s.transactionAudit(ctx, tx, "admin", actorID, productID, "", "product.release."+status, map[string]string{"release_id": r.ID})
+	})
+	if err == nil {
+		r.Status = status
+	}
+	return r, err
 }
 
 type CheckUpdateInput struct {
@@ -267,35 +331,64 @@ func (s *Service) openRelease(r domain.ProductRelease) (*os.File, error) {
 	return file, nil
 }
 
-func (s *Service) DownloadRelease(ctx context.Context, releaseID string, input VerifyInput) (domain.ProductRelease, *os.File, error) {
+func (s *Service) AuthorizeRelease(ctx context.Context, releaseID string, input VerifyInput) (domain.ProductRelease, error) {
 	var result domain.ProductRelease
 	productID, err := s.authorizeUpdate(ctx, input)
 	if err != nil {
-		return result, nil, err
+		return result, err
 	}
 	settings, err := s.ProductUpdates(ctx, productID)
 	if err != nil {
-		return result, nil, err
+		return result, err
 	}
 	if !settings.Enabled {
-		return result, nil, ErrUpdatesDisabled
+		return result, ErrUpdatesDisabled
 	}
 	result, err = s.currentStore().GetRelease(ctx, releaseID)
 	if err != nil {
 		if store.IsNotFound(err) {
-			return result, nil, ErrReleaseNotFound
+			return result, ErrReleaseNotFound
 		}
-		return result, nil, err
+		return result, err
 	}
 	if result.ProductID != productID || result.Status != "published" {
-		return domain.ProductRelease{}, nil, ErrReleaseNotFound
+		return domain.ProductRelease{}, ErrReleaseNotFound
 	}
+	// Validity is deliberately request-scoped; no reusable download ticket is issued.
+	if _, err = s.authorizeUpdate(ctx, input); err != nil {
+		return domain.ProductRelease{}, err
+	}
+	return result, nil
+}
+func (s *Service) DownloadRelease(ctx context.Context, releaseID string, input VerifyInput) (domain.ProductRelease, *os.File, error) {
+	result, err := s.AuthorizeRelease(ctx, releaseID, input)
+	if err != nil {
+		return result, nil, err
+	}
+	productID := result.ProductID
 	file, err := s.openRelease(result)
 	if err == nil {
 		// File hashing can take time. Recheck rights immediately before handing out the bytes.
 		if _, authErr := s.authorizeUpdate(ctx, input); authErr != nil {
 			file.Close()
 			return domain.ProductRelease{}, nil, authErr
+		}
+		current, e := s.currentStore().GetRelease(ctx, result.ID)
+		if e != nil || current.Status != "published" {
+			file.Close()
+			return domain.ProductRelease{}, nil, ErrReleaseNotFound
+		}
+		settings, e := s.ProductUpdates(ctx, productID)
+		if e != nil || !settings.Enabled {
+			file.Close()
+			if e != nil {
+				return domain.ProductRelease{}, nil, e
+			}
+			return domain.ProductRelease{}, nil, ErrUpdatesDisabled
+		}
+		if _, e = s.authorizeUpdate(ctx, input); e != nil {
+			file.Close()
+			return domain.ProductRelease{}, nil, e
 		}
 	}
 	return result, file, err

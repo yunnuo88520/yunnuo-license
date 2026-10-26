@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,18 +16,20 @@ import (
 )
 
 type Config struct {
-	Addr               string
-	DatabaseDriver     string
-	Database           string
-	PublicStaticDir    string
-	AdminStaticDir     string
-	AgentStaticDir     string
-	CardPepper         []byte
-	DataKey            []byte
-	TrustProxyHeaders  bool
-	DatabaseConfigFile string
-	AdminPath          string
-	ReleaseDir         string
+	Addr                 string
+	DatabaseDriver       string
+	Database             string
+	PublicStaticDir      string
+	AdminStaticDir       string
+	AgentStaticDir       string
+	CardPepper           []byte
+	DataKey              []byte
+	TrustProxyHeaders    bool
+	TrustedProxyNetworks []netip.Prefix
+	AdminNetworks        []netip.Prefix
+	DatabaseConfigFile   string
+	AdminPath            string
+	ReleaseDir           string
 }
 
 func Load() (Config, error) {
@@ -43,6 +46,14 @@ func Load() (Config, error) {
 		ReleaseDir:         env("YN_RELEASE_DIR", "yn-releases"),
 	}
 	fileCfg, err := readDatabaseConfig(cfg.DatabaseConfigFile)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.TrustedProxyNetworks, err = ParseNetworks(env("YN_TRUSTED_PROXY_CIDRS", "127.0.0.1/32,::1/128"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AdminNetworks, err = ParseNetworks(env("YN_ADMIN_ALLOWED_CIDRS", ""))
 	if err != nil {
 		return Config{}, err
 	}
@@ -66,6 +77,22 @@ func Load() (Config, error) {
 	}
 	cfg.DataKey = key
 	return cfg, nil
+}
+
+func ParseNetworks(value string) ([]netip.Prefix, error) {
+	out := []netip.Prefix{}
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(part)
+		if err != nil {
+			return nil, errors.New("network allowlist must contain valid CIDR networks")
+		}
+		out = append(out, prefix.Masked())
+	}
+	return out, nil
 }
 
 type DatabaseConfig struct {

@@ -1,0 +1,53 @@
+groups:
+  - name: yunnuo
+    rules:
+      - alert: LicenseServiceUnavailable
+        expr: up{job="yunnuo"} == 0 or yunnuo_ready == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: '授权站数据库、审计写入或包存储不可用'}
+      - alert: LicenseServerErrors
+        expr: sum(rate(yunnuo_errors_total[5m])) / clamp_min(sum(rate(yunnuo_requests_total[5m])), 0.01) > 0.01
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: '授权站服务异常比例超过 1%'}
+      - alert: LicenseLatencyHigh
+        expr: histogram_quantile(0.95, sum by(le,operation) (rate(yunnuo_request_duration_seconds_bucket{operation=~"activation|verification|heartbeat|renewal|update_check"}[5m]))) > 1
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: '授权接口 P95 响应超过 1 秒'}
+      - alert: LicenseStorageLow
+        expr: yunnuo_disk_free_bytes < 1073741824 or yunnuo_release_storage_bytes / yunnuo_release_storage_limit_bytes > 0.85
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: '升级包容量或磁盘剩余空间不足'}
+      - alert: LicenseNotificationFailure
+        expr: yunnuo_notifications{status="dead"} > 0 or yunnuo_notifications{status="retry"} > 20
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: '通知投递持续失败，请检查 SMTP 并重试'}
+      - alert: LicenseAuthorizationFailures
+        expr: sum(rate(yunnuo_denials_total{operation=~"activation|verification|renewal|management"}[5m])) > 2
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: '授权或后台拒绝请求激增，请检查到期、绑定或凭据探测'}
+      - alert: LicenseClockOffset
+        expr: abs(node_timex_offset_seconds) > 1 or node_timex_sync_status == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: '主机时钟未同步，可能影响授权期限与动态码'}
+      - alert: LicenseCertificateExpiring
+        expr: probe_ssl_earliest_cert_expiry - time() < 1209600
+        for: 1h
+        labels: {severity: warning}
+        annotations: {summary: 'HTTPS 证书将于 14 天内到期'}
+      - alert: LicenseBackupStale
+        expr: absent(yunnuo_backup_last_success_timestamp_seconds) or time() - yunnuo_backup_last_success_timestamp_seconds > 93600
+        for: 1h
+        labels: {severity: critical}
+        annotations: {summary: '异地备份成功时间超过 26 小时'}
+      - alert: LicensePublicHTTPSUnavailable
+        expr: absent(probe_success{job="public_https"}) or probe_success{job="public_https"} == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: '公网 HTTPS 探测未配置或失败'}
