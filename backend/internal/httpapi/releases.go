@@ -235,7 +235,7 @@ func (api *API) registerDeveloperRoutes(mux *http.ServeMux) {
 		http.Redirect(w, r, "/developer-console/", http.StatusTemporaryRedirect)
 	})
 	mux.HandleFunc("GET /developer-console/", func(w http.ResponseWriter, r *http.Request) {
-		serveStaticApp(w, r, api.developerStaticDir, strings.TrimPrefix(r.URL.Path, "/developer-console"))
+		api.serveFrontendApp(w, r, api.developerStaticDir, strings.TrimPrefix(r.URL.Path, "/developer-console"))
 	})
 }
 

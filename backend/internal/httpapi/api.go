@@ -46,6 +46,7 @@ type API struct {
 	adminPath            string
 	installReady         atomic.Bool
 	service              *service.Service
+	serveFrontend        bool
 	publicStaticDir      string
 	adminStaticDir       string
 	agentStaticDir       string
@@ -82,6 +83,7 @@ func (api *API) WithTrustedProxyHeaders(enabled bool) *API {
 func New(svc *service.Service, publicStaticDir, adminStaticDir, agentStaticDir string) *API {
 	return &API{
 		service:              svc,
+		serveFrontend:        true,
 		trustedProxyNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32"), netip.MustParsePrefix("::1/128")},
 		adminPath:            "/admin",
 		publicStaticDir:      publicStaticDir,
@@ -131,6 +133,7 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("GET /readyz", api.ready)
 	mux.HandleFunc("GET /metrics", api.exposeMetrics)
 	mux.HandleFunc("GET /v1/setup/status", api.setupStatus)
+	mux.HandleFunc("GET /v1/setup/page", api.frontendPageGate)
 	mux.HandleFunc("POST /v1/setup/initialize", withRateLimit(api.setupLimit, api.setupInitialize))
 	mux.HandleFunc("GET /v1/site/settings", api.siteSettings)
 	mux.HandleFunc("GET /admin/system/version", api.withAdmin(api.systemVersion, adminReadRoles...))
@@ -218,7 +221,7 @@ func (api *API) Handler() http.Handler {
 }
 
 func (api *API) publicApp(w http.ResponseWriter, r *http.Request) {
-	serveStaticApp(w, r, api.publicStaticDir, r.URL.Path)
+	api.serveFrontendApp(w, r, api.publicStaticDir, r.URL.Path)
 }
 
 func (api *API) adminAppRedirect(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +233,7 @@ func (api *API) adminApp(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/"
 	}
-	serveStaticApp(w, r, api.adminStaticDir, path)
+	api.serveFrontendApp(w, r, api.adminStaticDir, path)
 }
 
 func (api *API) agentAppRedirect(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +242,7 @@ func (api *API) agentAppRedirect(w http.ResponseWriter, r *http.Request) {
 
 func (api *API) agentApp(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/agent-console")
-	serveStaticApp(w, r, api.agentStaticDir, path)
+	api.serveFrontendApp(w, r, api.agentStaticDir, path)
 }
 
 func serveStaticApp(w http.ResponseWriter, r *http.Request, staticDir, requestPath string) {

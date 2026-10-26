@@ -1,0 +1,9 @@
+# HTTP site. Configure the actual TLS certificate in BaoTa or your Nginx TLS
+# server, and include the generated locations/security snippets there too.
+server {
+    listen __LISTEN__;
+    server_name __DOMAIN__;
+    root __FRONTEND__;
+    include __SECURITY_HEADERS__;
+    include __LOCATIONS__;
+}

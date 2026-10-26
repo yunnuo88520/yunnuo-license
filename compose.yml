@@ -1,0 +1,38 @@
+name: yunnuo-license
+services:
+  license:
+    image: ${YN_IMAGE:-yunnuo-license:local}
+    build:
+      context: .
+      args:
+        VCS_REF: ${YN_BUILD_COMMIT:-unknown}
+        BUILD_TIME: ${YN_BUILD_TIME:-unknown}
+    restart: unless-stopped
+    stop_grace_period: 90s
+    ports:
+      - '${YN_BIND_ADDR:-127.0.0.1}:${YN_HTTP_PORT:-8080}:8080'
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-yunnuo_license}
+      MYSQL_USER: ${MYSQL_USER:-yunnuo}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?run python3 scripts/configure-compose.py first}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?run python3 scripts/configure-compose.py first}
+      YN_CARD_PEPPER: ${YN_CARD_PEPPER:-}
+      YN_DATA_KEY: ${YN_DATA_KEY:-}
+      YN_METRICS_TOKEN: ${YN_METRICS_TOKEN:-}
+      YN_TRUST_PROXY_HEADERS: ${YN_TRUST_PROXY_HEADERS:-false}
+      YN_TRUSTED_PROXY_CIDRS: ${YN_TRUSTED_PROXY_CIDRS:-127.0.0.1/32,::1/128}
+      YN_ADMIN_ALLOWED_CIDRS: ${YN_ADMIN_ALLOWED_CIDRS:-}
+      YN_RELEASE_TOTAL_BYTES: ${YN_RELEASE_TOTAL_BYTES:-17179869184}
+      YN_RELEASE_DEVELOPER_BYTES: ${YN_RELEASE_DEVELOPER_BYTES:-8589934592}
+      YN_RELEASE_PRODUCT_BYTES: ${YN_RELEASE_PRODUCT_BYTES:-2147483648}
+      YN_RELEASE_PRODUCT_VERSIONS: ${YN_RELEASE_PRODUCT_VERSIONS:-100}
+      YN_RELEASE_CONCURRENT_UPLOADS: ${YN_RELEASE_CONCURRENT_UPLOADS:-2}
+      YN_RELEASE_CONCURRENT_DOWNLOADS: ${YN_RELEASE_CONCURRENT_DOWNLOADS:-8}
+    volumes:
+      - data:/var/lib/mysql
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '5'}
+volumes:
+  data:
+    name: ${YN_DATA_VOLUME:-yunnuo-license-data}

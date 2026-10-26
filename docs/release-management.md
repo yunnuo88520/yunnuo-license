@@ -27,6 +27,22 @@ docker build \
 
 版本默认读取仓库根目录 `VERSION`（唯一来源），可通过 `--build-arg APP_VERSION=` 覆盖；构建信息进入后端版本接口。前端显示以后端接口返回的运行版本为准。
 
+## Linux 压缩包与分离部署
+
+打包机需要 Go 1.26、Node.js 22 和 Python 3.8+，部署服务器只需要 Nginx 和 Python 配置工具：
+
+```bash
+python3 scripts/build-release.py
+cd dist
+sha256sum -c SHA256SUMS
+```
+
+默认生成 Linux amd64/arm64 完整包、相同架构的独立后端包、一个独立前端包及 `SHA256SUMS`。Go 二进制静态编译，包含迁移、接入包所需 SDK、构建元数据、内部校验和及依赖许可证。数据库、密钥、私有环境文件和升级包不进入发布包。正式构建要求源代码已提交；`--allow-dirty` 只用于标记为 `source_dirty: true` 的预览验收包。
+
+GitHub Actions 的 **Release bundles** 支持手动构建并下载 artifacts。推送与 `VERSION` 一致的 `v版本号` 标签时，工作流先核对该提交在 `main` 上且对应 CI 成功，再构建并创建带压缩包和校验和的**草稿 Release**；维护者核对后发布。标签不会自动公开发行版本。
+
+CI 会解压独立前后端包，在真实 Nginx、Supervisor 和 API-only Go 下验证安装、授权、更新过期拒绝、续费恢复、升级保留数据及可配置后台入口；Compose 路径单独验证内置 MySQL 和重启持久化。部署、宝塔配置和手动回退步骤见 [传统部署](native-deployment.md)；容器路径见 [Docker Compose](docker-deployment.md)。
+
 ## 发布检查
 
 - 前端类型检查与生产构建通过。

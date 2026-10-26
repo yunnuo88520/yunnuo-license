@@ -50,3 +50,11 @@ deploy/monitoring/textfile/
 backend/yn-releases.lock
 /yn-releases.lock
 *.db.migrate.lock
+
+# Built deployment archives and extracted release payloads
+/dist/
+/release-build/
+
+__pycache__/
+
+deploy/generated/

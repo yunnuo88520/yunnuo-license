@@ -1,0 +1,43 @@
+# Included inside a server{} whose root is the release's frontend directory.
+absolute_redirect off;
+client_max_body_size 257m;
+client_body_timeout 120s;
+
+location ^~ /assets/ {
+    try_files $uri =404;
+    expires 1h;
+}
+location ~ ^/(v1|admin|agent|user|developer)/.+ {
+    proxy_pass http://__UPSTREAM__;
+    include __PROXY_HEADERS__;
+    proxy_read_timeout 900s;
+    proxy_send_timeout 120s;
+    proxy_intercept_errors off;
+}
+location = /healthz {
+    proxy_pass http://__UPSTREAM__;
+    include __PROXY_HEADERS__;
+}
+location = /readyz { return 404; }
+location = /metrics { return 404; }
+
+location = /_yunnuo_page_gate {
+    internal;
+    proxy_pass http://__UPSTREAM__/v1/setup/page;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Yunnuo-Request-URI $request_uri;
+    include __PROXY_HEADERS__;
+}
+location / {
+    auth_request /_yunnuo_page_gate;
+    auth_request_set $yunnuo_frontend_file $upstream_http_x_yunnuo_frontend_file;
+    error_page 401 = @yunnuo_install;
+    error_page 403 = @yunnuo_not_found;
+    # Only the backend's fixed allow-list can select an HTML entry. This does
+    # not serve arbitrary existing HTML files or bypass custom admin_path.
+    try_files /$yunnuo_frontend_file =404;
+    expires -1;
+}
+location @yunnuo_install { return 307 /install; }
+location @yunnuo_not_found { return 404; }

@@ -1,0 +1,18 @@
+# For Nginx builds without http_auth_request_module. Nginx serves assets; Go
+# serves the small HTML entries and enforces installation/admin_path routing.
+absolute_redirect off;
+client_max_body_size 257m;
+client_body_timeout 120s;
+location ^~ /assets/ {
+    try_files $uri =404;
+    expires 1h;
+}
+location = /readyz { return 404; }
+location = /metrics { return 404; }
+location / {
+    proxy_pass http://__UPSTREAM__;
+    include __PROXY_HEADERS__;
+    proxy_read_timeout 900s;
+    proxy_send_timeout 120s;
+    proxy_intercept_errors off;
+}

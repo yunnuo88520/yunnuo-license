@@ -53,6 +53,7 @@ jobs:
           MYSQL_PASSWORD: configuration-test-application
           YN_METRICS_TOKEN: configuration-test-metrics-token-32
         run: |
+          docker compose -f compose.yml config --quiet
           docker compose -f deploy/compose.production.yml config --quiet
           printf '%s' "$YN_METRICS_TOKEN" > "$RUNNER_TEMP/metrics-token"
           docker run --rm --user 0 --entrypoint /bin/promtool -v "$PWD/deploy/monitoring:/etc/prometheus:ro" -v "$RUNNER_TEMP/metrics-token:/run/secrets/metrics-token:ro" prom/prometheus:v3.6.0 check config /etc/prometheus/prometheus.yml
@@ -169,6 +170,12 @@ jobs:
       - name: Verify authorization concurrency, operations and MFA in a real browser
         timeout-minutes: 4
         run: python .github/scripts/check-command.py "Commercial readiness acceptance" python examples/platform-e2e/test_production.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-production"
+      - name: Extract native archives and run Nginx plus API-only Go deployment
+        timeout-minutes: 8
+        run: |
+          python3 -m pip install supervisor==4.3.0
+          python3 scripts/build-release.py --arch amd64 --skip-frontend-build --allow-dirty --output "$RUNNER_TEMP/yunnuo-native-bundles"
+          python3 examples/platform-e2e/test_native_deployment.py --backend "$RUNNER_TEMP/yunnuo-native-bundles/yunnuo-license-v$(cat VERSION)-linux-amd64-backend.tar.gz" --frontend "$RUNNER_TEMP/yunnuo-native-bundles/yunnuo-license-v$(cat VERSION)-frontend.tar.gz" --chromium bundled --screenshots --supervisor --artifacts "$RUNNER_TEMP/yunnuo-native-deployment"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -184,6 +191,7 @@ jobs:
             ${{ runner.temp }}/yunnuo-agent-accounts
             ${{ runner.temp }}/yunnuo-agent-tiers
             ${{ runner.temp }}/yunnuo-production
+            ${{ runner.temp }}/yunnuo-native-deployment
 
   docker:
     runs-on: ubuntu-latest
@@ -193,6 +201,8 @@ jobs:
         run: python3 .github/scripts/check-command.py "Docker image acceptance" ./docker/test-image.sh yunnuo-license:test
         env:
           YN_DOCKER_ARTIFACTS: ${{ runner.temp }}/yunnuo-mysql
+      - name: Verify root Compose deployment and MySQL persistence
+        run: python3 .github/scripts/check-command.py "Compose deployment acceptance" python3 examples/platform-e2e/test_compose_deployment.py --image yunnuo-license:test --artifacts "$RUNNER_TEMP/yunnuo-compose-deployment"
       - name: Scan fixable high and critical image vulnerabilities and generate SBOM
         run: |
           mkdir -p /tmp/yunnuo-image-security
@@ -205,3 +215,4 @@ jobs:
           path: |
             /tmp/yunnuo-image-security
             ${{ runner.temp }}/yunnuo-mysql
+            ${{ runner.temp }}/yunnuo-compose-deployment

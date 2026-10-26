@@ -54,48 +54,47 @@
 各端页面的“外观主题”支持浅色、深色和跟随系统，默认跟随系统并实时响应深浅变化。手动选择保存在当前浏览器，各入口和标签页同步使用。前台、管理员、代理、用户、开发者、安装与恢复页面均支持电脑及手机布局；手机后台底部导航可左右滑动，宽表格在表格区域内横向滚动。
 
 完整迭代内容见 [CHANGELOG.md](CHANGELOG.md)，版本发布与未来在线升级设计见
-[版本发布与升级](docs/release-management.md)。当前版本尚未开放在线升级，避免在缺少升级包
-签名验证、数据库备份和失败回滚时执行不安全的自更新。
+[版本发布与升级](docs/release-management.md)。授权站自身仍采用备份后人工升级；被授权产品的在线升级服务已提供。
 
-## 快速部署
+## 部署方式
 
-需要 Docker 24 或更高版本。
+| 方式 | 交付内容和指南 |
+| --- | --- |
+| Docker Compose | 根目录 `compose.yml`，内置 MySQL、前后端及持久卷，见 [Docker 部署](docs/docker-deployment.md) |
+| Compose + HTTPS | `deploy/compose.production.yml`，可选监控 profile，见同一 Docker 指南 |
+| Linux tar.gz / 宝塔 | amd64、arm64 完整包，Nginx 静态前端 + Go API，systemd/Supervisor 配置，见 [传统部署](docs/native-deployment.md) |
+| 两台机器前后端分离 | 独立前端和后端压缩包，由 Nginx 同域反代私网 Go API，见 [分离步骤](docs/native-deployment.md#两台机器部署) |
+
+### Compose 快速开始
+
+在源码仓库根目录运行，配置工具会生成私有 `.env`，再次运行保留已有凭据：
 
 ```bash
-docker build -t yunnuo-license:latest .
-docker volume create yunnuo-license-data
-
-docker run -d \
-  --name yunnuo-license \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -v yunnuo-license-data:/var/lib/mysql \
-  -e MYSQL_PASSWORD='请替换为数据库用户强密码' \
-  -e MYSQL_ROOT_PASSWORD='请替换为数据库 root 强密码' \
-  -e YN_CARD_PEPPER='请替换为随机长字符串' \
-  -e YN_DATA_KEY="$(openssl rand -hex 32)" \
-  yunnuo-license:latest
+python3 scripts/configure-compose.py
+docker compose up -d --build
+docker compose exec license cat /var/lib/mysql/.yunnuo/database.json.install-token
 ```
 
-首次安装前读取服务器私有令牌：`docker exec yunnuo-license cat /var/lib/mysql/.yunnuo/database.json.install-token`，在 `/install` 填入令牌并配置数据库与管理员。安装完成会显示各端入口；不要把令牌放进公开链接。
+默认仅监听 `127.0.0.1:8080`，可通过 Nginx/宝塔配置 HTTPS 反代。直接局域网测试可先执行 `python3 scripts/configure-compose.py --bind 0.0.0.0`。首次打开网站会强制进入 `/install`，填入私有令牌、数据库信息及管理员账号，完成后显示各端入口。不要把令牌放入 URL 或公开日志。
 
-启动后访问：
+内置 MySQL 地址为 `127.0.0.1:3306`，库名和账号默认 `yunnuo_license` / `yunnuo`，密码见私有 `.env`，数据库端口不会发布到宿主机。
 
-| 入口 | 地址 |
-| --- | --- |
-| 授权查询（无需登录） | <http://127.0.0.1:8080/> |
-| 管理后台 | <http://127.0.0.1:8080/admin> |
-| 代理工作台 | <http://127.0.0.1:8080/agent-console/> |
-| 开发者控制台 | `/developer-console/` |
-| 普通用户中心 | `/user-console/` |
-| 健康检查 | <http://127.0.0.1:8080/healthz> |
+### Nginx + Go / 宝塔快速开始
 
-公共授权查询支持许可证号、卡密、域名、IP、QQ、手机号和业务账号。绑定标识仅用于精确匹配，接口只返回脱敏后的查询值和授权摘要。
+从 Actions 的 **Release bundles** 下载编译好的 Linux tar.gz，或从源码执行 `python3 scripts/build-release.py`。部署服务器无需安装 Go 编译器、Node.js 或 npm。
 
-MySQL 只监听容器内部 `127.0.0.1:3306`，不会映射至宿主机。生产环境建议在服务前增加
-HTTPS 反向代理，并妥善备份 Docker 数据卷。完整参数与升级说明见
-[Docker 部署文档](docs/docker-deployment.md)。商用配置、期限规则、备份恢复与完整验收映射见
-[商用部署与验收](docs/production-readiness.md)。
+```bash
+umask 022
+tar --no-same-owner -xzf yunnuo-license-v0.3.0-linux-amd64.tar.gz
+cd yunnuo-license-v0.3.0-linux-amd64
+python3 deploy/native/configure.py --domain license.example.com --user www
+```
+
+按工具输出配置 Nginx 和 systemd/Supervisor，网站根目录指向 `frontend/`，数据库、密钥和升级包放在独立私有持久目录。普通 Linux 使用已创建的服务用户替代宝塔的 `www`。完整包、后端独立包、前端独立包及 `SHA256SUMS` 都由打包流程生成，版本号以实际下载文件为准。
+
+默认分离模式由 Nginx 提供全部页面和资源，Go 设置 `YN_SERVE_FRONTEND=false`，安装引导和自定义后台入口仍由 Go 的入口校验控制。缺少 Nginx auth_request 模块时，可选择单机兼容模式。详细的宝塔面板步骤、两台机器部署和升级回退见 [传统部署指南](docs/native-deployment.md)。
+
+商用配置、期限规则、备份恢复与完整验收映射见 [商用部署与验收](docs/production-readiness.md)。
 
 ## 本地开发
 
@@ -115,7 +114,7 @@ cd backend
 go run ./cmd/server
 ```
 
-首次运行访问任意业务页面，都会强制进入 `/install`。向导中选择 SQLite 文件或填写 MySQL 地址、端口、库名、用户名和密码，再设置管理员账号与密码。安装完成后显示管理后台、代理后台、前台首页及用户、开发者入口，禁止重复安装。环境变量中的管理员账号密码不能跳过安装。
+首次运行访问任意业务页面，都会强制进入 `/install`。本地安装令牌默认位于 `backend/yn-license-config.json.install-token`，由服务器管理员读取并填入向导。向导中选择 SQLite 文件或填写 MySQL 地址、端口、库名、用户名和密码，再设置管理员账号与密码。安装完成后显示管理后台、代理后台、前台首页及用户、开发者入口，禁止重复安装。环境变量中的管理员账号密码不能跳过安装。
 
 默认管理页面为 `/admin`。在 `YN_DB_CONFIG_FILE` 指向的 JSON 配置文件（本地默认 `backend/yn-license-config.json`）中修改 `"admin_path": "/your-panel"`，重启服务后生效。原页面入口停止提供管理页面，`/admin/*` API 路径保持稳定。
 

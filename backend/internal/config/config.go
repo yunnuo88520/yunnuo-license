@@ -19,6 +19,7 @@ type Config struct {
 	Addr                 string
 	DatabaseDriver       string
 	Database             string
+	ServeFrontend        bool
 	PublicStaticDir      string
 	AdminStaticDir       string
 	AgentStaticDir       string
@@ -37,6 +38,7 @@ func Load() (Config, error) {
 		Addr:               env("YN_ADDR", ":8080"),
 		DatabaseDriver:     env("YN_DB_DRIVER", "sqlite"),
 		Database:           env("YN_DB", "file:yn-license-dev.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"),
+		ServeFrontend:      envBool("YN_SERVE_FRONTEND", true),
 		PublicStaticDir:    env("YN_PUBLIC_STATIC_DIR", "../frontend/dist"),
 		AdminStaticDir:     env("YN_ADMIN_STATIC_DIR", "../frontend/dist/admin-console"),
 		AgentStaticDir:     env("YN_AGENT_STATIC_DIR", "../frontend/dist/agent-console"),

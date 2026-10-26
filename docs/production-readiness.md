@@ -52,6 +52,10 @@ YN_DOCKER_ARTIFACTS=/tmp/yunnuo-mysql ./docker/test-image.sh yunnuo-license:test
 
 截图、报告与混合请求的 P50/P95 随验收产出。混合场景使用 40 个受控测试客户端、并发 8、160 次请求，保留默认限流；这不是生产容量承诺。正式容量按硬件、包大小和业务频率复测。本版以单应用进程为部署基线；多实例部署应先把限流、失败锁定和文件协调迁移到共享入口/存储方案。
 
+## 部署交付
+
+Docker 日常启动使用根目录 `compose.yml`；HTTPS 和可选监控使用 `deploy/compose.production.yml`。Linux amd64/arm64 发布包同时提供完整包、独立后端包和前端包，包含 Nginx、systemd/Supervisor 生成工具。分别参见 [Docker Compose](docker-deployment.md) 和 [Nginx + Go / 宝塔](native-deployment.md)。分离部署保留私有安装令牌和后台入口重启生效。
+
 ## 公网入口和管理员
 
 首次运行强制进入 `/install`。服务器会在数据库配置文件旁生成 `*.install-token`，权限 0600；安装时填入该令牌，再配置数据库和管理员账号。日志只显示文件路径。也可通过私有环境配置 `YN_SETUP_TOKEN`（32–256 字符），不要把令牌写在 URL、前端配置或公共日志中。完成后拒绝重复安装。

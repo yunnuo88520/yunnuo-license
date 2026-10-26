@@ -8,7 +8,7 @@ import (
 
 func (api *API) registerRecoveryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /recover", func(w http.ResponseWriter, r *http.Request) {
-		serveStaticApp(w, r, filepath.Join(api.publicStaticDir, "recover"), "/")
+		api.serveFrontendApp(w, r, filepath.Join(api.publicStaticDir, "recover"), "/")
 	})
 	mux.HandleFunc("GET /admin/recovery/accounts", api.withAdmin(func(w http.ResponseWriter, r *http.Request) {
 		v, e := api.service.RecoveryAccounts(r.Context(), r.URL.Query().Get("kind"), r.URL.Query().Get("agent_id"), adminSessionFrom(r.Context()).Role)

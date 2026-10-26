@@ -13,6 +13,8 @@ shutdown() {
   trap - TERM INT EXIT
   if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
     kill -TERM "$app_pid" 2>/dev/null || true
+    # Complete application transactions and worker shutdown before stopping MySQL.
+    wait "$app_pid" 2>/dev/null || true
   fi
   if [[ -n "$mysql_pid" ]] && kill -0 "$mysql_pid" 2>/dev/null; then
     MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin --protocol=socket -uroot shutdown >/dev/null 2>&1 || kill -TERM "$mysql_pid" 2>/dev/null || true

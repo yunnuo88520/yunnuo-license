@@ -1,0 +1,65 @@
+name: Release bundles
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  bundles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check release tag and completed main CI
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF_NAME" = "v$(tr -d '[:space:]' < VERSION)"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          gh run list --workflow ci.yml --branch main --commit "$GITHUB_SHA" --json status,conclusion --jq 'any(.[]; .status == "completed" and .conclusion == "success")' | grep -qx true
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Test backend and build Linux archives
+        run: |
+          go -C backend test ./...
+          python3 scripts/build-release.py
+          cd dist
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release-bundles
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+  draft:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: bundles
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-release-bundles
+          path: dist
+      - name: Create reviewable draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS

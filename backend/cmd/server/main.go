@@ -74,6 +74,7 @@ func main() {
 	server := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(svc, cfg.PublicStaticDir, cfg.AdminStaticDir, cfg.AgentStaticDir).
+			WithFrontendServing(cfg.ServeFrontend).
 			WithTrustedProxyHeaders(cfg.TrustProxyHeaders).
 			WithTrustedProxyNetworks(cfg.TrustedProxyNetworks).
 			WithAdminNetworks(cfg.AdminNetworks).

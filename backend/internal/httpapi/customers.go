@@ -47,7 +47,7 @@ func (api *API) registerCustomerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /user/licenses/{licenseNo}/rebind", withRateLimit(api.customerRebindLimit, api.withCustomer(api.customerRebind)))
 	mux.HandleFunc("GET /user-console", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/user-console/", 307) })
 	mux.HandleFunc("GET /user-console/", func(w http.ResponseWriter, r *http.Request) {
-		serveStaticApp(w, r, api.customerStaticDir, strings.TrimPrefix(r.URL.Path, "/user-console"))
+		api.serveFrontendApp(w, r, api.customerStaticDir, strings.TrimPrefix(r.URL.Path, "/user-console"))
 	})
 }
 func (api *API) customers(w http.ResponseWriter, r *http.Request) {
