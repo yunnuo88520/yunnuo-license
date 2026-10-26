@@ -28,6 +28,7 @@ const actorLabels: Record<string, string> = {
   admin: "管理员",
   agent: "代理",
   developer: "开发者",
+  application: "应用服务端",
   anonymous: "未登录",
 };
 const resultLabels: Record<string, string> = {
@@ -113,6 +114,7 @@ onMounted(load);
           <option value="agent">代理</option>
           <option value="customer">普通用户</option>
           <option value="developer">开发者</option>
+          <option value="application">应用服务端</option>
           <option value="anonymous">未登录</option>
         </select></label
       ><label class="field"

@@ -71,6 +71,8 @@ type Product struct {
 	Name                 string    `json:"name"`
 	Code                 string    `json:"code"`
 	AppKey               string    `json:"app_key"`
+	AppSecret            string    `json:"app_secret,omitempty"` // Creation response only; never populated by product reads.
+	AppSecretHash        string    `json:"-"`
 	PublicKeyPEM         string    `json:"public_key_pem"`
 	PrivateKeyEncrypted  string    `json:"-"`
 	KeyVersion           int       `json:"key_version"`

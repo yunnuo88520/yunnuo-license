@@ -18,6 +18,7 @@ const error = ref(""),
   codes = ref<string[]>([]),
   licenses = ref<any>();
 const policyRevision = ref(0);
+const createdSecrets = reactive<Record<string, string>>({});
 const login = reactive({
   username: "",
   password: "",
@@ -40,6 +41,7 @@ const cards = reactive({
 });
 const password = reactive({ current_password: "", new_password: "" });
 function logout() {
+  Object.keys(createdSecrets).forEach(id => delete createdSecrets[id]);
   token.value = "";
   profile.value = null;
   products.value = [];
@@ -100,6 +102,7 @@ function createProduct() {
       method: "POST",
       body: JSON.stringify(product),
     });
+    createdSecrets[result.id] = result.app_secret;
     product.name = "";
     await refresh();
     selected.value = result.id;
@@ -225,7 +228,7 @@ onMounted(async () => {
           >
           <button class="btn" :disabled="busy">创建产品</button>
         </form>
-        <p class="muted">应用 ID 由系统自动生成且保持不变，接入时直接复制即可。</p>
+        <p class="muted">创建后自动生成 18 位 AppID 和独立 AppSecret。AppID 保持不变，AppSecret 请及时保存。</p>
         <label v-if="products.length" class="field"
           >选择产品<select v-model="selected" @change="selectProduct">
             <option v-for="p in products" :key="p.id" :value="p.id">
@@ -238,7 +241,7 @@ onMounted(async () => {
           v-for="p in products.filter((p) => p.id === selected)"
           :key="p.id"
         >
-          <IntegrationGuide :product="p" prefix="/developer" :token="token" />
+          <IntegrationGuide :product="p" prefix="/developer" :token="token" :initial-secret="createdSecrets[p.id]" @secret-consumed="delete createdSecrets[p.id]" />
         </article>
         <LicensePolicy
           v-if="selected"

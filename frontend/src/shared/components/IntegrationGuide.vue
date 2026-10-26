@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { BookOpen, Copy, Download, Terminal } from "lucide-vue-next";
+import AppCredentials from "./AppCredentials.vue";
 
-const props = defineProps<{
-  product: any;
-  prefix: "/admin" | "/developer";
-  token: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    product: any;
+    prefix: "/admin" | "/developer";
+    token: string;
+    initialSecret?: string;
+    canManageCredentials?: boolean;
+  }>(),
+  { canManageCredentials: true },
+);
+const emit = defineEmits<{ secretConsumed: [] }>();
 const language = ref("node"),
   tab = ref("start"),
   baseURL = ref(location.origin),
@@ -149,7 +156,7 @@ async function copy(value: string) {
     </header>
     <div class="guide-credentials">
       <div>
-        <small>应用 ID（系统自动生成）</small
+        <small>AppID（系统自动生成，标准 18 位）</small
         ><code>{{ product.id }}</code
         ><button
           type="button"
@@ -158,7 +165,10 @@ async function copy(value: string) {
         >
           <Copy :size="13" />复制应用 ID
         </button>
-        <p>这是应用的公开唯一标识，不是密码。后台选择应用会自动带入，用户激活由卡密识别。</p>
+        <p>
+          格式为 yn + 16 位十六进制字符，例如
+          yn0123456789abcdef。后台选择应用会自动带入，用户激活由卡密识别。
+        </p>
       </div>
       <div>
         <small>授权规则</small
@@ -172,6 +182,15 @@ async function copy(value: string) {
         >
       </div>
     </div>
+    <AppCredentials
+      v-if="canManageCredentials !== false"
+      :key="product.id"
+      :product-id="product.id"
+      :prefix="prefix"
+      :token="token"
+      :initial-secret="initialSecret"
+      @consumed="emit('secretConsumed')"
+    />
     <nav class="tabbar" aria-label="接入文档分类">
       <button
         v-for="item in [
@@ -179,6 +198,7 @@ async function copy(value: string) {
           { id: 'http', label: 'HTTP 接口' },
           { id: 'policy', label: '上线与到期处理' },
           { id: 'updates', label: '可选在线升级' },
+          { id: 'server', label: 'AppSecret 服务端接入' },
         ]"
         type="button"
         :class="{ active: tab === item.id }"
@@ -290,8 +310,8 @@ async function copy(value: string) {
     <template v-else-if="tab === 'http'">
       <h3>请求地址和返回结构</h3>
       <p>
-        产品客户端调用以下公开 API，不需要管理员或开发者登录 token。请求中的 app_key
-        填上方的应用 ID；接入包已经自动配置。响应外层为
+        产品客户端调用以下公开 API，不需要管理员或开发者登录 token。请求中的
+        app_key 填上方的应用 ID；接入包已经自动配置。响应外层为
         success、data、request_id；SDK 已处理 HTTP 错误和外层解包。
       </p>
       <h4>1. 首次激活：POST /v1/licenses/activate</h4>
@@ -388,7 +408,7 @@ async function copy(value: string) {
         request_id，可与平台操作日志核对。直接激活仅建立部署绑定，授权用户归属由用户中心激活或管理员分配。
       </p>
     </template>
-    <template v-else>
+    <template v-else-if="tab === 'updates'">
       <h3>授权接入不要求开启升级服务</h3>
       <p>
         需要在线更新时，先为当前应用启用升级服务，上传升级包并发布高于客户端的版本。客户端每次检查和下载都需要有效的更新资格。
@@ -416,6 +436,41 @@ node app.mjs download 1.0.0</code></pre>
           rel="noopener"
           >Ebox 升级 demo</a
         >。升级服务到期后，即使旧版本允许永久使用，下载也必须拒绝。
+      </p>
+    </template>
+    <template v-else>
+      <h3>AppID + AppSecret 换取访问令牌</h3>
+      <p>
+        仅在开发者自己的可信服务端执行。AppSecret
+        不替代终端用户的卡密、授权号或绑定信息，也不能用于登录管理员、代理或用户后台。
+      </p>
+      <p>
+        将以下内容保存为 server-token.json，把 secret 替换成本次保存的
+        AppSecret，再执行命令。凭证文件应设置为仅当前账号可读，联调后删除，不要提交版本库。
+      </p>
+      <pre
+        data-example="server-token"
+      ><code>{{pretty({grant_type:'client_credential',appid:product.id,secret:'替换为32位AppSecret'})}}</code></pre>
+      <pre
+        data-example="server-token-command"
+      ><code>{{curl('/v1/app/token','server-token.json')}}</code></pre>
+      <p>
+        返回
+        data.access_token、token_type=Bearer、expires_in=7200。服务端缓存令牌并在到期前刷新；使用
+        Authorization: Bearer ACCESS_TOKEN 请求 GET /v1/app/profile
+        检查当前应用身份。
+      </p>
+      <h3>使用令牌校验本应用授权</h3>
+      <p>
+        POST /v1/app/licenses/verify 携带同一 Bearer 令牌，请求体为
+        license_no、bind_mode、bind_value；应用身份由令牌确定，无需再填写
+        app_key。仍须判断返回的 can_use 与 can_update。
+      </p>
+      <p>
+        令牌只用于该应用的服务端接口，不能访问其他应用或平台后台。过期、重置
+        AppSecret
+        或停用应用后旧令牌失效。密钥放在服务端环境变量或安全配置中，不写进终端客户端、URL
+        或日志。
       </p>
     </template>
   </section>

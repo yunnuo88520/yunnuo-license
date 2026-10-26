@@ -124,21 +124,18 @@ func (s *Service) CreateProduct(ctx context.Context, input CreateProductInput) (
 	if err != nil {
 		return domain.Product{}, err
 	}
-	productID := yncrypto.NewID("prod")
-	code := strings.ToUpper(strings.TrimSpace(input.Code))
-	if code == "" {
-		// Keep the card/offline identifier stable without asking people to invent one.
-		code = strings.ToUpper(strings.TrimPrefix(productID, "prod_"))
+	secret, err := yncrypto.ApplicationSecret()
+	if err != nil {
+		return domain.Product{}, err
 	}
 	now := s.now()
 	product := domain.Product{
 		LicenseMode:          input.LicenseMode,
 		UpdateDurationDays:   input.UpdateDurationDays,
 		DeveloperID:          input.DeveloperID,
-		ID:                   productID,
 		Name:                 strings.TrimSpace(input.Name),
-		Code:                 code,
-		AppKey:               productID,
+		AppSecret:            secret,
+		AppSecretHash:        applicationSecretHash(secret),
 		PublicKeyPEM:         publicPEM,
 		PrivateKeyEncrypted:  privateEncrypted,
 		KeyVersion:           1,
@@ -154,7 +151,24 @@ func (s *Service) CreateProduct(ctx context.Context, input CreateProductInput) (
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
-	if err := s.currentStore().CreateProduct(ctx, product); err != nil {
+	for attempt := 0; attempt < 5; attempt++ {
+		product.ID, err = yncrypto.ApplicationID()
+		if err != nil {
+			return domain.Product{}, err
+		}
+		product.AppKey = product.ID
+		product.Code = strings.ToUpper(strings.TrimSpace(input.Code))
+		if product.Code == "" {
+			product.Code = strings.ToUpper(strings.TrimPrefix(product.ID, "yn"))
+		}
+		if err = s.currentStore().CreateProduct(ctx, product); err == nil {
+			break
+		}
+		if _, collision := s.currentStore().GetProduct(ctx, product.ID); collision != nil {
+			return domain.Product{}, err
+		}
+	}
+	if err != nil {
 		return domain.Product{}, err
 	}
 	_ = s.audit(ctx, "admin", "", product.ID, "", "", "product.create", "success", "")

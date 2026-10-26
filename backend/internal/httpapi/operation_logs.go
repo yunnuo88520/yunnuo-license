@@ -14,6 +14,9 @@ import (
 )
 
 func operationCategory(route string) string {
+	if strings.Contains(route, "/credentials") || strings.Contains(route, "/v1/app/") {
+		return "applications"
+	}
 	for _, v := range []struct{ match, category string }{{"recovery", "account"}, {"security", "security"}, {"balance", "finance"}, {"money-ledgers", "finance"}, {"login", "account"}, {"password", "account"}, {"owner", "ownership"}, {"binding", "binding"}, {"rebind", "binding"}, {"unbind", "binding"}, {"renew", "renewal"}, {"releases", "updates"}, {"updates", "updates"}, {"risk", "security"}, {"packages", "packages"}, {"group", "applications"}, {"agent", "agents"}, {"card", "cards"}, {"license", "licenses"}, {"product", "applications"}, {"customer", "users"}, {"user", "users"}, {"audit", "audit"}, {"operation-logs", "audit"}} {
 		if strings.Contains(route, v.match) {
 			return v.category

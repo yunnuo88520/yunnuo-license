@@ -190,6 +190,11 @@ func (s *Store) CreateProduct(ctx context.Context, p domain.Product) error {
 		); err != nil {
 			return err
 		}
+		if p.AppSecretHash != "" {
+			if _, err := tx.tx.ExecContext(ctx, `INSERT INTO application_credentials(product_id,secret_hash,version,updated_at) VALUES(?,?,1,?)`, p.ID, p.AppSecretHash, ts(p.CreatedAt)); err != nil {
+				return err
+			}
+		}
 		_, err := tx.tx.ExecContext(ctx, `
 			INSERT INTO product_keys (product_id, key_version, public_key_pem, created_by, created_at)
 			VALUES (?, 1, ?, ?, ?)`, p.ID, p.PublicKeyPEM, "product.create", ts(p.CreatedAt))

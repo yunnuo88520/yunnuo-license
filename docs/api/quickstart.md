@@ -68,7 +68,7 @@ curl -X POST http://127.0.0.1:18080/admin/products \
   }'
 ```
 
-创建成功后自动生成应用 ID（`id`），当前客户端协议的 `app_key` 字段直接使用该 ID。名称可以修改，ID 保持不变；无需手工编写产品代码。管理后台通过选择应用自动带入下方 `product_id`，产品 ID 不是后台登录凭证。
+创建成功后自动生成 18 位 AppID（`yn` + 16 位小写十六进制字符，字段 `id`）和独立的 32 位 AppSecret（`app_secret`，仅创建响应提供）。当前客户端协议的 `app_key` 字段直接使用 AppID。名称可以修改，ID 保持不变；无需手工编写产品代码。管理后台通过选择应用自动带入下方 `product_id`。AppSecret 仅供开发者自有服务端换取两小时访问令牌，详见 [服务端凭证接入](../developer-integration.md#appsecret-的服务端接入)。
 
 生成卡密：
 

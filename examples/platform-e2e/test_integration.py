@@ -8,6 +8,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import secrets
 import shlex
 import signal
@@ -77,9 +78,56 @@ def main():
                 page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base)
                 page.get_by_role("button", name="复制应用 ID", exact=True).click()
                 assert page.evaluate("navigator.clipboard.readText()") == node_product["id"]
+                credentials = page.get_by_role("region", name="应用服务端凭证", exact=True)
+                assert credentials.get_by_label("AppSecret", exact=True).input_value() == node_product["app_secret"]
+                assert credentials.get_by_label("AppSecret", exact=True).get_attribute("type") == "password"
+                credentials.get_by_role("button", name="复制 AppSecret", exact=True).click()
+                assert page.evaluate("navigator.clipboard.readText()") == node_product["app_secret"]
+                page.locator(".integration-guide").screenshot(path=str(args.artifacts / "developer-app-credentials.png"))
             else:
                 node_product = http.api(base, "/developer/products", {"name": "Ebox 接入验收", "bind_mode": "domain"}, developer)
-            assert node_product["id"].startswith("prod_") and node_product["app_key"] == node_product["id"]
+            assert re.fullmatch(r"yn[0-9a-f]{16}", node_product["id"]) and node_product["app_key"] == node_product["id"]
+            assert re.fullmatch(r"[0-9a-f]{32}",node_product["app_secret"])
+            private_secrets = [node_product["app_secret"]]
+            server_credentials = {"grant_type":"client_credential","appid":node_product["id"],"secret":node_product["app_secret"]}
+            if page:
+                page.get_by_role("button",name="AppSecret 服务端接入",exact=True).click()
+                guide=page.locator(".integration-guide")
+                request_example=json.loads(guide.locator('[data-example="server-token"]').inner_text())
+                assert request_example["appid"]==node_product["id"] and request_example["grant_type"]=="client_credential"
+                request_example["secret"]=node_product["app_secret"]
+                token_dir=folder/"server-credentials";token_dir.mkdir()
+                request_file=token_dir/"server-token.json"
+                request_file.write_text(json.dumps(request_example));request_file.chmod(0o600)
+                token_command=shlex.split(guide.locator('[data-example="server-token-command"]').inner_text())
+                response=subprocess.run(token_command,cwd=token_dir,capture_output=True,text=True,timeout=30)
+                request_file.unlink()
+                assert response.returncode==0,"The server-token command copied from the page failed"
+                app_token=json.loads(response.stdout)["data"]
+            else:
+                app_token=http.api(base,"/v1/app/token",server_credentials)
+            assert app_token["expires_in"]==7200
+            assert http.api(base,"/v1/app/profile",token=app_token["access_token"])["appid"]==node_product["id"]
+            http.http(base,"/admin/products",token=app_token["access_token"],expected=401)
+            if page:
+                credentials.get_by_role("button",name="重置 AppSecret",exact=True).click()
+                credentials.get_by_label("重置原因",exact=True).fill("页面接入验收：验证旧密钥立即失效")
+                credentials.get_by_role("checkbox").check()
+                reset_path="/developer/products/"+node_product["id"]+"/credentials/reset"
+                with page.expect_response(lambda r:r.url.endswith(reset_path) and r.request.method=="POST") as reset_response:
+                    credentials.get_by_role("button",name="确认生成新密钥",exact=True).click()
+                assert reset_response.value.status==200
+                reset=reset_response.value.json()["data"]
+                private_secrets.append(reset["app_secret"])
+                http.http(base,"/v1/app/profile",token=app_token["access_token"],expected=401)
+                http.http(base,"/v1/app/token",server_credentials,expected=401)
+                server_credentials["secret"]=reset["app_secret"]
+                assert http.api(base,"/v1/app/token",server_credentials)["expires_in"]==7200
+                page.reload()
+                page.get_by_text("已配置 · 第 2 版",exact=False).wait_for()
+                assert page.get_by_label("AppSecret",exact=True).count()==0
+                page.locator(".integration-guide").screenshot(path=str(args.artifacts / "appsecret-after-reset-and-reload.png"))
+            report["checks"].append("18-character AppID and one-time AppSecret copy work; the exact documented request exchanges a two-hour scoped token; reset invalidates old credentials and tokens without exposing plaintext on reload")
 
             def kit_url(product, language, token=developer):
                 query = urllib.parse.urlencode({"base_url": base, "language": language, "bind_value": "ebox.example.com"})
@@ -147,7 +195,7 @@ def main():
                     content = http.http(base, kit_url(product, language), token=developer)
                 with zipfile.ZipFile(io.BytesIO(content)) as archive:
                     assert all(not name.startswith("/") and ".." not in pathlib.PurePosixPath(name).parts for name in archive.namelist())
-                    assert all(secret.encode() not in archive.read(name) for name in archive.namelist() for secret in [root, developer, other, password, "-----BEGIN PRIVATE KEY-----"])
+                    assert all(secret.encode() not in archive.read(name) for name in archive.namelist() for secret in [root, developer, other, password, "-----BEGIN PRIVATE KEY-----", *private_secrets, product.get("app_secret", "not-a-secret-value")])
                     archive.extractall(project)
                 config = json.loads((project / "config.json").read_text())
                 assert config["app_key"] == product["id"] and config["product_code"] == product["code"] and config["bind_mode"] == "domain"

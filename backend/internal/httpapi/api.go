@@ -50,6 +50,7 @@ type API struct {
 	developerStaticDir   string
 	customerStaticDir    string
 	adminLoginLimit      *fixedWindowLimiter
+	appTokenLimit        *fixedWindowLimiter
 	agentLoginLimit      *fixedWindowLimiter
 	publicQueryLimit     *fixedWindowLimiter
 	publicQueryFreeLimit *fixedWindowLimiter
@@ -80,6 +81,7 @@ func New(svc *service.Service, publicStaticDir, adminStaticDir, agentStaticDir s
 		developerStaticDir:   envOr("YN_DEVELOPER_STATIC_DIR", "../frontend/dist/developer-console"),
 		customerStaticDir:    envOr("YN_CUSTOMER_STATIC_DIR", "../frontend/dist/user-console"),
 		adminLoginLimit:      newFixedWindowLimiter(20, 5*time.Minute),
+		appTokenLimit:        newFixedWindowLimiter(30, 5*time.Minute),
 		agentLoginLimit:      newFixedWindowLimiter(30, 5*time.Minute),
 		publicQueryLimit:     newFixedWindowLimiter(60, time.Minute),
 		publicQueryFreeLimit: newFixedWindowLimiter(15, time.Minute),
@@ -103,6 +105,7 @@ func (api *API) WithSetupConfig(migrationDir, databaseConfigFile string) *API {
 func (api *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	api.registerReleaseRoutes(mux)
+	api.registerApplicationCredentialRoutes(mux)
 	api.registerDeveloperRoutes(mux)
 	api.registerCustomerRoutes(mux)
 	api.registerCommerceRoutes(mux)
@@ -413,6 +416,7 @@ func (api *API) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) createProduct(w http.ResponseWriter, r *http.Request) {
+	privateCredentialResponse(w)
 	var input service.CreateProductInput
 	if !decode(w, r, &input) {
 		return

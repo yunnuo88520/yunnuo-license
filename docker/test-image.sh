@@ -105,6 +105,20 @@ product_response="$(curl --fail --silent --show-error -X POST "$base/admin/produ
 product_id="$(json_get 'data["data"]["id"]' <<<"$product_response")"
 app_key="$(json_get 'data["data"]["app_key"]' <<<"$product_response")"
 [[ "$app_key" == "$product_id" ]]
+[[ "$product_id" =~ ^yn[0-9a-f]{16}$ ]]
+app_secret="$(json_get 'data["data"]["app_secret"]' <<<"$product_response")"
+[[ "$app_secret" =~ ^[0-9a-f]{32}$ ]]
+application_token_payload="$(printf '{"grant_type":"client_credential","appid":"%s","secret":"%s"}' "$product_id" "$app_secret")"
+application_token_response="$(curl --fail --silent --show-error -X POST "$base/v1/app/token" -H 'Content-Type: application/json' -d "$application_token_payload")"
+application_token="$(json_get 'data["data"]["access_token"]' <<<"$application_token_response")"
+curl --fail --silent --show-error "$base/v1/app/profile" -H "Authorization: Bearer $application_token" | grep -Fq "$product_id"
+reset_secret_response="$(curl --fail --silent --show-error -X POST "$base/admin/products/$product_id/credentials/reset" -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" -d '{"expected_version":1,"reason":"Docker credential rotation acceptance"}')"
+[[ "$(curl --silent --output /dev/null --write-out '%{http_code}' "$base/v1/app/profile" -H "Authorization: Bearer $application_token")" == "401" ]]
+[[ "$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST "$base/v1/app/token" -H 'Content-Type: application/json' -d "$application_token_payload")" == "401" ]]
+app_secret="$(json_get 'data["data"]["app_secret"]' <<<"$reset_secret_response")"
+application_token_payload="$(printf '{"grant_type":"client_credential","appid":"%s","secret":"%s"}' "$product_id" "$app_secret")"
+application_token_response="$(curl --fail --silent --show-error -X POST "$base/v1/app/token" -H 'Content-Type: application/json' -d "$application_token_payload")"
+application_token="$(json_get 'data["data"]["access_token"]' <<<"$application_token_response")"
 
 for language in node go java; do
   curl --fail --silent --show-error --get "$base/admin/products/$product_id/integration-kit" \
@@ -186,6 +200,8 @@ done
 check_public_license
 
 python3 ./docker/test-product-updates.py verify "$base" "$update_state"
+curl --fail --silent --show-error "$base/v1/app/profile" -H "Authorization: Bearer $application_token" | grep -Fq "$product_id"
+curl --fail --silent --show-error -X POST "$base/v1/app/token" -H 'Content-Type: application/json' -d "$application_token_payload" | grep -q '"expires_in":7200'
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2" --verify-state "$platform_artifacts/stage2/report.json"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage4.py --base-url "$base" --artifacts "$platform_artifacts/stage4" --verify-state "$platform_artifacts/stage4/report.json"
 echo "Docker image end-to-end test passed: $image"

@@ -26,6 +26,8 @@ func (api *API) registerReleaseRoutes(mux *http.ServeMux) {
 		}
 		mux.HandleFunc("GET "+prefix+"/products/{productID}/updates", wrap(api.productUpdates, readRoles))
 		mux.HandleFunc("GET "+prefix+"/products/{productID}/integration-kit", wrap(api.integrationKit, readRoles))
+		mux.HandleFunc("GET "+prefix+"/products/{productID}/credentials", wrap(api.applicationCredentialStatus, writeRoles))
+		mux.HandleFunc("POST "+prefix+"/products/{productID}/credentials/reset", wrap(api.resetApplicationSecret, writeRoles))
 		mux.HandleFunc("GET "+prefix+"/products/{productID}/license-policy", wrap(api.licensePolicy, readRoles))
 		mux.HandleFunc("POST "+prefix+"/products/{productID}/license-policy", wrap(api.configureLicensePolicy, writeRoles))
 		mux.HandleFunc("POST "+prefix+"/products/{productID}/updates", wrap(api.configureProductUpdates, writeRoles))
@@ -234,6 +236,7 @@ func (api *API) developerProducts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) developerCreateProduct(w http.ResponseWriter, r *http.Request) {
+	privateCredentialResponse(w)
 	var input service.CreateProductInput
 	if !decode(w, r, &input) {
 		return

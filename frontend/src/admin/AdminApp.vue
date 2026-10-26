@@ -61,6 +61,7 @@ import {
 } from "../shared/branding";
 const a = useAdmin();
 const integrationProductID = ref("");
+const createdSecrets = reactive<Record<string, string>>({});
 const integrationProduct = computed(() => a.data.products.find((p:any) => p.id === integrationProductID.value));
 const integrationAnchor = ref<HTMLElement>();
 async function openIntegration(id:string) {
@@ -420,7 +421,10 @@ async function productCreate(e: Event) {
       "update_duration_days",
     ].forEach((k) => (o[k] = Number(o[k]))),
   );
-  if (result?.id) await openIntegration(result.id);
+  if (result?.id) {
+    createdSecrets[result.id] = result.app_secret;
+    await openIntegration(result.id);
+  }
 }
 async function agentTask(kind: string, e: Event) {
   const o = values(e);
@@ -1426,7 +1430,7 @@ onMounted(async () => {
           <FormDialog
             :open="action === 'product'"
             title="新增产品"
-            description="保存后自动生成唯一应用 ID 与验签公钥，无需填写代码；期限规则在首次发卡前可调整。"
+            description="自动生成 18 位 AppID、独立 AppSecret 与验签公钥，无需填写代码；AppSecret 仅在本次创建后展示，请及时保存。"
             @close="action = ''"
           >
             <form
@@ -1606,7 +1610,7 @@ onMounted(async () => {
           </div>
         </section>
         <div v-if="page === 'products' && integrationProduct" ref="integrationAnchor">
-          <IntegrationGuide :key="integrationProduct.id" :product="integrationProduct" prefix="/admin" :token="a.token.value" />
+          <IntegrationGuide :key="integrationProduct.id" :product="integrationProduct" prefix="/admin" :token="a.token.value" :can-manage-credentials="a.isManager.value" :initial-secret="createdSecrets[integrationProduct.id]" @secret-consumed="delete createdSecrets[integrationProduct.id]" />
         </div>
         <RecoveryPanel
           v-if="page === 'recovery' && a.isManager.value"

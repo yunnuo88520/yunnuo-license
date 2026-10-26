@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"strings"
+	"regexp"
 	"testing"
 
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
@@ -19,7 +19,7 @@ func TestApplicationIdentityIsGeneratedUniqueAndStable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.ID == second.ID || first.Code == second.Code || !strings.HasPrefix(first.ID, "prod_") || first.AppKey != first.ID || second.AppKey != second.ID {
+	if first.ID == second.ID || first.Code == second.Code || !regexp.MustCompile(`^yn[0-9a-f]{16}$`).MatchString(first.ID) || first.AppKey != first.ID || second.AppKey != second.ID {
 		t.Fatalf("applications must have unique generated IDs, independent of their names: %q %q", first.ID, second.ID)
 	}
 	card := createTestCard(t, ctx, s, first.ID, 30)
