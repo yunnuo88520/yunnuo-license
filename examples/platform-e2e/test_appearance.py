@@ -34,6 +34,13 @@ def theme_is(page, expected):
 def verify_layout(page, name):
     result = page.evaluate("""() => ({
       width: innerWidth, page: document.documentElement.scrollWidth,
+      // Read visibility and geometry in one frame. Vue may replace controls
+      // between separate locator RPCs while route data or branding loads.
+      controls: [...document.querySelectorAll('input, select, textarea')].flatMap(e => {
+        const r=e.getBoundingClientRect(), s=getComputedStyle(e);
+        if(e.closest('.table-wrap') || !r.width || !r.height || s.visibility==='hidden' || s.display==='none') return [];
+        return [{tag:e.tagName,x:r.x,width:r.width}];
+      }),
       overflow: [...document.querySelectorAll('body *')].filter(e => {
         const r = e.getBoundingClientRect(), s = getComputedStyle(e);
         return r.width && r.right > innerWidth + 1 && s.position !== 'fixed'
@@ -42,10 +49,7 @@ def verify_layout(page, name):
     })""")
     assert result["page"] <= result["width"] + 1, (name, result)
     # Each form control remains inside the viewport, except horizontally scrolling tables.
-    for control in page.locator("input:visible, select:visible, textarea:visible").all():
-        if control.evaluate("e => !!e.closest('.table-wrap')"):
-            continue
-        box = control.bounding_box()
+    for box in result["controls"]:
         assert box["x"] >= -1 and box["x"] + box["width"] <= result["width"] + 1, (name, box)
 
 
