@@ -132,6 +132,8 @@ jobs:
       - name: Install, typecheck, and build Vue frontend
         working-directory: frontend
         run: npm ci && npm run check && npm run check:sdk && npm run build
+      - name: Verify CI timeout and diagnostic process handling
+        run: python3 .github/scripts/test_check_command.py
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26.10'
@@ -144,12 +146,21 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Install the browser and fonts for acceptance tests
-        timeout-minutes: 9
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-1.62.0
+      - name: Install Playwright
+        timeout-minutes: 5
+        run: python .github/scripts/check-command.py --timeout 120 --attempts 2 --log "$RUNNER_TEMP/yunnuo-ci-setup/playwright.log" "Playwright setup" python -m pip install playwright==1.62.0
+      - name: Install Chromium
+        timeout-minutes: 5
+        run: python .github/scripts/check-command.py --timeout 120 --attempts 2 --log "$RUNNER_TEMP/yunnuo-ci-setup/chromium.log" "Chromium setup" python -m playwright install chromium
+      - name: Install browser system dependencies and fonts
+        timeout-minutes: 6
         run: |
-          python .github/scripts/check-command.py "Playwright setup" timeout 120s pip install playwright==1.62.0
-          python .github/scripts/check-command.py "Chromium setup" timeout 240s python -m playwright install --with-deps chromium
-          python .github/scripts/check-command.py "CJK font setup" timeout 120s sudo apt-get install -y fonts-noto-cjk
+          sudo "$(command -v python)" .github/scripts/check-command.py --timeout 120 --log "$RUNNER_TEMP/yunnuo-ci-setup/dependencies.log" "Browser dependency setup" "$(command -v python)" -m playwright install-deps chromium
+          sudo "$(command -v python)" .github/scripts/check-command.py --timeout 120 --log "$RUNNER_TEMP/yunnuo-ci-setup/fonts.log" "CJK font setup" apt-get install -y -o Dpkg::Use-Pty=0 fonts-noto-cjk
       - name: Build the server for browser acceptance tests
         timeout-minutes: 3
         run: go -C backend build -o /tmp/yunnuo-appearance-server ./cmd/server
@@ -196,6 +207,7 @@ jobs:
             ${{ runner.temp }}/yunnuo-agent-tiers
             ${{ runner.temp }}/yunnuo-production
             ${{ runner.temp }}/yunnuo-native-deployment
+            ${{ runner.temp }}/yunnuo-ci-setup
 
   docker:
     runs-on: ubuntu-latest
