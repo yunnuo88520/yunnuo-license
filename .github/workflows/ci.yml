@@ -56,7 +56,11 @@ jobs:
           docker compose -f compose.yml config --quiet
           docker compose -f deploy/compose.production.yml config --quiet
           printf '%s' "$YN_METRICS_TOKEN" > "$RUNNER_TEMP/metrics-token"
+          chmod 600 "$RUNNER_TEMP/metrics-token"
           docker run --rm --user 0 --entrypoint /bin/promtool -v "$PWD/deploy/monitoring:/etc/prometheus:ro" -v "$RUNNER_TEMP/metrics-token:/run/secrets/metrics-token:ro" prom/prometheus:v3.6.0 check config /etc/prometheus/prometheus.yml
+          export YN_DEPLOY_CONFIG_DIR="$RUNNER_TEMP/yunnuo-monitor-config"
+          bash deploy/configure.sh
+          docker compose -f deploy/compose.production.yml run --rm --no-deps --entrypoint /bin/sh prometheus -ec 'test -f /run/secrets/metrics-token; cat /run/secrets/metrics-token >/dev/null; touch /prometheus/.write-check; rm /prometheus/.write-check'
           docker run --rm --user 0 --entrypoint /bin/promtool -v "$PWD/deploy/monitoring:/etc/prometheus:ro" prom/prometheus:v3.6.0 test rules /etc/prometheus/alerts.test.yml
           docker run --rm -e YN_DOMAIN --entrypoint caddy -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10 validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
