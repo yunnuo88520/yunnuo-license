@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	yncrypto "github.com/yunnuo88520/yunnuo-license/backend/internal/crypto"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/store"
 )
@@ -28,6 +27,7 @@ const (
 )
 
 type CreateAgentUserInput struct {
+	UserID      string `json:"user_id,omitempty"`
 	AgentID     string `json:"agent_id"`
 	Username    string `json:"username"`
 	Password    string `json:"password"`
@@ -38,56 +38,7 @@ type CreateAgentUserInput struct {
 }
 
 func (s *Service) CreateAgentUser(ctx context.Context, input CreateAgentUserInput) (domain.AgentUser, error) {
-	input.AgentID = strings.TrimSpace(input.AgentID)
-	input.Username = normalizeUsername(input.Username)
-	input.Password = strings.TrimSpace(input.Password)
-	if input.AgentID == "" || input.Username == "" || len(input.Password) < 8 {
-		return domain.AgentUser{}, ErrInvalidRequest
-	}
-	if input.Role == "" {
-		input.Role = domain.AgentRoleOwner
-	}
-	if !validAgentRole(input.Role) {
-		return domain.AgentUser{}, ErrInvalidRequest
-	}
-	agent, err := s.currentStore().GetAgent(ctx, input.AgentID)
-	if err != nil {
-		if store.IsNotFound(err) {
-			return domain.AgentUser{}, ErrAgentNotFound
-		}
-		return domain.AgentUser{}, err
-	}
-	if err := ensureAgentActive(agent); err != nil {
-		return domain.AgentUser{}, err
-	}
-	passwordHash, err := hashAgentPassword(input.Password)
-	if err != nil {
-		return domain.AgentUser{}, err
-	}
-	now := s.now()
-	user := domain.AgentUser{
-		ID:           yncrypto.NewID("aguser"),
-		AgentID:      input.AgentID,
-		Username:     input.Username,
-		PasswordHash: passwordHash,
-		DisplayName:  strings.TrimSpace(input.DisplayName),
-		Phone:        strings.TrimSpace(input.Phone),
-		Email:        strings.TrimSpace(input.Email),
-		Role:         input.Role,
-		Status:       domain.AgentUserActive,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-	if err := s.currentStore().CreateAgentUser(ctx, user); err != nil {
-		return domain.AgentUser{}, err
-	}
-	_ = s.audit(ctx, "admin", "", "", "", "", "agent_user.create", "success", "")
-	loginURL := ""
-	if r, err := s.emailRuntime(ctx); err == nil {
-		loginURL = r.settings.SiteURL
-	}
-	s.notifyAgentAccountCreated(input.AgentID, user, agent.Name, loginURL)
-	return user, nil
+	return s.createUnifiedAgentMember(ctx, input)
 }
 
 func (s *Service) ListAgentUsers(ctx context.Context, agentID string) ([]domain.AgentUser, error) {
@@ -139,68 +90,24 @@ type agentTokenPayload struct {
 }
 
 func (s *Service) AgentLogin(ctx context.Context, input AgentLoginInput) (AgentLoginResponse, error) {
-	if err := s.ensureLoginCaptcha(ctx, input.CaptchaID, input.CaptchaCode); err != nil {
-		return AgentLoginResponse{}, err
-	}
-	input.AgentID = strings.TrimSpace(input.AgentID)
-	input.AgentNo = strings.ToUpper(strings.TrimSpace(input.AgentNo))
-	input.LoginCode = normalizeAgentLoginCode(input.LoginCode)
-	input.Username = normalizeUsername(input.Username)
-	if input.Username == "" || strings.TrimSpace(input.Password) == "" || (input.AgentID == "" && input.AgentNo == "" && input.LoginCode == "") {
-		return AgentLoginResponse{}, ErrInvalidCredentials
-	}
-	agent, err := s.agentForLogin(ctx, input.AgentID, input.LoginCode, input.AgentNo)
-	if err != nil {
-		return AgentLoginResponse{}, err
-	}
-	if err := ensureAgentActive(agent); err != nil {
-		return AgentLoginResponse{}, err
-	}
-	user, err := s.currentStore().GetAgentUserByUsername(ctx, agent.ID, input.Username)
-	if err != nil {
-		if store.IsNotFound(err) {
-			return AgentLoginResponse{}, ErrInvalidCredentials
-		}
-		return AgentLoginResponse{}, err
-	}
-	if user.Status != domain.AgentUserActive {
-		return AgentLoginResponse{}, ErrAgentUserDisabled
-	}
-	ok, err := verifyAgentPassword(input.Password, user.PasswordHash)
-	if err != nil || !ok {
-		return AgentLoginResponse{}, ErrInvalidCredentials
-	}
-	now := s.now()
-	expiresAt := now.Add(agentTokenTTL)
-	token, err := s.signAgentToken(agentTokenPayload{
-		Type:           "agent_session",
-		SessionVersion: user.SessionVersion,
-		AgentID:        agent.ID,
-		UserID:         user.ID,
-		Username:       user.Username,
-		Role:           user.Role,
-		IssuedAt:       now.Unix(),
-		ExpiresAt:      expiresAt.Unix(),
-	})
-	if err != nil {
-		return AgentLoginResponse{}, err
-	}
-	if err := s.currentStore().UpdateAgentUserLastLogin(ctx, user.ID, now); err != nil {
-		return AgentLoginResponse{}, err
-	}
-	user.LastLoginAt = &now
-	user.UpdatedAt = now
-	_ = s.auditAgent(ctx, user.ID, agent.ID, "", "agent.login", "success", "")
-	return AgentLoginResponse{
-		AccessToken: token,
-		TokenType:   "Bearer",
-		ExpiresAt:   expiresAt,
-		Agent:       agent,
-		User:        user,
-	}, nil
+	return s.unifiedAgentLogin(ctx, input)
 }
 
 func (s *Service) AuthenticateAgentToken(ctx context.Context, token string) (AgentSession, error) {
+	if claims, err := s.verifyAdminToken(strings.TrimSpace(token)); err == nil && claims.Type == "customer_session" {
+		user, e := s.AuthenticateCustomer(ctx, token)
+		if e != nil {
+			return AgentSession{}, ErrInvalidAgentToken
+		}
+		member, e := s.currentStore().AgentMemberForUser(ctx, user.ID)
+		if e != nil {
+			if !store.IsNotFound(e) {
+				return AgentSession{}, e
+			}
+			return AgentSession{}, ErrPermissionDenied
+		}
+		return s.agentSessionForMember(ctx, member, time.Unix(claims.ExpiresAt, 0).UTC())
+	}
 	payload, err := s.verifyAgentToken(strings.TrimSpace(token))
 	if err != nil {
 		return AgentSession{}, ErrInvalidAgentToken
@@ -239,6 +146,12 @@ func (s *Service) AuthenticateAgentToken(ctx context.Context, token string) (Age
 	}
 	if user.AgentID != payload.AgentID || user.Status != domain.AgentUserActive {
 		return AgentSession{}, ErrAgentUserDisabled
+	}
+	if identity, e := s.currentStore().AgentIdentityID(ctx, user.ID); e == nil {
+		c, e := s.currentStore().CustomerByID(ctx, identity)
+		if e != nil || c.Status != "active" {
+			return AgentSession{}, ErrAgentUserDisabled
+		}
 	}
 	return AgentSession{
 		AgentID:     payload.AgentID,

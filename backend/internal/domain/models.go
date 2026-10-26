@@ -280,6 +280,9 @@ type AuditLog struct {
 }
 
 type Agent struct {
+	OwnerUserID         string     `json:"owner_user_id,omitempty"`
+	Username            string     `json:"username,omitempty"`
+	MemberCount         int        `json:"member_count"`
 	ID                  string     `json:"id"`
 	AgentNo             string     `json:"agent_no"`
 	LoginCode           string     `json:"login_code"`
@@ -301,6 +304,7 @@ type Agent struct {
 }
 
 type AgentUser struct {
+	IdentityID     string     `json:"identity_id,omitempty"`
 	SessionVersion int        `json:"-"`
 	ID             string     `json:"id"`
 	AgentID        string     `json:"agent_id"`

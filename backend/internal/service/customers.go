@@ -63,6 +63,13 @@ func (s *Service) CreateCustomer(ctx context.Context, input CustomerInput, actor
 	}
 	c := domain.Customer{ID: yncrypto.NewID("usr"), Username: input.Username, Email: email, DisplayName: strings.TrimSpace(input.DisplayName), PasswordHash: hash, Status: "active", SessionVersion: 1, CreatedAt: s.now()}
 	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
+		available, err := tx.IdentityLoginAvailable(ctx, c.Username, c.Email)
+		if err != nil {
+			return err
+		}
+		if !available {
+			return AppError{Code: "USERNAME_TAKEN", Message: "登录账号或邮箱已存在，请选择已有用户", HTTPStatus: 409}
+		}
 		if err := tx.CreateCustomer(ctx, c); err != nil {
 			return err
 		}
@@ -77,7 +84,7 @@ func (s *Service) CustomerLogin(ctx context.Context, input AdminLoginInput) (Cus
 	if err := s.ensureLoginCaptcha(ctx, input.CaptchaID, input.CaptchaCode); err != nil {
 		return CustomerLoginResponse{}, err
 	}
-	c, err := s.currentStore().CustomerByUsername(ctx, normalizeUsername(input.Username))
+	c, err := s.currentStore().CustomerByLogin(ctx, normalizeUsername(input.Username))
 	if err != nil {
 		return CustomerLoginResponse{}, ErrInvalidCredentials
 	}
@@ -90,7 +97,34 @@ func (s *Service) CustomerLogin(ctx context.Context, input AdminLoginInput) (Cus
 	}
 	expiry := s.now().Add(12 * time.Hour)
 	token, err := s.signAdminToken(adminTokenPayload{Type: "customer_session", UserID: c.ID, SessionVersion: c.SessionVersion, IssuedAt: s.now().Unix(), ExpiresAt: expiry.Unix()})
+	if err == nil {
+		c, err = s.UserAccountProfile(ctx, c.ID)
+	}
 	return CustomerLoginResponse{AccessToken: token, User: c, ExpiresAt: expiry}, err
+}
+
+func (s *Service) UserAccountProfile(ctx context.Context, id string) (domain.Customer, error) {
+	c, err := s.currentStore().CustomerByID(ctx, id)
+	if err != nil {
+		return c, err
+	}
+	m, err := s.currentStore().AgentMemberForUser(ctx, id)
+	if store.IsNotFound(err) {
+		return c, nil
+	}
+	if err != nil {
+		return c, err
+	}
+	a, err := s.currentStore().GetAgent(ctx, m.AgentID)
+	if err != nil {
+		return c, err
+	}
+	c.AgentID = a.ID
+	c.AgentStatus = a.Status
+	if m.Status != domain.AgentUserActive {
+		c.AgentStatus = "disabled"
+	}
+	return c, nil
 }
 func (s *Service) AuthenticateCustomer(ctx context.Context, token string) (domain.Customer, error) {
 	claim, err := s.verifyAdminToken(token)

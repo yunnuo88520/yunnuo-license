@@ -53,15 +53,13 @@ func (s *Service) RecoveryAccounts(ctx context.Context, kind, agentID, role stri
 		if err != nil {
 			return nil, err
 		}
-		// 账号未单独填邮箱时回退到代理联系邮箱，与恢复码邮件的实际投递地址保持一致。
-		fallbackEmail := ""
-		if agent, err := s.currentStore().GetAgent(ctx, agentID); err == nil {
-			fallbackEmail = strings.ToLower(strings.TrimSpace(agent.Email))
-		}
+		// 代理成员使用统一用户的个人邮箱，业务联系人无权找回个人账号。
 		for _, r := range rows {
 			email := strings.ToLower(strings.TrimSpace(r.Email))
-			if email == "" {
-				email = fallbackEmail
+			if id, e := s.currentStore().AgentIdentityID(ctx, r.ID); e == nil {
+				if c, e := s.currentStore().CustomerByID(ctx, id); e == nil {
+					email = c.Email
+				}
 			}
 			items = append(items, domain.RecoveryAccount{ID: r.ID, Username: r.Username, DisplayName: r.DisplayName, Email: email, Role: r.Role, Status: r.Status})
 		}
@@ -193,7 +191,7 @@ func sixDigitCode() (string, error) {
 }
 
 // RequestRecoveryEmail 自助找回：账号持有人输入登录账号，验证码发送到绑定
-// 邮箱（代理账号未单独绑定邮箱时回退代理联系邮箱）。为防枚举，无论账号是否存在、
+// 邮箱。代理业务联系邮箱不可用于找回个人账号。为防枚举，无论账号是否存在、
 // 是否绑定邮箱都返回相同的通用提示；同一账号 60 秒内只发一封，防止邮箱轰炸。
 func (s *Service) RequestRecoveryEmail(ctx context.Context, username string) error {
 	username = strings.TrimSpace(username)
@@ -255,8 +253,8 @@ func (s *Service) RequestRecoveryEmail(ctx context.Context, username string) err
 	return nil
 }
 
-// locateAccountReset 按登录账号定位 6 位验证码对应的恢复记录。代理账号的用户名
-// 只在代理内唯一，因此逐一尝试同名账号，验证码哈希本身保证只命中正确账号。
+// locateAccountReset 按登录账号定位 6 位验证码对应的恢复记录。
+// 统一账号的用户/代理恢复入口均保留，验证码按入口和账号共同隔离。
 func (s *Service) locateAccountReset(ctx context.Context, username, code string) (domain.PasswordReset, *domain.ResetAccountRef, error) {
 	if username == "" {
 		return domain.PasswordReset{}, nil, ErrRecoveryInvalid

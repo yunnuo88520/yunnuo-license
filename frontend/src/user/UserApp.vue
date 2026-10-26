@@ -6,10 +6,11 @@ import CaptchaField from "../shared/components/CaptchaField.vue";
 import SecurityAppeals from "./SecurityAppeals.vue";
 import { onMounted, reactive, ref } from "vue";
 import { ApiError, request } from "../shared/api";
+import { accountToken, saveAccountToken, clearAccountToken } from "../shared/accountSession";
 import { friendlyError } from "../shared/errors";
 import { branding, loadBranding } from "../shared/branding";
 import { formatTime, expiryInfo, onlineStateLabel } from "../shared/format";
-const token = ref(sessionStorage.getItem("yn.user_token") || ""),
+const token = ref(accountToken("user")),
   profile = ref<any>(),
   items = ref<any[]>([]),
   error = ref(""),
@@ -34,7 +35,7 @@ function logout() {
   profile.value = null;
   items.value = [];
   selected.value = null;
-  sessionStorage.removeItem("yn.user_token");
+  clearAccountToken();
 }
 async function api<T = any>(
   path: string,
@@ -73,7 +74,7 @@ function signIn() {
       token.value = r.access_token;
       profile.value = r.user;
       login.password = "";
-      sessionStorage.setItem("yn.user_token", token.value);
+      saveAccountToken(token.value);
       await refresh();
     } finally {
       login.captcha_code = "";
@@ -161,6 +162,7 @@ onMounted(async () => {
           <CircleHelp :size="15" />帮助
         </button>
         <a href="/">公开验真</a
+        ><a v-if="profile?.agent_id" href="/agent-console/">代理工作台</a
         ><button v-if="profile" class="btn secondary" @click="logout">
           {{ profile.display_name || profile.username }} · 退出
         </button>

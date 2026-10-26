@@ -35,7 +35,10 @@ func (api *API) registerCustomerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/operation-logs", api.withAdmin(api.operationLogs, adminReadRoles...))
 	mux.HandleFunc("GET /admin/operation-logs/export", api.withAdmin(api.exportOperations, adminReadRoles...))
 	mux.HandleFunc("POST /user/login", withRateLimit(api.adminLoginLimit, api.customerLogin))
-	mux.HandleFunc("GET /user/profile", api.withCustomer(func(w http.ResponseWriter, r *http.Request) { writeOK(w, r, customerFrom(r.Context())) }))
+	mux.HandleFunc("GET /user/profile", api.withCustomer(func(w http.ResponseWriter, r *http.Request) {
+		profile, err := api.service.UserAccountProfile(r.Context(), customerFrom(r.Context()).ID)
+		commerceResponse(w, r, profile, err)
+	}))
 	mux.HandleFunc("POST /user/password", api.withCustomer(api.customerPassword))
 	mux.HandleFunc("GET /user/licenses", api.withCustomer(api.customerLicenses))
 	mux.HandleFunc("POST /user/activate", api.withCustomer(api.customerActivate))

@@ -5,6 +5,7 @@ const props = defineProps<{
   api: <T = any>(path: string, options?: RequestInit) => Promise<T>;
   canWrite: boolean;
 }>();
+const emit = defineEmits<{ openAgent: [userID: string] }>();
 const users = ref<any[]>([]),
   error = ref(""),
   message = ref(""),
@@ -87,7 +88,7 @@ onMounted(() => run(load));
       <div>
         <h3>普通用户管理</h3>
         <p>
-          用户只能管理归属于自己的授权。用户账号与管理员、代理、开发者账号相互隔离。
+          用户管理自己的授权；开通代理资格后，同一账号可进入代理工作台。停用用户将同时停止该账号的代理访问。
         </p>
       </div>
       <button
@@ -163,6 +164,8 @@ onMounted(() => run(load));
               >
                 {{ u.status === "active" ? "停用账号" : "恢复账号" }}
               </button>
+              <button v-if="canWrite && u.status === 'active' && !u.agent_id" class="btn secondary small" @click="emit('openAgent', u.id)">开通代理</button>
+              <span v-if="u.agent_id">已开通代理</span>
             </td>
           </tr>
         </tbody>

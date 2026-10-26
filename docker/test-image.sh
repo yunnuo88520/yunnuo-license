@@ -26,6 +26,16 @@ json_get() {
   python3 -c 'import json,sys; data=json.load(sys.stdin); print(eval(sys.argv[1], {"__builtins__": {}}, {"data": data}))' "$expression"
 }
 
+restart_and_wait() {
+  docker restart "$container" >/dev/null
+  for attempt in $(seq 1 120); do
+    [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container")" == "healthy" ]] && return
+    sleep 1
+  done
+  echo "restarted container did not become healthy" >&2
+  return 1
+}
+
 check_public_license() {
   local response masked
   response="$(curl --fail --silent --show-error -X POST "$base/v1/licenses/query" \
@@ -191,15 +201,15 @@ YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_st
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage4.py --base-url "$base" --artifacts "$platform_artifacts/stage4"
 
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_recovery_history.py --base-url "$base" --artifacts "$platform_artifacts/recovery-history"
+# Isolate the additional login-heavy suite's rate-limit window while retaining MySQL data.
+restart_and_wait
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_agent_accounts.py --base-url "$base" --artifacts "$platform_artifacts/agent-accounts"
 
-docker restart "$container" >/dev/null
-for attempt in $(seq 1 120); do
-  [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container")" == "healthy" ]] && break
-  sleep 1
-done
+restart_and_wait
 check_public_license
 
 python3 ./docker/test-product-updates.py verify "$base" "$update_state"
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_agent_accounts.py --base-url "$base" --artifacts "$platform_artifacts/agent-accounts" --verify-state "$platform_artifacts/agent-accounts/report.json"
 curl --fail --silent --show-error "$base/v1/app/profile" -H "Authorization: Bearer $application_token" | grep -Fq "$product_id"
 curl --fail --silent --show-error -X POST "$base/v1/app/token" -H 'Content-Type: application/json' -d "$application_token_payload" | grep -q '"expires_in":7200'
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2" --verify-state "$platform_artifacts/stage2/report.json"

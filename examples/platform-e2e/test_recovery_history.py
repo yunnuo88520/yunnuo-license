@@ -115,7 +115,6 @@ def main():
                 agent_page = browser.new_page(viewport={"width": 1540, "height": 1100}, locale="zh-CN")
                 agent_page.on("pageerror", lambda e: errors.append(str(e)))
                 agent_page.goto(base + "/agent-console/#money")
-                agent_page.get_by_label("代理代码", exact=True).fill(agent["login_code"])
                 agent_page.get_by_label("登录名", exact=True).fill(credentials["username"])
                 agent_page.get_by_label("密码", exact=True).fill(new_password)
                 agent_page.get_by_role("button", name="进入工作台", exact=True).click()

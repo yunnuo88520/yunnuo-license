@@ -124,6 +124,9 @@ jobs:
         run: |
           python .github/scripts/check-command.py "Card application detection acceptance" python examples/platform-e2e/test_stage1.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-application-identity/user"
           python .github/scripts/check-command.py "Agent application selection acceptance" python examples/platform-e2e/test_stage3.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-application-identity/agent"
+      - name: Verify unified agent accounts and one-step onboarding
+        timeout-minutes: 4
+        run: python .github/scripts/check-command.py "Unified agent account acceptance" python examples/platform-e2e/test_agent_accounts.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-agent-accounts"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -136,6 +139,7 @@ jobs:
           path: |
             ${{ runner.temp }}/yunnuo-integration
             ${{ runner.temp }}/yunnuo-application-identity
+            ${{ runner.temp }}/yunnuo-agent-accounts
 
   docker:
     runs-on: ubuntu-latest

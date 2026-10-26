@@ -106,6 +106,7 @@ func (api *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	api.registerReleaseRoutes(mux)
 	api.registerApplicationCredentialRoutes(mux)
+	api.registerAgentIdentityRoutes(mux)
 	api.registerDeveloperRoutes(mux)
 	api.registerCustomerRoutes(mux)
 	api.registerCommerceRoutes(mux)

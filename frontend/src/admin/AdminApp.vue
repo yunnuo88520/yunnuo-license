@@ -47,6 +47,7 @@ import CustomersPanel from "./CustomersPanel.vue";
 import BindingPolicy from "./BindingPolicy.vue";
 import OperationLogs from "./OperationLogs.vue";
 import CommercePanel from "./CommercePanel.vue";
+import AgentOnboarding from "./AgentOnboarding.vue";
 import RecoveryPanel from "./RecoveryPanel.vue";
 import SecurityPanel from "./SecurityPanel.vue";
 import FormDialog from "../shared/components/FormDialog.vue";
@@ -60,6 +61,18 @@ import {
   logoSource,
 } from "../shared/branding";
 const a = useAdmin();
+const agentOnboardingOpen = ref(false);
+const initialAgentUserID = ref("");
+function openAgentOnboarding(userID = "") {
+  initialAgentUserID.value = userID;
+  agentOnboardingOpen.value = true;
+}
+async function agentOpened(result: any) {
+  await a.refresh();
+  await a.showAgent(result.agent.id);
+  go("agents");
+  toast("代理资格已开通，可直接使用用户账号登录。");
+}
 const integrationProductID = ref("");
 const createdSecrets = reactive<Record<string, string>>({});
 const integrationProduct = computed(() => a.data.products.find((p:any) => p.id === integrationProductID.value));
@@ -82,9 +95,7 @@ const visibleSettingTabs = computed(() =>
   settingTabs.filter((t) => t.id !== "email" || a.isManager.value),
 );
 const agentActionTitles: Record<string, string> = {
-  agent: "新增代理",
-  user: "新增代理账号",
-  policy: "代理授权规则",
+  user: "添加团队成员（可选）",
   quota: "发放额度",
   agentBatch: "代理批量发卡",
 };
@@ -263,13 +274,13 @@ const quickActions = [
     },
   },
   {
-    label: "新增代理",
-    desc: "开通代理与登录账号",
+    label: "开通代理",
+    desc: "创建或选择用户，一次开通",
     icon: UserRoundCog,
     tone: "green",
     run: () => {
       go("agents");
-      action.value = "agent";
+      openAgentOnboarding();
     },
   },
   {
@@ -428,23 +439,10 @@ async function productCreate(e: Event) {
 }
 async function agentTask(kind: string, e: Event) {
   const o = values(e);
-  if (kind === "create") return create("/admin/agents", e, "代理已创建");
   const id = o.agent_id;
   delete o.agent_id;
   if (kind === "user")
     return a.mutate(`/admin/agents/${id}/users`, o, "代理账号已创建");
-  if (kind === "policy") {
-    o.allowed_duration_days = o.allowed_duration_days
-      .split(",")
-      .map(Number)
-      .filter(Boolean);
-    o.max_batch_quantity = Number(o.max_batch_quantity);
-    return a.mutate(
-      "/admin/agent-policies",
-      { ...o, agent_id: id },
-      "代理政策已保存",
-    );
-  }
   if (kind === "quota") {
     o.quantity = Number(o.quantity);
     o.duration_days = Number(o.duration_days);
@@ -1636,6 +1634,7 @@ onMounted(async () => {
           v-if="page === 'customers'"
           :api="a.api"
           :can-write="a.isManager.value"
+          @open-agent="openAgentOnboarding"
         />
         <section v-if="page === 'releases'" class="panel">
           <div class="panel-head">
@@ -1749,13 +1748,13 @@ onMounted(async () => {
             <button
               v-if="a.isManager.value"
               class="btn small"
-              @click="action = action === 'agent' ? '' : 'agent'"
+              @click="openAgentOnboarding()"
             >
-              <Plus :size="14" />新增代理
+              <Plus :size="14" />开通代理账号
             </button>
           </div>
           <FormDialog
-            :open="['agent', 'user', 'policy', 'quota', 'agentBatch'].includes(action)"
+            :open="['user', 'quota', 'agentBatch'].includes(action)"
             :title="agentActionTitles[action] || '代理操作'"
             @close="action = ''"
           >
@@ -1764,88 +1763,27 @@ onMounted(async () => {
             @submit.prevent="
               action === 'agentBatch'
                 ? agentBatchSubmit()
-                : agentTask(action === 'agent' ? 'create' : action, $event)
+                : agentTask(action, $event)
             "
           >
-            <label v-if="action === 'agent'" class="field"
-              >代理名称<input name="name" required /></label
-            ><template v-else
-              ><label class="field"
-                >代理<select
-                  v-model="a.selected.agent"
-                  name="agent_id"
-                  required
-                  @change="action === 'agentBatch' && loadAgentAccount()"
-                >
-                  <option v-for="x in a.data.agents" :value="x.id">
-                    {{ x.name }} · {{ x.login_code || x.agent_no }}
-                  </option>
-                </select></label
-              ></template
-            ><template v-if="action === 'agent'"
-              ><label class="field">联系人<input name="contact_name" /></label
-              ><label class="field">手机<input name="phone" /></label>
-              <label class="field"
-                >邮箱<input
-                  name="email"
-                  type="email"
-                  maxlength="254"
-                  placeholder="接收通知与验证码邮件" /></label
-            ></template
+            <label class="field">代理<select v-model="a.selected.agent" name="agent_id" required @change="action === 'agentBatch' && loadAgentAccount()"><option v-for="x in a.data.agents" :value="x.id">{{ x.name }} · {{ x.username || x.agent_no }}</option></select></label
             ><template v-if="action === 'user'"
               ><label class="field"
-                >登录名<input name="username" required /></label
+                >登录账号<input name="username" required /></label
               ><label class="field"
                 >初始密码<input
                   name="password"
                   type="password"
                   minlength="8"
                   required /></label
-              ><label class="field">显示名<input name="display_name" /></label
+              ><label class="field">个人邮箱<input name="email" type="email" placeholder="用于账号找回，不能填写公司共用邮箱" /></label><label class="field">显示名<input name="display_name" /></label
               ><label class="field"
                 >角色<select name="role">
-                  <option value="agent_owner">主账号</option>
+                  <option value="agent_owner">负责人</option>
                   <option value="agent_manager">经理</option>
-                  <option value="agent_staff">员工</option>
+                  <option value="agent_staff" selected>员工</option>
                   <option value="agent_readonly">只读</option>
                 </select></label
-              ></template
-            ><template v-if="action === 'policy'"
-              ><label class="field"
-                >产品<select name="product_id">
-                  <option v-for="p in a.data.products" :value="p.id">
-                    {{ p.name }}
-                  </option>
-                </select></label
-              ><label class="field"
-                >允许天数<input
-                  name="allowed_duration_days"
-                  value="30,90,365"
-                  pattern="[0-9]+(\s*,\s*[0-9]+)*"
-                  title="填写逗号分隔的数字天数，例如 30,90,365" /></label
-              ><label class="field"
-                >单批上限<input
-                  name="max_batch_quantity"
-                  type="number"
-                  min="1"
-                  value="100"
-                  required /></label
-              ><label class="check"
-                ><input
-                  name="can_generate"
-                  type="checkbox"
-                  checked
-                />允许生成</label
-              ><label class="check"
-                ><input
-                  name="can_export_plain_code"
-                  type="checkbox"
-                />允许明文导出</label
-              ><label class="check"
-                ><input
-                  name="allow_permanent"
-                  type="checkbox"
-                />允许永久卡</label
               ></template
             ><template v-if="action === 'quota'"
               ><label class="field"
@@ -1897,7 +1835,7 @@ onMounted(async () => {
                 v-if="action === 'agentBatch' && agentAccount && !agentAccount.packages?.length"
                 class="issue-quote"
               >
-                该代理还没有可发的套餐：请先在「授权规则」里允许生成，并在「套餐与结算」中授予套餐。
+                该代理还没有可发的套餐，请在下方“代理授权与资金”中授予套餐。
               </p>
               <p v-if="agentIssueQuote" class="issue-quote">
                 单张成本
@@ -1918,7 +1856,7 @@ onMounted(async () => {
           <FormDialog
             :open="action === 'agentEdit'"
             title="编辑代理"
-            :description="`更新 ${agentEdit.name} 的联系信息；登录代码与编号不可变更。`"
+            :description="`更新 ${agentEdit.name} 的业务联系信息。账号登录与密码找回使用用户自己的账号邮箱。`"
             @close="action = ''"
           >
             <form class="form-grid" @submit.prevent="agentUpdate">
@@ -1935,7 +1873,7 @@ onMounted(async () => {
                   name="email"
                   type="email"
                   :value="agentEdit.email"
-                  placeholder="接收通知与验证码邮件"
+                  placeholder="业务通知邮箱，不用于重置个人账号密码"
               /></label>
               <div class="form-actions">
                 <button class="btn">保存修改</button>
@@ -1974,7 +1912,7 @@ onMounted(async () => {
                 <thead>
                   <tr>
                     <th>代理</th>
-                    <th>内部登录代码</th>
+                    <th>登录账号</th>
                     <th>公开代理编号</th>
                     <th>联系人</th>
                     <th>状态</th>
@@ -1989,7 +1927,7 @@ onMounted(async () => {
                   >
                     <td>{{ x.name }}</td>
                     <td>
-                      <code>{{ x.login_code || x.agent_no }}</code>
+                      <code>{{ x.username || '待关联用户' }}</code>
                     </td>
                     <td>
                       <code>{{ x.agent_no }}</code>
@@ -2027,15 +1965,6 @@ onMounted(async () => {
               <div class="detail-head">
                 <h4>{{ selectedAgentName || "代理详情" }}</h4>
                 <div v-if="a.isManager.value && a.selected.agent" class="row-actions">
-                  <button class="btn secondary small" @click="action = 'user'">
-                    新增账号
-                  </button>
-                  <button class="btn secondary small" @click="action = 'policy'">
-                    授权规则
-                  </button>
-                  <button class="btn secondary small" @click="action = 'quota'">
-                    发放额度
-                  </button>
                   <button class="btn secondary small" @click="openAgentBatch">
                     批量发卡
                   </button>
@@ -2045,7 +1974,11 @@ onMounted(async () => {
                 </div>
               </div>
               <template v-if="a.selected.agent">
-                <h5>代理账号</h5>
+                <p>用户中心和代理工作台共用账号与密码。代理暂停只限制代理业务，个人授权仍归原用户。</p>
+                <details>
+                <summary>团队协作（可选，{{ a.data.agentUsers.length }} 位成员）</summary>
+                <p>个人代理无需添加成员；企业团队可添加不同权限的成员，代理等级决定价格，成员角色决定操作权限。</p>
+                <button v-if="a.isManager.value" class="btn secondary small" @click="action = 'user'">添加团队成员</button>
                 <div v-for="u in a.data.agentUsers" class="detail-row">
                   <span
                     ><b>{{ u.display_name || u.username }}</b
@@ -2062,9 +1995,13 @@ onMounted(async () => {
                   >
                 </div>
                 <p v-if="!a.data.agentUsers.length" class="pane-empty">
-                  该代理还没有登录账号，点击“新增账号”创建。
+                  尚未关联用户，可添加团队负责人。
                 </p>
-                <h5>产品额度</h5>
+                </details>
+                <details>
+                <summary>附加张数额度（可选）</summary>
+                <p>仅对启用“同时扣除张数额度”的套餐生效。普通余额结算无需另发额度。</p>
+                <button v-if="a.isManager.value" class="btn secondary small" @click="action = 'quota'">发放张数额度</button>
                 <div v-for="q in a.data.agentQuotas" class="detail-row">
                   <span
                     ><b>{{ pname(q.product_id) }}</b
@@ -2074,14 +2011,25 @@ onMounted(async () => {
                   ><strong>{{ q.balance }}</strong>
                 </div>
                 <p v-if="!a.data.agentQuotas.length" class="pane-empty">
-                  尚未发放额度，点击“发放额度”为该代理充值。
+                  未配置附加张数额度。
                 </p>
+                </details>
               </template>
               <p v-else class="pane-empty">
-                点击左侧代理的“详情”，在这里管理它的账号与额度。
+                选择代理，可管理等级、可售套餐、余额与团队。
               </p>
             </aside>
           </div>
+          <CommercePanel
+            v-if="a.selected.agent"
+            :key="a.selected.agent"
+            :agent-id="a.selected.agent"
+            :token="a.token.value"
+            :api="a.api"
+            :products="a.data.products"
+            :agents="a.data.agents"
+            :can-write="a.isManager.value"
+          />
         </section>
         <section v-if="page === 'cards'" class="panel">
           <div class="panel-head">
@@ -3139,14 +3087,14 @@ onMounted(async () => {
             class="form-grid"
             @submit.prevent="create('/admin/users', $event, '账号已创建')"
           >
-            <label class="field">登录名<input name="username" required /></label
+            <label class="field">登录账号<input name="username" required /></label
             ><label class="field"
               >初始密码<input
                 name="password"
                 type="password"
                 minlength="8"
                 required /></label
-            ><label class="field">显示名<input name="display_name" /></label
+            ><label class="field">个人邮箱<input name="email" type="email" placeholder="用于账号找回，不能填写公司共用邮箱" /></label><label class="field">显示名<input name="display_name" /></label
             ><label class="field"
               >邮箱<input
                 name="email"
@@ -3288,6 +3236,7 @@ onMounted(async () => {
       @close="closeConfirm"
       @confirm="acceptConfirm"
     />
+    <AgentOnboarding :open="agentOnboardingOpen" :initial-user-id="initialAgentUserID" :products="a.data.products" :api="a.api" @close="agentOnboardingOpen = false" @opened="agentOpened" />
     <AppToast />
     <dialog :open="!!a.data.keys" class="key-dialog">
       <div class="panel-head">

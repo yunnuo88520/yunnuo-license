@@ -159,6 +159,9 @@ func (s *Store) Migrate(ctx context.Context, dir string) error {
 	if err := s.ensureAccountEmailColumns(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureAgentIdentities(ctx); err != nil {
+		return err
+	}
 	return s.ensureRiskBlockExpiresAt(ctx)
 }
 
@@ -747,25 +750,29 @@ func (s *Store) CreateAgent(ctx context.Context, agent domain.Agent) error {
 
 func (s *Store) CreateAgentWithLoginCode(ctx context.Context, agent domain.Agent) error {
 	return s.WithTx(ctx, func(tx *Tx) error {
-		_, err := tx.tx.ExecContext(ctx, `
+		return tx.CreateAgentWithLoginCode(ctx, agent)
+	})
+}
+
+func (tx *Tx) CreateAgentWithLoginCode(ctx context.Context, agent domain.Agent) error {
+	_, err := tx.tx.ExecContext(ctx, `
 			INSERT INTO agents (
 			  id, agent_no, parent_agent_id, name, contact_name, phone, email, level,
 			  status, settlement_mode, default_discount_rate, credit_limit, remark,
 			  created_by, created_at, updated_at, disabled_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			agent.ID, agent.AgentNo, nullString(agent.ParentAgentID), agent.Name,
-			nullString(agent.ContactName), nullString(agent.Phone), nullString(agent.Email),
-			agent.Level, agent.Status, agent.SettlementMode, agent.DefaultDiscountRate,
-			agent.CreditLimit, nullString(agent.Remark), nullString(agent.CreatedBy),
-			ts(agent.CreatedAt), ts(agent.UpdatedAt), nullTime(agent.DisabledAt),
-		)
-		if err != nil {
-			return err
-		}
-		_, err = tx.tx.ExecContext(ctx, `INSERT INTO agent_login_codes (agent_id, login_code, created_at) VALUES (?, ?, ?)`,
-			agent.ID, agent.LoginCode, ts(agent.CreatedAt))
+		agent.ID, agent.AgentNo, nullString(agent.ParentAgentID), agent.Name,
+		nullString(agent.ContactName), nullString(agent.Phone), nullString(agent.Email),
+		agent.Level, agent.Status, agent.SettlementMode, agent.DefaultDiscountRate,
+		agent.CreditLimit, nullString(agent.Remark), nullString(agent.CreatedBy),
+		ts(agent.CreatedAt), ts(agent.UpdatedAt), nullTime(agent.DisabledAt),
+	)
+	if err != nil {
 		return err
-	})
+	}
+	_, err = tx.tx.ExecContext(ctx, `INSERT INTO agent_login_codes (agent_id, login_code, created_at) VALUES (?, ?, ?)`,
+		agent.ID, agent.LoginCode, ts(agent.CreatedAt))
+	return err
 }
 
 func (s *Store) CreateAgentLoginCode(ctx context.Context, agentID, loginCode string, createdAt time.Time) error {
@@ -849,7 +856,10 @@ func (s *Store) UpdateAgentProfile(ctx context.Context, agentID, name, contactNa
 }
 
 func (s *Store) CreateAgentUser(ctx context.Context, user domain.AgentUser) error {
-	_, err := s.db.ExecContext(ctx, `
+	return s.WithTx(ctx, func(tx *Tx) error { return tx.CreateAgentUser(ctx, user) })
+}
+func (tx *Tx) CreateAgentUser(ctx context.Context, user domain.AgentUser) error {
+	_, err := tx.tx.ExecContext(ctx, `
 		INSERT INTO agent_users (
 		  id, agent_id, username, password_hash, display_name, phone, email,
 		  role, status, last_login_at, created_at, updated_at
@@ -1254,7 +1264,10 @@ const cardColumns = `id, product_id, batch_id, agent_id, code_hash, code_encrypt
 const licenseColumns = `id, license_no, product_id, card_id, agent_id, status, issued_at, activated_at, expired_at, last_verify_at, last_heartbeat_at, offline_token_version, created_at, updated_at, COALESCE((SELECT license_mode FROM license_entitlements WHERE license_id = licenses.id), 'subscription'), CASE WHEN EXISTS (SELECT 1 FROM license_entitlements WHERE license_id = licenses.id) THEN (SELECT updates_expired_at FROM license_entitlements WHERE license_id = licenses.id) ELSE expired_at END, COALESCE((SELECT user_id FROM license_owners WHERE license_id=licenses.id),'')`
 const offlineLicenseColumns = `id, license_no, product_id, label, machine_code_hash, machine_code_encrypted, machine_code_masked, signed_token_encrypted, token_version, status, issued_at, expired_at, revoked_at, revoked_reason, created_by, created_at, updated_at`
 const bindingColumns = `id, license_id, product_id, bind_mode, bind_value_hash, bind_value_encrypted, display_name, status, first_seen_ip, last_seen_ip, user_agent, last_heartbeat_at, activated_at, created_at, updated_at`
-const agentColumns = `id, agent_no, parent_agent_id, name, contact_name, phone, email, level, status, settlement_mode, default_discount_rate, credit_limit, remark, created_by, created_at, updated_at, disabled_at`
+const agentColumns = `id, agent_no, parent_agent_id, name, contact_name, phone, email, level, status, settlement_mode, default_discount_rate, credit_limit, remark, created_by, created_at, updated_at, disabled_at,
+COALESCE((SELECT i.user_id FROM agent_user_identities i JOIN agent_users m ON m.id=i.member_id WHERE m.agent_id=agents.id AND m.role='agent_owner' ORDER BY m.created_at,m.id LIMIT 1),''),
+COALESCE((SELECT u.username FROM customer_users u JOIN agent_user_identities i ON i.user_id=u.id JOIN agent_users m ON m.id=i.member_id WHERE m.agent_id=agents.id AND m.role='agent_owner' ORDER BY m.created_at,m.id LIMIT 1),''),
+(SELECT COUNT(*) FROM agent_users m WHERE m.agent_id=agents.id)`
 const agentUserColumns = `id, agent_id, username, password_hash, display_name, phone, email, role, status, last_login_at, created_at, updated_at, COALESCE((SELECT version FROM agent_session_versions WHERE user_id=agent_users.id),0)`
 const adminUserColumns = `id, username, email, password_hash, display_name, role, status, session_version, last_login_at, created_at, updated_at`
 const agentPolicyColumns = `id, agent_id, product_id, can_generate, can_export_plain_code, allowed_duration_days, allow_permanent, max_batch_quantity, discount_rate, settlement_price, status, created_at, updated_at`
@@ -1404,7 +1417,7 @@ func scanAgent(row scanner) (domain.Agent, error) {
 	var createdAt, updatedAt string
 	err := row.Scan(&a.ID, &a.AgentNo, &parentAgentID, &a.Name, &contactName, &phone,
 		&email, &a.Level, &a.Status, &a.SettlementMode, &a.DefaultDiscountRate,
-		&a.CreditLimit, &remark, &createdBy, &createdAt, &updatedAt, &disabledAt)
+		&a.CreditLimit, &remark, &createdBy, &createdAt, &updatedAt, &disabledAt, &a.OwnerUserID, &a.Username, &a.MemberCount)
 	if err != nil {
 		return domain.Agent{}, err
 	}

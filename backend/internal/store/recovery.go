@@ -30,12 +30,16 @@ func readRecoveryAccount(ctx context.Context, q commerceQuery, kind, id string) 
 		role = "'customer'"
 	}
 	email := "COALESCE(email,'')"
+	username, status, password := "username", "status", "password_hash"
 	if kind == "agent" {
-		// 优先账号自身邮箱，其次回退到所属代理的联系邮箱。
-		email = "COALESCE(NULLIF(email,''),(SELECT a.email FROM agents a WHERE a.id = agent_id),'')"
+		// Unified personal identity controls recovery; business contact email must never recover it.
+		email = "COALESCE((SELECT c.email FROM customer_users c JOIN agent_user_identities i ON i.user_id=c.id WHERE i.member_id=agent_users.id), email,'')"
+		username = "COALESCE((SELECT c.username FROM customer_users c JOIN agent_user_identities i ON i.user_id=c.id WHERE i.member_id=agent_users.id),username)"
+		password = "COALESCE((SELECT c.password_hash FROM customer_users c JOIN agent_user_identities i ON i.user_id=c.id WHERE i.member_id=agent_users.id),password_hash)"
+		status = "CASE WHEN EXISTS(SELECT 1 FROM customer_users c JOIN agent_user_identities i ON i.user_id=c.id WHERE i.member_id=agent_users.id AND c.status<>'active') THEN 'disabled' ELSE status END"
 	}
 	var name, mail sql.NullString
-	err = q.QueryRowContext(ctx, `SELECT id,username,display_name,`+role+`,status,password_hash,`+email+` FROM `+table+` WHERE id=?`, id).Scan(&a.ID, &a.Username, &name, &a.Role, &a.Status, &a.PasswordHash, &mail)
+	err = q.QueryRowContext(ctx, `SELECT id,`+username+`,display_name,`+role+`,`+status+`,`+password+`,`+email+` FROM `+table+` WHERE id=?`, id).Scan(&a.ID, &a.Username, &name, &a.Role, &a.Status, &a.PasswordHash, &mail)
 	a.DisplayName = str(name)
 	a.Email = mail.String
 	return a, err
@@ -62,11 +66,19 @@ func (tx *Tx) ResetAccountPassword(ctx context.Context, kind, id, hash string, n
 		_, err := tx.tx.ExecContext(ctx, `UPDATE admin_users SET password_hash=?,session_version=session_version+1,updated_at=? WHERE id=?`, hash, ts(now), id)
 		return err
 	case "agent":
+		var identity string
+		err := tx.tx.QueryRowContext(ctx, `SELECT user_id FROM agent_user_identities WHERE member_id=?`, id).Scan(&identity)
+		if err == nil {
+			return tx.SetCustomerPassword(ctx, identity, hash)
+		}
+		if err != sql.ErrNoRows {
+			return err
+		}
 		if _, err := tx.tx.ExecContext(ctx, `UPDATE agent_users SET password_hash=?,updated_at=? WHERE id=?`, hash, ts(now), id); err != nil {
 			return err
 		}
 		var version int
-		err := tx.tx.QueryRowContext(ctx, `SELECT version FROM agent_session_versions WHERE user_id=?`, id).Scan(&version)
+		err = tx.tx.QueryRowContext(ctx, `SELECT version FROM agent_session_versions WHERE user_id=?`, id).Scan(&version)
 		if err != nil && !IsNotFound(err) {
 			return err
 		}

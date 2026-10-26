@@ -76,6 +76,12 @@ func (api *API) operationAudit(next http.Handler, mux *http.ServeMux) http.Handl
 				a.Type = "customer"
 				a.ID = customer.ID
 				a.Role = "customer"
+				// A shared identity acts in the scope of the endpoint it uses.
+				if strings.HasPrefix(r.URL.Path, "/agent/") {
+					if agent, err := api.service.AuthenticateAgentToken(r.Context(), token); err == nil {
+						a.Type, a.ID, a.Role = "agent", agent.UserID, agent.Role
+					}
+				}
 			} else if agent, err := api.service.AuthenticateAgentToken(r.Context(), token); err == nil {
 				a.Type = "agent"
 				a.ID = agent.UserID

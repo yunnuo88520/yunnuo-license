@@ -3,6 +3,8 @@ package domain
 import "time"
 
 type Customer struct {
+	AgentID        string    `json:"agent_id,omitempty"`
+	AgentStatus    string    `json:"agent_status,omitempty"`
 	ID             string    `json:"id"`
 	Username       string    `json:"username"`
 	Email          string    `json:"email"`

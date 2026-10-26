@@ -326,7 +326,7 @@ func TestRecoveryEmailDeliveredToAgentMailbox(t *testing.T) {
 		ID string `json:"id"`
 	}
 	decodeData(t, performJSON(t, handler, http.MethodPost, "/admin/agents/"+agent.ID+"/users", token, map[string]any{
-		"username": "agentuser", "password": "secret123", "display_name": "账号 A", "role": "agent_owner",
+		"username": "agentuser", "password": "secret123", "display_name": "账号 A", "role": "agent_owner", "email": "agent-mail@example.com",
 	}), &user)
 
 	var accounts []map[string]any

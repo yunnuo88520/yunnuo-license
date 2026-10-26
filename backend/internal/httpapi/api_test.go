@@ -275,14 +275,14 @@ func TestAgentBearerTokenCanGenerateCards(t *testing.T) {
 	}
 	if _, err := svc.CreateAgentUser(ctx, service.CreateAgentUserInput{
 		AgentID:  otherAgent.ID,
-		Username: "owner",
+		Username: "other-owner",
 		Password: "secret123",
 	}); err != nil {
 		t.Fatalf("create other agent user: %v", err)
 	}
 	otherLoginResp := performJSON(t, handler, http.MethodPost, "/agent/login", "", map[string]any{
 		"login_code": otherAgent.LoginCode,
-		"username":   "owner",
+		"username":   "other-owner",
 		"password":   "secret123",
 	})
 	var otherLogin service.AgentLoginResponse

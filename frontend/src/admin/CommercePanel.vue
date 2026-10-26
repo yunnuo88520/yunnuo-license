@@ -10,11 +10,12 @@ const props = defineProps<{
   agents: any[];
   canWrite: boolean;
   token: string;
+  agentId?: string;
 }>();
 const catalog = ref<any>({ groups: [], packages: [], tiers: [] }),
   account = ref<any>(),
-  selected = ref(""),
-  catalogTab = ref("catalog"),
+  selected = ref(props.agentId || ""),
+  catalogTab = ref(props.agentId ? "agents" : "catalog"),
   error = ref(""),
   message = ref(""),
   busy = ref(false),
@@ -139,7 +140,7 @@ onMounted(() => run(load));
 </script>
 <template>
   <div class="commerce">
-    <section class="section-intro">
+    <section v-if="!agentId" class="section-intro">
       <div>
         <h2>应用分组与代理套餐</h2>
         <p>
@@ -149,7 +150,7 @@ onMounted(() => run(load));
     </section>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
     <p v-if="message" class="notice" role="status">{{ message }}</p>
-    <div class="tabbar plain" role="tablist" aria-label="套餐与结算视图">
+    <div v-if="!agentId" class="tabbar plain" role="tablist" aria-label="套餐与结算视图">
       <button
         type="button"
         role="tab"
@@ -463,12 +464,12 @@ onMounted(() => run(load));
     </fieldset>
     <section v-if="catalogTab === 'agents'" class="panel">
       <h3>代理授权与资金</h3>
-      <label class="field"
+      <label v-if="!agentId" class="field"
         >当前代理<select v-model="selected" @change="run(loadAccount)">
           <option v-for="a in agents" :value="a.id">{{ a.name }}</option>
         </select></label
       >
-      <p v-if="!agents.length">请先在代理管理中建立代理及登录账号。</p>
+      <p v-if="!agents.length">请先在代理管理中一次开通代理账号。</p>
       <template v-if="account"
         ><p class="balance">
           可用余额 <strong>{{ money(account.account.balance) }}</strong>

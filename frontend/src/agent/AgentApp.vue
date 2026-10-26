@@ -18,6 +18,7 @@ import {
   Wallet,
 } from "lucide-vue-next";
 import { ApiError, downloadText, request } from "../shared/api";
+import { accountToken, saveAccountToken, clearAccountToken } from "../shared/accountSession";
 import { friendlyError } from "../shared/errors";
 import { formatTime, roleLabel } from "../shared/format";
 import AppToast from "../shared/components/AppToast.vue";
@@ -26,7 +27,7 @@ import UserMenu from "../shared/components/UserMenu.vue";
 import { toast } from "../shared/useToast";
 import { branding, loadBranding, logoSource } from "../shared/branding";
 
-const token = ref(sessionStorage.getItem("yn.agent_token") || "");
+const token = ref(accountToken("agent"));
 const profile = ref<any>();
 const loading = ref(false);
 const loginError = ref("");
@@ -44,7 +45,6 @@ const packages = ref<any[]>([]),
   issuing = ref(false);
 const money = (n: number) => `¥${(n / 100).toFixed(2)}`;
 const login = reactive({
-  login_code: localStorage.getItem("yn.agent_login_code") || "",
   username: "",
   password: "",
   captcha_id: "",
@@ -121,9 +121,7 @@ async function signIn() {
       body: JSON.stringify(login),
     });
     token.value = data.access_token;
-    sessionStorage.setItem("yn.agent_token", token.value);
-    login.login_code = login.login_code.toUpperCase();
-    localStorage.setItem("yn.agent_login_code", login.login_code);
+    saveAccountToken(token.value);
     profile.value = await api("/agent/profile");
     login.password = "";
     await refresh();
@@ -137,7 +135,7 @@ async function signIn() {
 function logout(message = "") {
   token.value = "";
   profile.value = null;
-  sessionStorage.removeItem("yn.agent_token");
+  clearAccountToken();
   loginError.value = message;
 }
 async function refresh() {
@@ -270,20 +268,14 @@ onMounted(async () => {
           </div>
         </div>
         <h2>代理工作台</h2>
-        <p>登录代码会在此设备上自动记忆。</p>
+        <p>使用用户中心的同一账号登录，无需代理代码。代理资格由管理员开通。</p>
         <form class="login-form" @submit.prevent="signIn">
           <CaptchaField ref="captchaField" v-model="login.captcha_code" />
           <label class="field"
-            >代理代码<input
-              v-model="login.login_code"
-              placeholder="YN-ABC123"
-              autocomplete="organization"
-              required
-              autofocus /></label
-          ><label class="field"
             >登录名<input
               v-model="login.username"
               autocomplete="username"
+              placeholder="账号或绑定邮箱"
               required /></label
           ><label class="field"
             >密码<input
@@ -296,7 +288,7 @@ onMounted(async () => {
               v-else
               :size="17"
             />进入工作台</button
-          ><a href="/recover?from=agent">忘记密码</a>
+          ><a href="/recover?from=agent">忘记密码</a><a href="/user-console/">进入用户中心</a>
           <p class="error">{{ loginError }}</p>
         </form>
       </div>
@@ -359,6 +351,7 @@ onMounted(async () => {
                 公开代理编号：<code>{{ profile.agent_no }}</code>
               </p>
               <a href="/" target="_blank" rel="noopener">打开公开验真首页</a>
+              <a href="/user-console/">管理我购买的授权</a>
             </div>
           </section>
           <section class="hero-card">

@@ -24,16 +24,25 @@ func (s *Store) CustomerByID(ctx context.Context, id string) (domain.Customer, e
 	return scanCustomer(s.db.QueryRowContext(ctx, `SELECT `+customerColumns+` FROM customer_users WHERE id=?`, id))
 }
 func (s *Store) Customers(ctx context.Context) ([]domain.Customer, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+customerColumns+` FROM customer_users ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT c.id,c.username,c.email,c.password_hash,c.display_name,c.status,c.session_version,c.created_at,
+		COALESCE(m.agent_id,''),COALESCE(CASE WHEN m.status='active' THEN a.status ELSE 'disabled' END,'')
+		FROM customer_users c LEFT JOIN agent_user_identities i ON i.user_id=c.id
+		LEFT JOIN agent_users m ON m.id=i.member_id LEFT JOIN agents a ON a.id=m.agent_id ORDER BY c.created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	items := []domain.Customer{}
 	for rows.Next() {
-		c, err := scanCustomer(rows)
+		var c domain.Customer
+		var created string
+		err := rows.Scan(&c.ID, &c.Username, &c.Email, &c.PasswordHash, &c.DisplayName, &c.Status, &c.SessionVersion, &created, &c.AgentID, &c.AgentStatus)
 		if err != nil {
 			return nil, err
+		}
+		c.CreatedAt = parseTS(created)
+		if c.AgentID == "" {
+			c.AgentStatus = ""
 		}
 		items = append(items, c)
 	}
@@ -49,7 +58,10 @@ func (tx *Tx) SetCustomerStatus(ctx context.Context, id, status string) error {
 }
 func (tx *Tx) SetCustomerPassword(ctx context.Context, id, hash string) error {
 	_, err := tx.tx.ExecContext(ctx, `UPDATE customer_users SET password_hash=?,session_version=session_version+1 WHERE id=?`, hash, id)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.syncAgentIdentityPassword(ctx, id, hash)
 }
 func (tx *Tx) LockLicense(ctx context.Context, id string) error {
 	_, err := tx.tx.ExecContext(ctx, `UPDATE licenses SET updated_at=updated_at WHERE id=?`, id)
