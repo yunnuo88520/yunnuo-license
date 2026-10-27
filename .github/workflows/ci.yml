@@ -267,8 +267,20 @@ jobs:
       - name: Scan fixable high and critical image vulnerabilities and generate SBOM
         run: |
           mkdir -p /tmp/yunnuo-image-security
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/yunnuo-image-security:/reports aquasec/trivy:0.66.0 image --scanners vuln --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 --format json --output /reports/vulnerabilities.json yunnuo-license:test
+          scan_status=0
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/yunnuo-image-security:/reports aquasec/trivy:0.66.0 image --scanners vuln --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 --format json --output /reports/vulnerabilities.json yunnuo-license:test || scan_status=$?
+          python3 - <<'PYREPORT'
+          import json, pathlib
+          report=pathlib.Path('/tmp/yunnuo-image-security/vulnerabilities.json')
+          if report.exists():
+              for result in json.loads(report.read_text()).get('Results', []):
+                  for finding in result.get('Vulnerabilities', []):
+                      print(f"{finding['Severity']} {finding['VulnerabilityID']}: {finding['PkgName']} {finding['InstalledVersion']} -> {finding.get('FixedVersion', 'unavailable')} ({result['Target']})")
+          else:
+              print('The scanner did not produce a report; inspect the preceding scanner diagnostics.')
+          PYREPORT
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/yunnuo-image-security:/reports aquasec/trivy:0.66.0 image --format cyclonedx --output /reports/sbom.json yunnuo-license:test
+          exit "$scan_status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

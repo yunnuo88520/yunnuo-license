@@ -51,6 +51,8 @@ COPY --from=frontend-builder /src/frontend/dist /opt/yunnuo/frontend
 COPY docker/entrypoint.sh /usr/local/bin/yunnuo-entrypoint
 
 RUN rpm -e mysql-shell \
+    && microdnf update -y --disablerepo='mysql*' libbrotli \
+    && microdnf clean all \
     && chmod 0755 /usr/local/bin/yunnuo-server /usr/local/bin/yunnuo-healthcheck /usr/local/bin/yunnuo-entrypoint
 
 ENV YN_ADDR=:8080 \
