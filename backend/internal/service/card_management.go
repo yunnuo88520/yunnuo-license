@@ -72,6 +72,13 @@ func (s *Service) UpdateProductProfile(ctx context.Context, productID string, in
 		}
 		return domain.Product{}, err
 	}
+	locked, err := s.currentStore().LicensePolicyLocked(ctx, productID)
+	if err != nil {
+		return domain.Product{}, err
+	}
+	if locked && (product.BindMode != input.BindMode || product.MaxBindCount != input.MaxBindCount || product.BindConflictStrategy != input.BindConflictStrategy || product.OfflineGraceDays != input.OfflineGraceDays) {
+		return domain.Product{}, AppError{Code: "BINDING_POLICY_LOCKED", Message: "已有库存卡或授权，请通过授权套餐设置新条款，不能直接改变已售绑定规则", HTTPStatus: 409}
+	}
 	now := s.now()
 	if err := s.currentStore().UpdateProductProfile(ctx, productID, input.Name,
 		input.BindMode, input.BindConflictStrategy, input.MaxBindCount, input.OfflineGraceDays, now); err != nil {

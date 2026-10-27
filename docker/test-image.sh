@@ -60,6 +60,7 @@ docker run -d --name "$container" \
   -e MYSQL_ROOT_PASSWORD=docker-test-root-password \
   -e YN_ADMIN_PASSWORD="$admin_password" \
   -e YN_ADMIN_USERNAME=admin \
+  -e YN_CLIENT_WRITE_RATE_LIMIT=2000 \
   -e YN_TRUST_PROXY_HEADERS=true \
   -e YN_TRUSTED_PROXY_CIDRS='127.0.0.1/32,172.16.0.0/12' \
   -e YN_SETUP_TOKEN='docker-test-installation-token-32-characters' \
@@ -198,6 +199,9 @@ if grep -Fq '13812348000' <<<"$account_query_response"; then
 fi
 
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./docker/test-product-updates.py prepare "$base" "$update_state"
+go -C examples/universal-client build -buildvcs=false -o "$platform_artifacts/product-client" .
+YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_scenarios.py --base-url "$base" --database mysql --client "$platform_artifacts/product-client" --artifacts "$platform_artifacts/scenarios"
+restart_and_wait
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage1.py --base-url "$base" --artifacts "$platform_artifacts/stage1"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage2.py --base-url "$base" --artifacts "$platform_artifacts/stage2"
 YN_TEST_ADMIN_PASSWORD="$admin_password" python3 ./examples/platform-e2e/test_stage3.py --base-url "$base" --artifacts "$platform_artifacts/stage3"

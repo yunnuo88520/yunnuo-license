@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.yunnuo.license.model.ClientInstance;
 import com.yunnuo.license.model.ActivateRequest;
 import com.yunnuo.license.model.HeartbeatRequest;
 import com.yunnuo.license.model.HeartbeatResponse;
@@ -75,6 +76,41 @@ public final class LicenseClient {
 
     public UnbindResponse unbind(UnbindRequest input) {
         return post("/v1/licenses/unbind", input, UnbindResponse.class);
+    }
+
+
+    private Map<String,Object> withInstance(Object request,ClientInstance instance){
+        @SuppressWarnings("unchecked")
+        Map<String,Object> fields=objectMapper.convertValue(request,LinkedHashMap.class);
+        if(instance!=null){@SuppressWarnings("unchecked") Map<String,Object> details=objectMapper.convertValue(instance,LinkedHashMap.class);fields.putAll(details);}
+        return fields;
+    }
+    public LicenseResponse activate(ActivateRequest in,ClientInstance instance){return post("/v1/licenses/activate",withInstance(in,instance),LicenseResponse.class);}
+    public LicenseResponse verify(VerifyRequest in,ClientInstance instance){return post("/v1/licenses/verify",withInstance(in,instance),LicenseResponse.class);}
+    public HeartbeatResponse heartbeat(HeartbeatRequest in,ClientInstance instance){return post("/v1/licenses/heartbeat",withInstance(in,instance),HeartbeatResponse.class);}
+    public LicenseResponse renew(RenewRequest in,ClientInstance instance){return post("/v1/licenses/renew",withInstance(in,instance),LicenseResponse.class);}
+    public UnbindResponse unbind(UnbindRequest in,ClientInstance instance){return post("/v1/licenses/unbind",withInstance(in,instance),UnbindResponse.class);}
+    public JsonNode cardRequirements(String card){return post("/v1/cards/requirements",Map.of("card_code",card),JsonNode.class);}
+    public JsonNode acquireSeat(VerifyRequest in,ClientInstance instance,String session,int borrowDays){var fields=withInstance(in,instance);fields.put("session_id",session);fields.put("borrow_days",borrowDays);return post("/v1/licenses/seats/acquire",fields,JsonNode.class);}
+    public JsonNode releaseSeat(VerifyRequest in,ClientInstance instance){return post("/v1/licenses/seats/release",withInstance(in,instance),JsonNode.class);}
+    public JsonNode createClaimTicket(VerifyRequest in,ClientInstance instance){return post("/v1/licenses/claim-ticket",withInstance(in,instance),JsonNode.class);}
+    public JsonNode checkUpdate(VerifyRequest in,ClientInstance instance,String version){var fields=withInstance(in,instance);fields.put("current_version",version);return post("/v1/updates/check",fields,JsonNode.class);}
+    public JsonNode authorizeUpdate(String id,VerifyRequest in,ClientInstance instance){var result=post("/v1/updates/"+urlencode(id)+"/authorize",withInstance(in,instance),JsonNode.class);if(!result.path("authorized").asBoolean()||!id.equals(result.path("release_id").asText()))throw new LicenseSDKException("ynlicense: exact release authorization was not granted");return result;}
+    public byte[] downloadUpdate(JsonNode release,VerifyRequest in,ClientInstance instance,String pem,String productId){
+        ReleaseVerifier.verifyManifest(release,pem,productId);
+        ReleaseVerifier.verifyTarget(release,instance);
+        try{
+            var fields=withInstance(in,instance);fields.put("app_key",appKey);
+            HttpRequest request=HttpRequest.newBuilder(baseUri.resolve("/v1/updates/"+urlencode(release.path("id").asText())+"/download"))
+                .timeout(timeout).header("Content-Type","application/json").header("User-Agent",userAgent)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(objectMapper.writeValueAsBytes(fields))).build();
+            HttpResponse<InputStream> response=httpClient.send(request,HttpResponse.BodyHandlers.ofInputStream());
+            byte[] raw;try(InputStream body=response.body()){raw=readLimited(body,response.statusCode()==200?Math.toIntExact(release.path("size").asLong()+1):MAX_RESPONSE_BYTES);}
+            if(response.statusCode()!=200){JsonNode envelope=objectMapper.readTree(raw),error=envelope.path("error");throw new APIException(textOr(error.path("code"),"HTTP_ERROR"),textOr(error.path("message"),"request failed"),response.statusCode(),textOr(envelope.path("request_id"),""));}
+            ReleaseVerifier.verifyPackage(release,raw,pem,productId);
+            authorizeUpdate(release.path("id").asText(),in,instance);
+            return raw;
+        }catch(APIException|LicenseSDKException e){throw e;}catch(InterruptedException e){Thread.currentThread().interrupt();throw new LicenseSDKException("ynlicense: request interrupted",e);}catch(IOException|ArithmeticException e){throw new LicenseSDKException("ynlicense: update failed",e);}
     }
 
     /** 产品公钥环中的一个版本。 */

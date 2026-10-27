@@ -149,3 +149,11 @@ test("key ring selects the signing key by key_version", async () => {
     (error) => isVerificationErrorCode(error, VerificationCode.INVALID_SIGNATURE),
   );
 });
+
+test("borrowed seat token is bound to installation, seat and process session",()=>{
+ const token=signClaims({type:"offline_cache",purpose:"seat_lease",license_no:"lic_test",product_code:"YN",bind_mode:"device",bind_digest:bindingDigest("device","machine-A"),instance_id:"installation_0001",seat_id:"seat_1",session_id:"session_00000001",offline_until:"2026-08-13T00:00:00Z",issued_at:now.toISOString(),key_version:1});
+ const verifier=new OfflineVerifier({publicKeyPem,productCode:"YN",clock:()=>now});
+ const expected={licenseNo:"lic_test",bindMode:"device",bindValue:"machine-A",instanceId:"installation_0001",seatId:"seat_1",sessionId:"session_00000001"};
+ assert.equal(verifier.verifyOfflineToken(token,expected).seat_id,"seat_1");
+ for(const field of ["instanceId","seatId","sessionId"])assert.throws(()=>verifier.verifyOfflineToken(token,{...expected,[field]:"other"}),e=>e.code===VerificationCode.BINDING_MISMATCH);
+});

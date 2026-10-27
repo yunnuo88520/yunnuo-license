@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 export class LicenseClient {
+  #updateContexts = new Map();
   #baseUrl;
   #appKey;
   #fetch;
@@ -56,9 +57,15 @@ export class LicenseClient {
     return this.#post("/v1/licenses/unbind", input, options);
   }
 
-  checkUpdate(input, options) {
-    return this.#post("/v1/updates/check", input, options);
+  async checkUpdate(input, options) {
+    const result=await this.#post("/v1/updates/check",input,options);
+    if(result.release){this.#updateContexts.set(result.release.id,{current_version:input.current_version,target:input.target});if(this.#updateContexts.size>128)this.#updateContexts.delete(this.#updateContexts.keys().next().value)}
+    return result;
   }
+  cardRequirements(cardCode,options){return this.#post("/v1/cards/requirements",{card_code:cardCode},options)}
+  acquireSeat(input,options){return this.#post("/v1/licenses/seats/acquire",input,options)}
+  releaseSeat(input,options){return this.#post("/v1/licenses/seats/release",input,options)}
+  createClaimTicket(input,options){return this.#post("/v1/licenses/claim-ticket",input,options)}
 
   securityDecision(input, options) { return this.#post("/v1/security/decision", input, options); }
   reportIntegrity(input, options) { return this.#post("/v1/security/report", input, options); }
@@ -102,10 +109,11 @@ export class LicenseClient {
     }
   }
 
-  authorizeUpdate(releaseId,input,options) { return this.#post(`/v1/updates/${encodeURIComponent(releaseId)}/authorize`,input,options); }
+  async authorizeUpdate(releaseId,input,options) { const result=await this.#post(`/v1/updates/${encodeURIComponent(releaseId)}/authorize`,{...this.#updateContexts.get(releaseId),...input},options);if(result?.authorized!==true||result.release_id!==releaseId)throw Error("ynlicense: exact release authorization was not granted");return result; }
 
   async downloadUpdate(release, input, { publicKeyPem, productId, ...options }) {
-    const expected = { publicKeyPem, productId };
+    input={...this.#updateContexts.get(release.id),...input};
+    const expected = { publicKeyPem, productId, target:input.target,currentVersion:input.current_version };
     verifyReleaseManifest(release, expected);
     const bytes = await this.#post(`/v1/updates/${encodeURIComponent(release.id)}/download`, input, options, release.size);
     try {

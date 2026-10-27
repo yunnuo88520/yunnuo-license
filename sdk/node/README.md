@@ -1,5 +1,7 @@
 # 允诺云授权 Node.js SDK
 
+统一产品分发、套餐快照、安装身份、浮动席位、用户关联与多平台更新见 [接入说明](https://github.com/yunnuo88520/yunnuo-license/blob/main/docs/developer-integration.md) 和 [场景说明](https://github.com/yunnuo88520/yunnuo-license/blob/main/docs/licensing-scenarios.md)。低层 API 不会自动保护业务入口；运行示例和安装器见 examples/universal-client。
+
 支持可选的 `securityDecision`、`reportIntegrity` 和网站入口 `enforceWebLicense`。
 启用 `reportIntegrityFailures` 后，升级包校验失败可向平台上报待核实线索；不会自行确认盗版。
 应用端接入、仅禁更新、拦截、申诉与解除说明见 [安全接入](../../docs/security-integration.md)。

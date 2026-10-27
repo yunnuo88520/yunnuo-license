@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstallationManager from "../shared/components/InstallationManager.vue";
+import { termsSummary } from "../shared/authorization";
 import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import CaptchaField from "../shared/components/CaptchaField.vue";
 import { onMounted, reactive, ref } from "vue";
@@ -15,6 +17,13 @@ const token = ref(sessionStorage.getItem("yn.developer_token") || "");
 const profile = ref<any>(),
   products = ref<any[]>([]),
   selected = ref("");
+const packages = ref<any[]>([]);
+async function loadPackages() {
+  packages.value = selected.value
+    ? await api(`/developer/products/${selected.value}/packages`)
+    : [];
+  cards.package_id = "";
+}
 const error = ref(""),
   busy = ref(false),
   codes = ref<string[]>([]),
@@ -37,13 +46,14 @@ const product = reactive({
   expire_grace_days: 0,
 });
 const cards = reactive({
+  package_id: "",
   name: "",
   quantity: 1,
   duration_days: 365,
   is_permanent: false,
 });
 function logout() {
-  Object.keys(createdSecrets).forEach(id => delete createdSecrets[id]);
+  Object.keys(createdSecrets).forEach((id) => delete createdSecrets[id]);
   token.value = "";
   profile.value = null;
   products.value = [];
@@ -78,6 +88,7 @@ async function refresh() {
   products.value = await api("/developer/products");
   if (!products.value.some((p) => p.id === selected.value))
     selected.value = products.value[0]?.id || "";
+  await loadPackages();
 }
 function signIn() {
   message.value = "";
@@ -129,11 +140,15 @@ function showLicenses(page = 1) {
   });
 }
 function selectProduct() {
+  void run(loadPackages);
   codes.value = [];
   licenses.value = null;
 }
 function changePassword(input: PasswordChangeInput) {
-  return api<{ changed: boolean }>("/developer/password", { method: "POST", body: JSON.stringify(input) });
+  return api<{ changed: boolean }>("/developer/password", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 function passwordChanged() {
   logout();
@@ -229,7 +244,10 @@ onMounted(async () => {
           >
           <button class="btn" :disabled="busy">创建产品</button>
         </form>
-        <p class="muted">创建后自动生成 18 位 AppID 和独立 AppSecret。AppID 保持不变，AppSecret 请及时保存。</p>
+        <p class="muted">
+          创建后自动生成 18 位 AppID 和独立 AppSecret。AppID 保持不变，AppSecret
+          请及时保存。
+        </p>
         <label v-if="products.length" class="field"
           >选择产品<select v-model="selected" @change="selectProduct">
             <option v-for="p in products" :key="p.id" :value="p.id">
@@ -242,7 +260,13 @@ onMounted(async () => {
           v-for="p in products.filter((p) => p.id === selected)"
           :key="p.id"
         >
-          <IntegrationGuide :product="p" prefix="/developer" :token="token" :initial-secret="createdSecrets[p.id]" @secret-consumed="delete createdSecrets[p.id]" />
+          <IntegrationGuide
+            :product="p"
+            prefix="/developer"
+            :token="token"
+            :initial-secret="createdSecrets[p.id]"
+            @secret-consumed="delete createdSecrets[p.id]"
+          />
         </article>
         <LicensePolicy
           v-if="selected"
@@ -266,6 +290,14 @@ onMounted(async () => {
         <h2>授权发卡</h2>
         <form class="developer-form" @submit.prevent="createCards">
           <label class="field"
+            >销售套餐<select v-model="cards.package_id">
+              <option value="">应用默认条款</option>
+              <option v-for="p in packages" :key="p.id" :value="p.id">
+                {{ p.name }} · {{ termsSummary(p.authorization_terms) }}
+              </option>
+            </select></label
+          >
+          <label class="field"
             >批次名称<input v-model="cards.name" required
           /></label>
           <label class="field"
@@ -281,12 +313,13 @@ onMounted(async () => {
               v-model.number="cards.duration_days"
               type="number"
               min="1"
-              :disabled="cards.is_permanent"
+              :disabled="cards.is_permanent || !!cards.package_id"
               required
           /></label>
           <label
             ><input
               v-model="cards.is_permanent"
+              :disabled="!!cards.package_id"
               type="checkbox"
             />永久卡（更新期限另见产品规则）</label
           >
@@ -307,12 +340,21 @@ onMounted(async () => {
         <template v-if="licenses"
           ><p>共 {{ licenses.total }} 条授权</p>
           <div class="license-list">
-            <p v-for="license in licenses.items" :key="license.id">
-              {{ license.license_no }} · {{ license.status }} · 使用到期：{{
-                license.usage_expired_at || "永久使用"
-              }}
-              · 更新到期：{{ license.updates_expired_at || "永久更新" }}
-            </p>
+            <div v-for="license in licenses.items" :key="license.id">
+              <p>
+                {{ license.license_no }} · {{ license.status }} · 使用到期：{{
+                  license.usage_expired_at || "永久使用"
+                }}
+                · 更新到期：{{ license.updates_expired_at || "永久更新" }}
+              </p>
+              <InstallationManager
+                :api="api"
+                :license-no="license.license_no"
+                :product-id="selected"
+                prefix="/developer"
+                :can-disable="true"
+              />
+            </div>
           </div>
           <button
             v-if="licenses.page > 1"
@@ -334,7 +376,10 @@ onMounted(async () => {
       <section class="panel">
         <details>
           <summary>修改密码</summary>
-          <PasswordChangeForm :change="changePassword" @changed="passwordChanged" />
+          <PasswordChangeForm
+            :change="changePassword"
+            @changed="passwordChanged"
+          />
         </details>
       </section>
     </template>

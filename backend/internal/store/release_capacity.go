@@ -34,8 +34,11 @@ func (tx *Tx) ReleaseCapacity(ctx context.Context, p domain.Product) (total, dev
 	return
 }
 func (tx *Tx) CreateRelease(ctx context.Context, r domain.ProductRelease) error {
-	_, e := tx.tx.ExecContext(ctx, `INSERT INTO product_releases (`+releaseColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, r.ID, r.ProductID, r.Version, r.Notes, r.Status, r.Filename, r.Size, r.SHA256, r.KeyVersion, r.ManifestToken, ts(r.CreatedAt))
-	return e
+	_, e := tx.tx.ExecContext(ctx, `INSERT INTO product_releases (`+releaseWriteColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, r.ID, r.ProductID, domain.ReleaseStorageVersion(r.Version, r.Target), r.Notes, r.Status, r.Filename, r.Size, r.SHA256, r.KeyVersion, r.ManifestToken, ts(r.CreatedAt))
+	if e != nil {
+		return e
+	}
+	return tx.saveReleaseTarget(ctx, r)
 }
 func (tx *Tx) ReleaseVersionExists(ctx context.Context, product, version string) (bool, error) {
 	var n int

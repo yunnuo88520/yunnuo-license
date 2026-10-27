@@ -70,7 +70,7 @@ func BindHash(pepper []byte, bindMode, bindValue string) string {
 	mac := hmac.New(sha256.New, pepper)
 	mac.Write([]byte(strings.ToLower(strings.TrimSpace(bindMode))))
 	mac.Write([]byte{0})
-	mac.Write([]byte(strings.ToLower(strings.TrimSpace(bindValue))))
+	mac.Write([]byte(bindingHashValue(bindMode, bindValue)))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
@@ -78,7 +78,7 @@ func BindDigest(bindMode, bindValue string) string {
 	sum := sha256.New()
 	sum.Write([]byte(strings.ToLower(strings.TrimSpace(bindMode))))
 	sum.Write([]byte{0})
-	sum.Write([]byte(strings.ToLower(strings.TrimSpace(bindValue))))
+	sum.Write([]byte(bindingHashValue(bindMode, bindValue)))
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
@@ -111,4 +111,13 @@ func DecodeBinary(value string) ([]byte, error) {
 		return nil, errors.New("empty value")
 	}
 	return base64.RawURLEncoding.DecodeString(value)
+}
+
+func bindingHashValue(mode, value string) string {
+	value = strings.TrimSpace(value)
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "tenant", "instance", "cluster", "composite":
+		return value
+	}
+	return strings.ToLower(value)
 }

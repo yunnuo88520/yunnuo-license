@@ -39,9 +39,6 @@ func Validate(c Config, language string) error {
 	if len(c.BindValue) > 500 || strings.ContainsAny(c.BindValue, "\x00\r\n") {
 		return errors.New("invalid binding value")
 	}
-	if c.BindMode != "none" && strings.TrimSpace(c.BindValue) == "" {
-		return errors.New("binding value is required")
-	}
 	return nil
 }
 

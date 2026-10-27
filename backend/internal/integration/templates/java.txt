@@ -12,64 +12,102 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 
+/** Integrate once, distribute the same program and public config to every customer. */
 public final class Main {
  private static final ObjectMapper JSON=new ObjectMapper().registerModule(new JavaTimeModule()).disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+ private static JsonNode config;
  private static LicenseResponse state;
- private static final Path STATE=Path.of(".license.json");
+ private static Path stateFile;
+ private static ClientInstance instance;
+ private static LicenseClient client;
+ private static final String SESSION=UUID.randomUUID().toString().replace("-","");
+ private static boolean legacy;
  private static void save(LicenseResponse result)throws Exception {
   if(!result.canUse())throw new IllegalStateException("LICENSE_REQUIRED_OR_UNUSABLE");
-  Path temp=Files.createTempFile(STATE.toAbsolutePath().getParent(),".license-",".tmp");
+  Path temp=Files.createTempFile(stateFile.getParent(),".license-",".tmp");
   try {
-   Files.writeString(temp,JSON.writeValueAsString(result),StandardCharsets.UTF_8);
-   try {Files.setPosixFilePermissions(temp,PosixFilePermissions.fromString("rw-------"));} catch(UnsupportedOperationException ignored){}
-   try {Files.move(temp,STATE.toAbsolutePath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);} catch(AtomicMoveNotSupportedException e){Files.move(temp,STATE.toAbsolutePath(),StandardCopyOption.REPLACE_EXISTING);}
-   state=result;
+   try {Files.setPosixFilePermissions(temp,PosixFilePermissions.fromString("rw-------"));}catch(UnsupportedOperationException ignored){}
+   var value=JSON.createObjectNode();value.set("rights",JSON.valueToTree(result));value.put("legacy_attach",legacy);
+   Files.writeString(temp,JSON.writeValueAsString(value),StandardCharsets.UTF_8);
+   Files.move(temp,stateFile,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);state=result;
   } finally {Files.deleteIfExists(temp);}
  }
- private static VerifyRequest credentials(String mode,String binding){
+ private static VerifyRequest credentials(String actual){
   if(state==null||state.licenseNo()==null||state.licenseNo().isBlank())throw new IllegalStateException("LICENSE_REQUIRED_OR_UNUSABLE");
-  return new VerifyRequest(state.licenseNo(),mode,binding,null);
+  return new VerifyRequest(state.licenseNo(),state.bindMode(),actual==null||actual.isBlank()?state.bindValue():actual,null);
  }
+ private static ClientInstance proof(){return legacy?null:instance;}
+ private static synchronized LicenseResponse verify(VerifyRequest in){
+  try{return client.verify(in,proof());}catch(APIException e){
+   if(!e.code().equals("SEAT_REQUIRED"))throw e;
+   var seat=client.acquireSeat(in,proof(),SESSION,0);instance=instance.withSeat(seat.path("id").asText());return client.verify(in,proof());
+  }
+ }
+ private static void output(Object value)throws Exception{System.out.println(JSON.writeValueAsString(value));}
  public static void main(String[] args)throws Exception {
-  try {run(args);} catch(APIException e){System.err.println(e.code()+" "+e.requestId());System.exit(1);} catch(Exception e){System.err.println(e.getMessage());System.exit(1);}
- }
- private static void summary(LicenseResponse r)throws Exception {
-  Map<String,Object> value=new LinkedHashMap<>();value.put("license_no",r.licenseNo());value.put("can_use",r.canUse());value.put("can_update",r.canUpdate());value.put("usage_expired_at",r.usageExpiredAt());value.put("updates_expired_at",r.updatesExpiredAt());System.out.println(JSON.writeValueAsString(value));
+  try {run(args);}catch(APIException e){System.err.println(e.code()+" "+e.requestId());System.exit(1);}catch(Exception e){System.err.println(e.getMessage());System.exit(1);}
  }
  private static void run(String[] args)throws Exception {
-  JsonNode config=JSON.readTree(Files.readString(Path.of("config.json")));
-  String mode=config.path("bind_mode").asText(),binding=config.path("bind_value").asText();
-  LicenseClient client=new LicenseClient(config.path("base_url").asText(),config.path("app_key").asText());
-  if(Files.exists(STATE))state=JSON.readValue(Files.readString(STATE),LicenseResponse.class);
+  config=JSON.readTree(Files.readString(Path.of("config.json")));
+  String app=config.path("app_key").asText();
+  Path dir=Path.of(System.getenv().getOrDefault("YN_LICENSE_DATA",".license-data"),app);
+  instance=InstallationIdentity.open(dir,null).withSession(SESSION);stateFile=dir.resolve("license.json");
+  if(Files.exists(stateFile,LinkOption.NOFOLLOW_LINKS)){
+   if(!Files.isRegularFile(stateFile,LinkOption.NOFOLLOW_LINKS)||Files.size(stateFile)>2*1024*1024)throw new IllegalStateException("invalid private license state");
+   JsonNode stored=JSON.readTree(Files.readString(stateFile));state=JSON.treeToValue(stored.path("rights"),LicenseResponse.class);legacy=stored.path("legacy_attach").asBoolean();
+  }
+  client=new LicenseClient(config.path("base_url").asText(),app);
   String command=args.length>0?args[0]:"verify",value=args.length>1?args[1]:"";
   if(command.equals("activate")||command.equals("attach")) {
    if(value.isBlank())throw new IllegalArgumentException("需要 CARD_CODE 或 LICENSE_NO");
-   LicenseResponse result=command.equals("activate")?client.activate(new ActivateRequest(value,mode,binding,"integration-demo","1.0.0")):client.verify(new VerifyRequest(value,mode,binding,null));
-   save(result);summary(result);return;
+   String mode=config.path("bind_mode").asText(),binding=args.length>2?args[2]:config.path("bind_value").asText();
+   if(command.equals("activate")){
+    mode=client.cardRequirements(value).path("authorization_terms").path("bind_mode").asText();legacy=false;
+    if(mode.equals("instance"))binding=instance.instanceId();if(mode.equals("device")&&binding.isBlank())binding=instance.deviceId();if(mode.equals("none"))binding="none";
+    save(client.activate(new ActivateRequest(value,mode,binding,"standard-product","1.0.0"),instance));
+   }else {legacy=true;save(client.verify(new VerifyRequest(value,mode,binding,null)));}
+   output(state);return;
   }
   if(command.equals("serve")) {
    int port=Integer.parseInt(System.getenv().getOrDefault("DEMO_PORT","3000"));
    HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",port),0);
+   server.createContext("/healthz",ex->{byte[] b="ok".getBytes();ex.sendResponseHeaders(200,b.length);ex.getResponseBody().write(b);ex.close();});
    server.createContext("/protected",exchange->{
     int status=200;Map<String,Object> body=new LinkedHashMap<>();
     try {
      if(!exchange.getRequestURI().getPath().equals("/protected")){exchange.sendResponseHeaders(404,-1);exchange.close();return;}
-     LicenseResponse result=client.verify(credentials(mode,binding));
+     LicenseResponse result=verify(WebBinding.forHost(credentials(null),exchange.getRequestHeaders().getFirst("Host")));
      if(!result.canUse())throw new IllegalStateException("LICENSE_REQUIRED_OR_UNUSABLE");
      body.put("message","已进入受保护业务");body.put("can_use",true);body.put("can_update",result.canUpdate());
     }catch(APIException e){status=Set.of(400,401,403,404).contains(e.httpStatus())?403:503;body.put("error",e.code());body.put("request_id",e.requestId());}
-    catch(IllegalStateException e){status=403;body.put("error","LICENSE_REQUIRED_OR_UNUSABLE");}
+    catch(IllegalStateException|IllegalArgumentException e){status=403;body.put("error","LICENSE_REQUIRED_OR_UNUSABLE");}
     catch(Exception e){status=503;body.put("error","AUTHORIZATION_UNAVAILABLE");}
     byte[] bytes=JSON.writeValueAsBytes(body);exchange.getResponseHeaders().set("Content-Type","application/json; charset=utf-8");exchange.getResponseHeaders().set("Cache-Control","no-store");exchange.sendResponseHeaders(status,bytes.length);exchange.getResponseBody().write(bytes);exchange.close();
    });
-   server.start();System.out.println("http://127.0.0.1:"+port+"/protected");new CountDownLatch(1).await();return;
+   server.start();Runtime.getRuntime().addShutdownHook(new Thread(()->{try{if(instance.seatId()!=null)client.releaseSeat(credentials(null),proof());}catch(Exception ignored){}}));
+   System.out.println("http://127.0.0.1:"+port+"/protected");new CountDownLatch(1).await();return;
   }
-  VerifyRequest input=credentials(mode,binding);
-  switch(command) {
-   case "verify" -> {LicenseResponse result=client.verify(input);save(result);summary(result);}
-   case "heartbeat" -> System.out.println(JSON.writeValueAsString(client.heartbeat(new HeartbeatRequest(input.licenseNo(),mode,binding))));
-   case "renew" -> {if(value.isBlank())throw new IllegalArgumentException("需要 RENEW_CARD_CODE");LicenseResponse result=client.renew(new RenewRequest(input.licenseNo(),value,mode,binding));save(result);summary(result);}
-   default -> throw new IllegalArgumentException("命令：activate、attach、verify、heartbeat、renew、serve");
-  }
+  VerifyRequest input=credentials(command.equals("verify")||command.equals("heartbeat")||command.equals("claim")?value:null);
+  try {
+   switch(command) {
+    case "verify" -> {LicenseResponse result=verify(input);save(result);output(result);}
+    case "heartbeat" -> {verify(input);output(client.heartbeat(new HeartbeatRequest(input.licenseNo(),input.bindMode(),input.bindValue()),proof()));}
+    case "renew" -> {if(value.isBlank())throw new IllegalArgumentException("需要 RENEW_CARD_CODE");save(client.renew(new RenewRequest(input.licenseNo(),value,input.bindMode(),input.bindValue()),proof()));output(state);}
+    case "claim" -> output(client.createClaimTicket(input,proof()));
+    case "updates", "download" -> {
+     String os=System.getProperty("os.name").toLowerCase(),arch=System.getProperty("os.arch");
+     @SuppressWarnings("unchecked") Map<String,Object> target=config.has("target")?JSON.convertValue(config.path("target"),Map.class):Map.of("os",os.contains("win")?"windows":os.contains("mac")?"darwin":"linux","arch",arch.equals("aarch64")?"arm64":arch.equals("x86_64")?"amd64":arch,"runtime","jvm","channel","stable","kind","archive");
+     instance=instance.withTarget(target,value.isBlank()?"1.0.0":value);
+     var check=client.checkUpdate(input,proof(),instance.currentVersion());
+     if(command.equals("updates")||!check.path("update_available").asBoolean()){output(check);break;}
+     var release=check.path("release");String pem=config.path("public_keys").path(release.path("key_version").asText()).asText();
+     if(pem.isBlank())throw new IllegalStateException("unknown signing key version");
+     byte[] bytes=client.downloadUpdate(release,input,proof(),pem,config.path("product_id").asText());
+     Path file=stateFile.getParent().resolve("update-package.zip");Files.write(file,bytes);try{Files.setPosixFilePermissions(file,PosixFilePermissions.fromString("rw-------"));}catch(UnsupportedOperationException ignored){}
+     output(Map.of("downloaded",true,"filename",file.toString()));
+    }
+    default -> throw new IllegalArgumentException("命令：activate、attach、verify、heartbeat、renew、claim、updates、download、serve");
+   }
+  } finally {if(instance.seatId()!=null)client.releaseSeat(input,proof());}
  }
 }

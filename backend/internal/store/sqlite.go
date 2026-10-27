@@ -1081,7 +1081,10 @@ func (tx *Tx) CreateCard(ctx context.Context, card domain.Card) error {
 		nullTime(card.ActivatedAt), nullTime(card.ConsumedAt), nullTime(card.VoidedAt),
 		nullString(card.VoidReason), nullString(card.CreatedBy), ts(card.CreatedAt), ts(card.UpdatedAt),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.SaveTerms(ctx, "card", card.ID, card.AuthorizationTerms)
 }
 
 func (tx *Tx) GetCardByHash(ctx context.Context, codeHash string) (domain.Card, error) {
@@ -1127,6 +1130,9 @@ func (tx *Tx) CreateLicense(ctx context.Context, lic domain.License) error {
 		lic.UpdatesExpiredAt = lic.ExpiredAt
 	}
 	if err := tx.setEntitlements(ctx, lic.ID, lic.LicenseMode, lic.UpdatesExpiredAt); err != nil {
+		return err
+	}
+	if err := tx.SaveTerms(ctx, "license", lic.ID, lic.AuthorizationTerms); err != nil {
 		return err
 	}
 	if lic.OwnerUserID != "" {
@@ -1305,10 +1311,10 @@ func (tx *Tx) InsertAudit(ctx context.Context, log domain.AuditLog) error {
 	return err
 }
 
-const productColumns = `id, name, code, app_key, public_key_pem, private_key_encrypted, COALESCE((SELECT MAX(key_version) FROM product_keys WHERE product_id = products.id), 1), bind_mode, max_bind_count, bind_conflict_strategy, offline_mode, offline_grace_days, expire_grace_days, unbind_limit, unbind_cooldown_hours, status, created_at, updated_at, COALESCE((SELECT user_id FROM product_developers WHERE product_id = products.id), ''), COALESCE((SELECT license_mode FROM product_license_policies WHERE product_id = products.id), 'subscription'), COALESCE((SELECT update_duration_days FROM product_license_policies WHERE product_id = products.id), 0)`
+const productColumns = `id, name, code, app_key, public_key_pem, private_key_encrypted, COALESCE((SELECT MAX(key_version) FROM product_keys WHERE product_id = products.id), 1), bind_mode, max_bind_count, bind_conflict_strategy, offline_mode, offline_grace_days, expire_grace_days, unbind_limit, unbind_cooldown_hours, status, created_at, updated_at, COALESCE((SELECT user_id FROM product_developers WHERE product_id = products.id), ''), COALESCE((SELECT license_mode FROM product_license_policies WHERE product_id = products.id), 'subscription'), COALESCE((SELECT update_duration_days FROM product_license_policies WHERE product_id = products.id), 0), COALESCE((SELECT terms_json FROM authorization_snapshots WHERE scope='product' AND resource_id=products.id),'')`
 const batchColumns = `id, product_id, agent_id, name, quantity, duration_days, is_permanent, source, status, export_count, created_by, created_at, updated_at`
-const cardColumns = `id, product_id, batch_id, agent_id, code_hash, code_encrypted, code_prefix, duration_days, is_permanent, status, order_no, activated_license_id, activated_at, consumed_at, voided_at, void_reason, created_by, created_at, updated_at`
-const licenseColumns = `id, license_no, product_id, card_id, agent_id, status, issued_at, activated_at, expired_at, last_verify_at, last_heartbeat_at, offline_token_version, created_at, updated_at, COALESCE((SELECT license_mode FROM license_entitlements WHERE license_id = licenses.id), 'subscription'), CASE WHEN EXISTS (SELECT 1 FROM license_entitlements WHERE license_id = licenses.id) THEN (SELECT updates_expired_at FROM license_entitlements WHERE license_id = licenses.id) ELSE expired_at END, COALESCE((SELECT user_id FROM license_owners WHERE license_id=licenses.id),'')`
+const cardColumns = `id, product_id, batch_id, agent_id, code_hash, code_encrypted, code_prefix, duration_days, is_permanent, status, order_no, activated_license_id, activated_at, consumed_at, voided_at, void_reason, created_by, created_at, updated_at, COALESCE((SELECT terms_json FROM authorization_snapshots WHERE scope='card' AND resource_id=cards.id),'')`
+const licenseColumns = `id, license_no, product_id, card_id, agent_id, status, issued_at, activated_at, expired_at, last_verify_at, last_heartbeat_at, offline_token_version, created_at, updated_at, COALESCE((SELECT license_mode FROM license_entitlements WHERE license_id = licenses.id), 'subscription'), CASE WHEN EXISTS (SELECT 1 FROM license_entitlements WHERE license_id = licenses.id) THEN (SELECT updates_expired_at FROM license_entitlements WHERE license_id = licenses.id) ELSE expired_at END, COALESCE((SELECT user_id FROM license_owners WHERE license_id=licenses.id),''), COALESCE((SELECT terms_json FROM authorization_snapshots WHERE scope='license' AND resource_id=licenses.id),'')`
 const offlineLicenseColumns = `id, license_no, product_id, label, machine_code_hash, machine_code_encrypted, machine_code_masked, signed_token_encrypted, token_version, status, issued_at, expired_at, revoked_at, revoked_reason, created_by, created_at, updated_at`
 const bindingColumns = `id, license_id, product_id, bind_mode, bind_value_hash, bind_value_encrypted, display_name, status, first_seen_ip, last_seen_ip, user_agent, last_heartbeat_at, activated_at, created_at, updated_at`
 const agentColumns = `id, agent_no, parent_agent_id, name, contact_name, phone, email, level, status, settlement_mode, default_discount_rate, credit_limit, remark, created_by, created_at, updated_at, disabled_at,
@@ -1332,13 +1338,18 @@ type scanner interface {
 }
 
 func scanProduct(row scanner) (domain.Product, error) {
+	var termsJSON string
 	var p domain.Product
 	var createdAt, updatedAt string
 	err := row.Scan(&p.ID, &p.Name, &p.Code, &p.AppKey, &p.PublicKeyPEM, &p.PrivateKeyEncrypted,
 		&p.KeyVersion,
 		&p.BindMode, &p.MaxBindCount, &p.BindConflictStrategy, &p.OfflineMode,
 		&p.OfflineGraceDays, &p.ExpireGraceDays, &p.UnbindLimit, &p.UnbindCooldownHours,
-		&p.Status, &createdAt, &updatedAt, &p.DeveloperID, &p.LicenseMode, &p.UpdateDurationDays)
+		&p.Status, &createdAt, &updatedAt, &p.DeveloperID, &p.LicenseMode, &p.UpdateDurationDays, &termsJSON)
+	if err != nil {
+		return domain.Product{}, err
+	}
+	p.AuthorizationTerms, err = decodeTerms(termsJSON)
 	if err != nil {
 		return domain.Product{}, err
 	}
@@ -1366,6 +1377,7 @@ func scanBatch(row scanner) (domain.CardBatch, error) {
 }
 
 func scanCard(row scanner) (domain.Card, error) {
+	var termsJSON string
 	var c domain.Card
 	var agentID, orderNo, activatedLicenseID, voidReason, createdBy sql.NullString
 	var activatedAt, consumedAt, voidedAt sql.NullString
@@ -1373,7 +1385,7 @@ func scanCard(row scanner) (domain.Card, error) {
 	var isPermanent int
 	err := row.Scan(&c.ID, &c.ProductID, &c.BatchID, &agentID, &c.CodeHash, &c.CodeEncrypted,
 		&c.CodePrefix, &c.DurationDays, &isPermanent, &c.Status, &orderNo, &activatedLicenseID,
-		&activatedAt, &consumedAt, &voidedAt, &voidReason, &createdBy, &createdAt, &updatedAt)
+		&activatedAt, &consumedAt, &voidedAt, &voidReason, &createdBy, &createdAt, &updatedAt, &termsJSON)
 	if err != nil {
 		return domain.Card{}, err
 	}
@@ -1386,19 +1398,28 @@ func scanCard(row scanner) (domain.Card, error) {
 	c.ActivatedAt = timePtr(activatedAt)
 	c.ConsumedAt = timePtr(consumedAt)
 	c.VoidedAt = timePtr(voidedAt)
+	c.AuthorizationTerms, err = decodeTerms(termsJSON)
+	if err != nil {
+		return domain.Card{}, err
+	}
 	c.CreatedAt = parseTS(createdAt)
 	c.UpdatedAt = parseTS(updatedAt)
 	return c, nil
 }
 
 func scanLicense(row scanner) (domain.License, error) {
+	var termsJSON string
 	var l domain.License
 	var agentID sql.NullString
 	var expiredAt, lastVerifyAt, lastHeartbeatAt, updatesExpiredAt sql.NullString
 	var issuedAt, activatedAt, createdAt, updatedAt string
 	err := row.Scan(&l.ID, &l.LicenseNo, &l.ProductID, &l.CardID, &agentID, &l.Status,
 		&issuedAt, &activatedAt, &expiredAt, &lastVerifyAt, &lastHeartbeatAt,
-		&l.OfflineTokenVersion, &createdAt, &updatedAt, &l.LicenseMode, &updatesExpiredAt, &l.OwnerUserID)
+		&l.OfflineTokenVersion, &createdAt, &updatedAt, &l.LicenseMode, &updatesExpiredAt, &l.OwnerUserID, &termsJSON)
+	if err != nil {
+		return domain.License{}, err
+	}
+	l.AuthorizationTerms, err = decodeTerms(termsJSON)
 	if err != nil {
 		return domain.License{}, err
 	}

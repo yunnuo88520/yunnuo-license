@@ -75,6 +75,7 @@ func (s *Service) ListReleases(ctx context.Context, productID string) ([]domain.
 }
 
 type UploadReleaseInput struct {
+	Target    *domain.ReleaseTarget
 	ProductID string
 	Version   string
 	Notes     string
@@ -83,6 +84,11 @@ type UploadReleaseInput struct {
 
 func (s *Service) UploadRelease(ctx context.Context, input UploadReleaseInput, content io.Reader, actorID string) (domain.ProductRelease, error) {
 	var result domain.ProductRelease
+	target, targetErr := normalizeReleaseTarget(input.Target)
+	if targetErr != nil {
+		return result, targetErr
+	}
+	input.Target = target
 	if !versionPattern.MatchString(input.Version) || len(input.Notes) > 16000 || s.releaseDir == "" {
 		return result, ErrInvalidRequest
 	}
@@ -103,7 +109,7 @@ func (s *Service) UploadRelease(ctx context.Context, input UploadReleaseInput, c
 		return result, err
 	}
 	for _, r := range existing {
-		if r.Version == input.Version {
+		if r.Version == input.Version && sameReleaseTarget(r.Target, input.Target) {
 			return result, ErrReleaseExists
 		}
 	}
@@ -136,12 +142,12 @@ func (s *Service) UploadRelease(ctx context.Context, input UploadReleaseInput, c
 	if err := tmp.Close(); err != nil {
 		return result, err
 	}
-	result = domain.ProductRelease{ID: yncrypto.NewID("rel"), ProductID: product.ID, Version: input.Version, Notes: input.Notes, Filename: filename, Status: "draft", Size: size, SHA256: hex.EncodeToString(hash.Sum(nil)), KeyVersion: product.KeyVersion, CreatedAt: s.now()}
+	result = domain.ProductRelease{Target: input.Target, ID: yncrypto.NewID("rel"), ProductID: product.ID, Version: input.Version, Notes: input.Notes, Filename: filename, Status: "draft", Size: size, SHA256: hex.EncodeToString(hash.Sum(nil)), KeyVersion: product.KeyVersion, CreatedAt: s.now()}
 	privateKey, err := yncrypto.DecryptString(s.dataKey, product.PrivateKeyEncrypted)
 	if err != nil {
 		return domain.ProductRelease{}, err
 	}
-	result.ManifestToken, err = yncrypto.SignJSON(privateKey, map[string]any{"type": "product_release", "release_id": result.ID, "product_id": product.ID, "version": result.Version, "sha256": result.SHA256, "size": size, "key_version": product.KeyVersion})
+	result.ManifestToken, err = yncrypto.SignJSON(privateKey, map[string]any{"type": "product_release", "release_id": result.ID, "product_id": product.ID, "version": result.Version, "sha256": result.SHA256, "size": size, "key_version": product.KeyVersion, "target": input.Target})
 	if err != nil {
 		return domain.ProductRelease{}, err
 	}
@@ -172,7 +178,7 @@ func (s *Service) UploadRelease(ctx context.Context, input UploadReleaseInput, c
 		if size > limits.TotalBytes-total || size > limits.ProductBytes-used || count >= limits.ProductVersions || fresh.DeveloperID != "" && size > limits.DeveloperBytes-developer {
 			return AppError{Code: "STORAGE_QUOTA_EXCEEDED", Message: "应用、开发者或平台的升级包存储额度已用完", HTTPStatus: 409}
 		}
-		exists, e := tx.ReleaseVersionExists(ctx, product.ID, result.Version)
+		exists, e := tx.ReleaseVersionExists(ctx, product.ID, domain.ReleaseStorageVersion(result.Version, result.Target))
 		if e != nil {
 			return e
 		}
@@ -261,6 +267,7 @@ type CheckUpdateResult struct {
 
 // Update access deliberately excludes the license's runtime expiry grace period.
 func (s *Service) authorizeUpdate(ctx context.Context, input VerifyInput) (string, error) {
+	input.skipSeat = true // Updating does not consume a runtime seat; all current license, instance and security checks still apply.
 	verified, err := s.Verify(ctx, input)
 	if err != nil {
 		return "", err
@@ -286,6 +293,7 @@ func (s *Service) authorizeUpdate(ctx context.Context, input VerifyInput) (strin
 }
 
 func (s *Service) CheckUpdate(ctx context.Context, input CheckUpdateInput) (CheckUpdateResult, error) {
+	input.VerifyInput.CurrentVersion = input.CurrentVersion
 	var result CheckUpdateResult
 	if !versionPattern.MatchString(input.CurrentVersion) {
 		return result, ErrInvalidRequest
@@ -307,7 +315,7 @@ func (s *Service) CheckUpdate(ctx context.Context, input CheckUpdateInput) (Chec
 		return result, err
 	}
 	for _, r := range items {
-		if r.Status == "published" && newerVersion(r.Version, input.CurrentVersion) && (result.Release == nil || newerVersion(r.Version, result.Release.Version)) {
+		if r.Status == "published" && releaseMatches(r, input.ClientInstance) && newerVersion(r.Version, input.CurrentVersion) && (result.Release == nil || newerVersion(r.Version, result.Release.Version)) {
 			copy := r
 			result.Release = &copy
 		}
@@ -357,7 +365,7 @@ func (s *Service) AuthorizeRelease(ctx context.Context, releaseID string, input 
 		}
 		return result, err
 	}
-	if result.ProductID != productID || result.Status != "published" {
+	if result.ProductID != productID || result.Status != "published" || !releaseMatches(result, input.ClientInstance) {
 		return domain.ProductRelease{}, ErrReleaseNotFound
 	}
 	// Validity is deliberately request-scoped; no reusable download ticket is issued.

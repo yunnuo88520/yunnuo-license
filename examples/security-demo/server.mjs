@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { LicenseClient, enforceWebLicense } from "../../sdk/node/src/index.js";
+import { LicenseClient, enforceWebLicense, bindingForWebRequest } from "../../sdk/node/src/index.js";
 
 const config=JSON.parse(await readFile(process.env.YN_SECURITY_DEMO_CONFIG,"utf8"));
 const client=new LicenseClient({baseUrl:config.baseUrl,appKey:config.appKey,timeoutMs:10000});
@@ -8,9 +8,9 @@ const html=`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="
 createServer(async(req,res)=>{
   if(req.url==="/healthz"){res.writeHead(200);res.end("ok");return}
   if(req.url==="/api/update"&&req.method==="POST"){
-    try{const data=await client.checkUpdate({...config.binding,current_version:"1.0.0"});res.writeHead(200,{"Content-Type":"application/json"});res.end(JSON.stringify(data))}
+    try{const data=await client.checkUpdate({...bindingForWebRequest(config.binding,req),current_version:"1.0.0"});res.writeHead(200,{"Content-Type":"application/json"});res.end(JSON.stringify(data))}
     catch(error){res.writeHead(error.httpStatus||503,{"Content-Type":"application/json"});res.end(JSON.stringify({code:error.code||"SERVICE_UNAVAILABLE"}))}return
   }
-  if(await enforceWebLicense(client,config.binding,res))return;
+  if(await enforceWebLicense(client,config.binding,res,req))return;
   res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});res.end(html);
 }).listen(Number(process.env.YN_SECURITY_DEMO_PORT),"127.0.0.1");

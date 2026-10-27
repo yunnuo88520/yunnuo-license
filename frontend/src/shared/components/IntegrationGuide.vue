@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { BookOpen, Copy, Download, Terminal } from "lucide-vue-next";
+import { authorizationDefaults, bindingNames } from "../authorization";
 import AppCredentials from "./AppCredentials.vue";
 
 const props = withDefaults(
@@ -26,26 +27,33 @@ const languages: Record<string, string> = {
   go: "Go",
   java: "Java",
 };
-const bindingLabels: Record<string, string> = {
-  domain: "域名",
-  ip: "IP",
-  device: "设备标识",
-  account: "应用账号",
-  none: "无绑定",
-};
+const terms = computed(() => authorizationDefaults(props.product));
+const bindingLabels = bindingNames;
 watch(
-  () => props.product.id,
+  () => [props.product.id, terms.value.bind_mode],
   () => {
     binding.value =
       (
         {
           domain: "app.example.com",
+          domain_wildcard: "*.example.com",
+          ip_cidr: "203.0.113.0/24",
+          tenant: "tenant-customer-001",
+          cluster: "cluster-customer-001",
+          composite: JSON.stringify(
+            Object.fromEntries(
+              terms.value.binding_kinds.map((k) => [
+                k,
+                k.includes("domain") ? "app.example.com" : "customer-001",
+              ]),
+            ),
+          ),
           ip: "203.0.113.10",
           device: "demo-device-001",
           account: "demo-account-001",
           none: "",
         } as Record<string, string>
-      )[props.product.bind_mode] || "";
+      )[terms.value.bind_mode] || "";
     error.value = "";
     message.value = "";
     tab.value = "start";
@@ -66,14 +74,28 @@ const commands = computed(() =>
 const activate = computed(() => ({
   app_key: props.product.id,
   card_code: "替换为本应用的未使用卡密",
-  bind_mode: props.product.bind_mode,
+  bind_mode: terms.value.bind_mode,
   bind_value: binding.value,
+  ...(terms.value.require_instance
+    ? {
+        instance_id: "持久化的随机小写ID（16至64位）",
+        instance_secret: "持久化的64位随机十六进制凭证",
+        device_id: "稳定设备标识",
+      }
+    : {}),
 }));
 const verify = computed(() => ({
   app_key: props.product.id,
   license_no: "替换为激活返回的完整授权号",
-  bind_mode: props.product.bind_mode,
+  bind_mode: terms.value.bind_mode,
   bind_value: binding.value,
+  ...(terms.value.require_instance
+    ? {
+        instance_id: "持久化的随机小写ID（16至64位）",
+        instance_secret: "持久化的64位随机十六进制凭证",
+        device_id: "稳定设备标识",
+      }
+    : {}),
 }));
 const pretty = (value: any) => JSON.stringify(value, null, 2);
 function curl(path: string, file: string) {
@@ -151,7 +173,9 @@ async function copy(value: string) {
       <BookOpen :size="24" />
       <div>
         <h2>接入授权 · {{ product.name }}</h2>
-        <p>从创建应用到受保护接口，按当前应用生成可运行的接入包。</p>
+        <p>
+          开发者接入一次，所有客户使用同一安装包。客户在产品内激活自己的卡密。
+        </p>
       </div>
     </header>
     <div class="guide-credentials">
@@ -173,9 +197,9 @@ async function copy(value: string) {
       <div>
         <small>授权规则</small
         ><strong
-          >{{ bindingLabels[product.bind_mode] }}绑定 ·
+          >{{ bindingLabels[terms.bind_mode] }}绑定 ·
           {{
-            product.license_mode === "perpetual"
+            terms.license_mode === "perpetual"
               ? "永久使用、限期更新"
               : "订阅使用"
           }}</strong
@@ -222,15 +246,19 @@ async function copy(value: string) {
             v-model="baseURL"
             type="url"
             placeholder="https://license.example.com" /></label
-        ><label v-if="product.bind_mode !== 'none'" class="field"
+        ><label v-if="terms.bind_mode !== 'none'" class="field"
           >客户端实际绑定值<input
             v-model="binding"
             maxlength="500"
-            :placeholder="bindingLabels[product.bind_mode]"
+            :placeholder="bindingLabels[terms.bind_mode]"
         /></label>
       </div>
       <p>
-        上面的示例绑定值只用于联调，请改为真实部署值。域名不含协议和路径；设备标识应稳定；应用账号由产品服务端确定。所有请求必须使用同一绑定值。
+        此处绑定值可留空，仅用于本机联调；不必为每个客户重新生成接入包。激活命令支持
+        activate CARD_CODE
+        BIND_VALUE，或在产品自己的安装向导中收集客户信息。卡密决定套餐规则。域名校验读取实际请求
+        Host；泛域名激活登记 *.example.com，使用时提交实际子域名；CIDR
+        激活登记网段，使用时提交实际 IP。设备和实例身份需要持久保存。
       </p>
       <ol class="guide-steps">
         <li>
@@ -261,10 +289,12 @@ async function copy(value: string) {
             {{ product.name }} 生成一张测试卡。接入包不会代你发卡或激活。
           </p>
           <p>
-            若客户已在用户中心激活，可使用
+            旧版不要求安装身份的授权，可使用
             {{
               command("attach LICENSE_NO")
-            }}，先校验其完整授权号与当前绑定。客户端激活不会自动认领用户中心的授权归属。
+            }}，先校验其完整授权号与当前绑定。实例授权应在原数据目录使用原卡重新激活。客户执行
+            claim
+            获取十分钟一次性关联凭证，再在用户中心关联；关联不转移既有归属。
           </p>
         </li>
         <li>
@@ -272,7 +302,8 @@ async function copy(value: string) {
           <p>
             将 CARD_CODE
             换成测试卡密。首次激活会创建实际授权，结果写入本机私有的
-            .license.json；verify 校验使用资格，heartbeat 仅上报活跃状态。
+            .license-data 私有目录；verify 校验使用资格，heartbeat
+            仅上报活跃状态。
           </p>
           <div class="guide-code-head">
             <Terminal :size="16" /><span>{{ name }} 命令</span
@@ -289,10 +320,10 @@ async function copy(value: string) {
         <li>
           <h3>验证业务入口确实受保护</h3>
           <p>
-            serve 启动后，打开
-            <code>http://127.0.0.1:3000/protected</code
-            >。每次进入该接口都重新验证，仅在 can_use=true
-            时返回业务内容。未激活、吊销、错误绑定和使用到期返回
+            serve 启动后，通过授权域名访问 /protected（反向代理到
+            127.0.0.1:3000），或本机 curl -H "Host: 授权域名"
+            http://127.0.0.1:3000/protected。每次进入该接口都重新验证，仅在
+            can_use=true 时返回业务内容。未激活、吊销、错误绑定和使用到期返回
             403；授权站不可用返回 503。
           </p>
           <p>
@@ -316,7 +347,9 @@ async function copy(value: string) {
       </p>
       <h4>1. 首次激活：POST /v1/licenses/activate</h4>
       <p>
-        将以下内容保存为 activate.json，替换卡密后执行命令。macOS/Linux 使用
+        先 POST /v1/cards/requirements（app_key、card_code）读取本卡
+        authorization_terms，再按规则收集绑定。将以下内容保存为
+        activate.json，替换卡密和实例凭证后执行命令。macOS/Linux 使用
         curl，Windows PowerShell 请使用 curl.exe。
       </p>
       <p>这些联调文件含卡密或授权信息，使用后删除，不要提交版本库。</p>
@@ -331,12 +364,15 @@ async function copy(value: string) {
         data-example="verify-command"
       ><code>{{curl('/v1/licenses/verify','verify.json')}}</code></pre>
       <p>
-        保存激活返回的完整
+        启用安装身份时，每个安装生成唯一 instance_id 和随机
+        instance_secret，激活、校验、心跳、续费、更新都带上；同一安装重启后必须复用。不能在公共配置中预置它们。并发席位还需每个进程唯一
+        session_id，调用 /v1/licenses/seats/acquire 获取 seat_id 后校验，退出时
+        release；离线借用不能提前释放。 保存激活返回的完整
         license_no。公开验真页面的编号已脱敏，不能用于客户端校验。不要仅判断
         HTTP 200，业务必须确认 data.can_use === true。
       </p>
       <h4>成功返回的关键字段</h4>
-      <pre><code>{{pretty({success:true,data:{license_no:'lic_…',license_mode:product.license_mode,can_use:true,can_update:true,usage_expired_at:product.license_mode==='perpetual'?null:'UTC 时间或 null',updates_expired_at:'UTC 时间或 null',license_token:'敏感凭证，请妥善保存',offline_token:'签名缓存凭证，非永久离线许可'},request_id:'排障请求号'})}}</code></pre>
+      <pre><code>{{pretty({success:true,data:{license_no:'lic_…',license_mode:terms.license_mode,can_use:true,can_update:true,usage_expired_at:terms.license_mode==='perpetual'?null:'UTC 时间或 null',updates_expired_at:'UTC 时间或 null',license_token:'敏感凭证，请妥善保存',offline_token:'签名缓存凭证，非永久离线许可'},request_id:'排障请求号'})}}</code></pre>
       <h4>3. 心跳与续费</h4>
       <p>
         POST /v1/licenses/heartbeat 使用与 verify 相同的 app_key、license_no
@@ -395,8 +431,9 @@ async function copy(value: string) {
       </ul>
       <h3>离线不是自动放行</h3>
       <p>
-        SDK
-        返回离线缓存凭证，但不会自动持久化或启用离线容错。需要离线使用时，必须验签并检查产品、绑定、授权期限和
+        默认严格在线。Node RuntimeLicense 可显式启用短缓存（最多 60
+        秒）或离线容错，离线必须配合持久时间高水位守卫；普通席位缓存不能代替离线借用。SDK
+        返回离线缓存凭证，需要离线使用时，必须验签并检查产品、绑定、授权期限和
         offline_until，配合安全存储与时间高水位；未知 key_version
         时刷新可信公钥环。完整离线文件只适用设备绑定，并受有效期限制。离线时无法即时获知吊销、换绑及安全处置。
       </p>
@@ -405,7 +442,8 @@ async function copy(value: string) {
         应用 ID 和公钥可以随产品分发；管理员/开发者登录
         token、产品私钥和数据库密码不能放进产品。不要在日志或 URL
         中记录卡密、license_token、offline_token。SDK 错误保留 code 和
-        request_id，可与平台操作日志核对。直接激活仅建立部署绑定，授权用户归属由用户中心激活或管理员分配。
+        request_id，可与平台操作日志核对。直接激活后可用一次性 claim-ticket
+        关联用户中心；不允许用户转让已有归属。
       </p>
     </template>
     <template v-else-if="tab === 'updates'">
@@ -416,27 +454,31 @@ async function copy(value: string) {
       <pre><code>node app.mjs updates 1.0.0
 node app.mjs download 1.0.0</code></pre>
       <p>
-        以上命令使用 Node.js 接入包。download 根据 release.key_version
+        三个接入包均支持 updates 和 download。download 根据 release.key_version
         选择公钥，校验签名和 SHA-256 后保存
-        update.zip。未知版本的公钥必须从可信授权站更新，不得跳过验证。
+        私有数据目录中的升级文件。未知版本的公钥必须从可信授权站更新，不得跳过验证。
       </p>
       <h4>其他语言使用 HTTP 接口</h4>
       <p>
         POST /v1/updates/check 在校验字段基础上增加 current_version，读取
         enabled、update_available 和 release。下载使用 POST
         /v1/updates/{releaseID}/download，提交同一应用、授权号和绑定；不支持匿名
-        GET。Go/Java
-        快速接入包目前提供授权能力，升级下载、验签和安装需按这些接口集成。
+        GET。请求还需 target（os、arch、runtime、channel、kind）和
+        current_version，按平台与升级路径获取匹配版本。同一版本可发布多个目标文件。
       </p>
       <p>
-        下载完成后及真正安装前，再 POST /v1/updates/{releaseID}/authorize，提交相同授权与绑定，确认版本仍已发布、更新服务已启用且授权未到期；验证失败或网络不可用时中止升级。Node SDK 下载后已自动复验，安装前调用 authorizeUpdate(releaseID, binding)。
+        下载完成后及真正安装前，再 POST
+        /v1/updates/{releaseID}/authorize，提交相同授权与绑定，确认版本仍已发布、更新服务已启用且授权未到期；验证失败或网络不可用时中止升级。SDK
+        下载后已自动复验，安装前调用 authorizeUpdate(releaseID, binding)。
         保存升级包不等于在线安装完成。真实应用还需要备份、文件切换、数据迁移、健康检查和失败回滚。可参考仓库
         <a
           href="https://github.com/yunnuo88520/yunnuo-license/tree/main/examples/update-demo"
           target="_blank"
           rel="noopener"
-          >Ebox 升级 demo</a
-        >。升级服务到期后，即使旧版本允许永久使用，下载也必须拒绝。
+          >Web 升级 demo</a
+        >；GUI、CLI、Docker 实际示例见
+        examples/universal-client。升级包必须只替换程序，持久卷、实例身份、授权状态和客户数据需要保留，健康检查失败回滚。Docker
+        使用签名镜像归档和固定镜像摘要。升级服务到期后，即使旧版本允许永久使用，下载也必须拒绝。
       </p>
     </template>
     <template v-else>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import InstallationManager from "../shared/components/InstallationManager.vue";
+import { termsSummary } from "../shared/authorization";
 import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
 import HelpPanel from "../shared/components/HelpPanel.vue";
 import { CircleHelp } from "lucide-vue-next";
@@ -8,7 +10,11 @@ import { onMounted, reactive, ref } from "vue";
 import { isInvalidSession, request } from "../shared/api";
 import PasswordChangeForm from "../shared/components/PasswordChangeForm.vue";
 import type { PasswordChangeInput } from "../shared/password";
-import { accountToken, saveAccountToken, clearAccountToken } from "../shared/accountSession";
+import {
+  accountToken,
+  saveAccountToken,
+  clearAccountToken,
+} from "../shared/accountSession";
 import { friendlyError } from "../shared/errors";
 import { branding, loadBranding } from "../shared/branding";
 import { formatTime, expiryInfo, onlineStateLabel } from "../shared/format";
@@ -20,8 +26,23 @@ const token = ref(accountToken("user")),
   busy = ref(false),
   action = ref(""),
   selected = ref<any>();
-const login = reactive({ username: "", password: "", captcha_id: "", captcha_code: "" });
+const login = reactive({
+  username: "",
+  password: "",
+  captcha_id: "",
+  captcha_code: "",
+});
 const captchaField = ref<any>(null);
+const claimToken = ref("");
+async function associateLicense() {
+  await api("/user/licenses/claim", {
+    method: "POST",
+    body: JSON.stringify({ claim_token: claimToken.value.trim() }),
+  });
+  claimToken.value = "";
+  message.value = "授权已关联当前账号。";
+  await refresh();
+}
 const claim = reactive({ card_code: "", bind_value: "" });
 const renew = reactive({ binding_id: "", card_code: "" });
 const rebind = reactive({
@@ -130,7 +151,10 @@ function save() {
   });
 }
 function changePassword(input: PasswordChangeInput) {
-  return api<{ changed: boolean }>("/user/password", { method: "POST", body: JSON.stringify(input) });
+  return api<{ changed: boolean }>("/user/password", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 function passwordChanged() {
   logout();
@@ -189,9 +213,27 @@ onMounted(async () => {
     </section>
     <template v-else
       ><section class="panel">
+        <h2>关联产品内已激活的授权</h2>
+        <p>
+          在产品的授权设置中生成一次性关联凭证，10
+          分钟内在此提交。已有其他所有者的授权不能被认领。
+        </p>
+        <form class="claim" @submit.prevent="run(associateLicense)">
+          <label class="field"
+            >产品关联凭证<input
+              v-model="claimToken"
+              minlength="32"
+              maxlength="32"
+              autocomplete="off"
+              required /></label
+          ><button class="btn" :disabled="busy">关联已有授权</button>
+        </form>
+      </section>
+      <section class="panel">
         <h2>激活新授权</h2>
         <p>
-          系统根据卡密自动识别应用，无需填写应用 ID。仅未激活卡密可首次认领；已有授权请联系管理员分配。
+          系统根据卡密自动识别应用，无需填写应用
+          ID。未激活卡密可在此认领；已在产品内激活的授权，可通过上方的一次性凭证关联。
         </p>
         <form class="claim" @submit.prevent="activate">
           <label class="field"
@@ -233,27 +275,37 @@ onMounted(async () => {
         <div class="facts">
           <div>
             <small>使用期限</small
-            ><strong :class="`expiry-${expiryInfo(item.license.usage_expired_at).level}`">{{
-              item.license.usage_expired_at
-                ? formatTime(item.license.usage_expired_at)
-                : "永久使用"
-            }}</strong
+            ><strong
+              :class="`expiry-${expiryInfo(item.license.usage_expired_at).level}`"
+              >{{
+                item.license.usage_expired_at
+                  ? formatTime(item.license.usage_expired_at)
+                  : "永久使用"
+              }}</strong
             ><span
               v-if="item.license.usage_expired_at"
-              :class="['expiry-tag', `expiry-tag-${expiryInfo(item.license.usage_expired_at).level}`]"
+              :class="[
+                'expiry-tag',
+                `expiry-tag-${expiryInfo(item.license.usage_expired_at).level}`,
+              ]"
               >{{ expiryInfo(item.license.usage_expired_at).label }}</span
             >
           </div>
           <div>
             <small>更新服务</small
-            ><strong :class="`expiry-${expiryInfo(item.license.updates_expired_at).level}`">{{
-              item.license.updates_expired_at
-                ? formatTime(item.license.updates_expired_at)
-                : "永久更新"
-            }}</strong
+            ><strong
+              :class="`expiry-${expiryInfo(item.license.updates_expired_at).level}`"
+              >{{
+                item.license.updates_expired_at
+                  ? formatTime(item.license.updates_expired_at)
+                  : "永久更新"
+              }}</strong
             ><span
               v-if="item.license.updates_expired_at"
-              :class="['expiry-tag', `expiry-tag-${expiryInfo(item.license.updates_expired_at).level}`]"
+              :class="[
+                'expiry-tag',
+                `expiry-tag-${expiryInfo(item.license.updates_expired_at).level}`,
+              ]"
               >{{ expiryInfo(item.license.updates_expired_at).label }}</span
             >
           </div>
@@ -271,6 +323,16 @@ onMounted(async () => {
             >
           </div>
         </div>
+        <p>{{ termsSummary(item.license.authorization_terms) }}</p>
+        <p v-if="item.license.authorization_terms?.features?.length">
+          已授权功能：{{ item.license.authorization_terms.features.join("、") }}
+        </p>
+        <InstallationManager
+          :api="api"
+          :license-no="item.license.license_no"
+          prefix="/user"
+          :can-disable="item.policy.allowed"
+        />
         <p class="rights-status">
           <strong>{{ item.can_use ? "应用可用" : "应用暂不可用" }}</strong
           ><span>{{
@@ -352,7 +414,9 @@ onMounted(async () => {
             ><label class="field"
               >更换原因<input v-model="rebind.reason" required maxlength="500"
             /></label>
-            <p>成功后旧绑定将失效，并按应用规则扣除一次换绑额度。</p></template
+            <p>
+              成功后旧绑定将失效，并按本授权冻结的规则扣除一次换绑额度。
+            </p></template
           >
           <div class="actions">
             <button class="btn" :disabled="busy">
@@ -367,10 +431,12 @@ onMounted(async () => {
       <section class="panel">
         <details>
           <summary>修改登录密码</summary>
-          <PasswordChangeForm :change="changePassword" @changed="passwordChanged" />
-        </details>
-      </section></template
-    >
+          <PasswordChangeForm
+            :change="changePassword"
+            @changed="passwordChanged"
+          />
+        </details></section
+    ></template>
   </main>
   <HelpPanel :open="helpOpen" @close="helpOpen = false" />
 </template>

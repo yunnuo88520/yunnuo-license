@@ -52,10 +52,21 @@ func (s *Service) CreatePackage(ctx context.Context, p domain.CardPackage, actor
 	}
 	p.ID = yncrypto.NewID("pkg")
 	p.Enabled = true
-	if _, err := s.currentStore().GetProduct(ctx, p.ProductID); err != nil {
+	product, err := s.currentStore().GetProduct(ctx, p.ProductID)
+	if err != nil {
 		return p, ErrProductNotFound
 	}
-	err := s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
+	if p.AuthorizationTerms != nil {
+		t, e := normalizeTerms(*p.AuthorizationTerms)
+		if e != nil {
+			return p, e
+		}
+		p.AuthorizationTerms = &t
+	} else {
+		t := domain.LegacyTerms(product)
+		p.AuthorizationTerms = &t
+	}
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
 		if err := tx.LockProduct(ctx, p.ProductID); err != nil {
 			return err
 		}
@@ -466,6 +477,7 @@ func (s *Service) generatePackageCards(ctx context.Context, in AgentCreateCardBa
 				return ErrAgentQuotaNotEnough
 			}
 		}
+		product = effectiveProduct(product, pkg.AuthorizationTerms)
 		batch, cards, codes, err := s.buildCardBatch(product, in.AgentID, nonEmpty(in.Name, pkg.Name), in.Quantity, pkg.DurationDays, pkg.IsPermanent, "agent_package")
 		if err != nil {
 			return err

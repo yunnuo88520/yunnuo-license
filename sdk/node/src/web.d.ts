@@ -1,1 +1,1 @@
-export { renderLicenseBlockPage, enforceWebLicense } from "./index.js";
+export { renderLicenseBlockPage, enforceWebLicense, bindingForWebRequest } from "./index.js";

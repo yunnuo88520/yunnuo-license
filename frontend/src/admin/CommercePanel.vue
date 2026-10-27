@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import AuthorizationTermsFields from "../shared/components/AuthorizationTermsFields.vue";
+import { authorizationDefaults, termsSummary } from "../shared/authorization";
 import PagedRecords from "../shared/components/PagedRecords.vue";
 import FormDialog from "../shared/components/FormDialog.vue";
 import ConfirmDialog from "../shared/components/ConfirmDialog.vue";
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Plus } from "lucide-vue-next";
 import { formatTime, costRateLabel } from "../shared/format";
 const props = defineProps<{
@@ -30,6 +32,16 @@ const pkg = reactive({
   base_cost: 1000,
   use_quota: false,
 });
+const customTerms = ref(false),
+  packageTerms = ref(authorizationDefaults());
+watch(
+  () => pkg.product_id,
+  () => {
+    packageTerms.value = authorizationDefaults(
+      props.products.find((p) => p.id === pkg.product_id),
+    );
+  },
+);
 const tierID = ref("");
 const tierForm = reactive({
   id: "",
@@ -141,7 +153,10 @@ async function saveGroup() {
   show.group = false;
 }
 async function savePackage() {
-  await post("/admin/packages", pkg);
+  await post("/admin/packages", {
+    ...pkg,
+    authorization_terms: customTerms.value ? packageTerms.value : undefined,
+  });
   pkg.name = "";
   show.pkg = false;
 }
@@ -304,7 +319,10 @@ onMounted(() => run(load));
                 <td>{{ pname(p.product_id) }} / {{ p.name }}</td>
                 <td>
                   {{ p.is_permanent ? "永久" : `${p.duration_days} 天`
-                  }}{{ p.use_quota ? " + 张数额度" : "" }}
+                  }}{{ p.use_quota ? " + 张数额度" : ""
+                  }}<small class="package-terms">{{
+                    termsSummary(p.authorization_terms)
+                  }}</small>
                 </td>
                 <td>
                   <input
@@ -388,6 +406,16 @@ onMounted(() => run(load));
               type="checkbox"
             />同时扣除已发放的张数额度</label
           >
+          <label class="check"
+            ><input
+              v-model="customTerms"
+              type="checkbox"
+            />自定义套餐授权条款</label
+          >
+          <AuthorizationTermsFields v-if="customTerms" v-model="packageTerms" />
+          <p v-else>
+            创建时保存当前应用的默认条款；之后修改应用不会改变本套餐或已生成的卡密。
+          </p>
           <div class="form-actions">
             <button class="btn" :disabled="busy">建立套餐</button>
           </div>
@@ -759,6 +787,13 @@ onMounted(() => run(load));
   </div>
 </template>
 <style scoped>
+.package-terms {
+  display: block;
+  margin-top: 6px;
+  max-width: 340px;
+  color: var(--muted);
+  white-space: normal;
+}
 .commerce {
   display: grid;
   gap: 24px;

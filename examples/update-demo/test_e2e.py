@@ -88,11 +88,11 @@ def archive(version, schema, healthy=True):
     return output.getvalue()
 
 
-def publish(base, product, developer, version, package):
+def publish(base, product, developer, version, package, target=None):
     prefix = "/developer/products/" + product["id"]
     boundary = uuid.uuid4().hex
     parts = []
-    for key, value in [("version", version), ("notes", "Independent website update E2E")]:
+    for key, value in [("version", version), ("notes", "Independent website update E2E"), *([("target",json.dumps(target))] if target else [])]:
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode())
     parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="package"; filename="ebox-{version}.zip"\r\nContent-Type: application/zip\r\n\r\n'.encode() + package + f'\r\n--{boundary}--\r\n'.encode())
     release = api(base, prefix + "/releases", b"".join(parts), developer, "multipart/form-data; boundary=" + boundary)
@@ -159,15 +159,17 @@ def main():
                     wait_ready(site_base, "/api/health", process)
                     return process
                 site_process = start_site()
-                before = http(site_base, "/api/status")
-                before_html = http(site_base, "/")
+                def site_http(path, data=None, **options):
+                    return http(site_base,path,data,extra_headers={"Host":"demo.ebox.example.com"},**options)
+                before = site_http("/api/status")
+                before_html = site_http("/")
                 assert before["version"] == "1.0.0" and before["schema_version"] == 1
                 if args.screenshots:
                     from playwright.sync_api import sync_playwright
                     playwright = sync_playwright().start()
-                    browser = playwright.chromium.launch(executable_path=shutil.which("chromium"), headless=True, args=["--no-sandbox"])
+                    browser = playwright.chromium.launch(executable_path=shutil.which("chromium"), headless=True, args=["--no-sandbox","--no-proxy-server","--host-resolver-rules=MAP demo.ebox.example.com 127.0.0.1"])
                     page = browser.new_page(viewport={"width": 1440, "height": 1000}, locale="zh-CN", timezone_id="Asia/Shanghai")
-                    page.goto(site_base)
+                    page.goto(f"http://demo.ebox.example.com:{site_port}")
                     page.get_by_text("v1.0.0", exact=True).wait_for()
                     page.screenshot(path=str(artifacts / "before-v1.png"), full_page=True)
                 publish(license_base, product, developer, "2.0.0", archive("2.0.0", 2))
@@ -179,21 +181,21 @@ def main():
                         fixture.execute("UPDATE license_entitlements SET updates_expired_at = ? WHERE license_id = ?",(expired,license_id))
                     else:
                         fixture.execute("UPDATE licenses SET expired_at = ? WHERE license_no = ?", (expired, license["license_no"]))
-                denied = http(site_base, "/api/update", {}, expected=403)
+                denied = site_http("/api/update", {}, expected=403)
                 assert denied["code"] == ("UPDATES_EXPIRED" if args.license_mode=="perpetual" else "LICENSE_EXPIRED")
                 credentials={**binding,"app_key":product["app_key"]}
                 if args.license_mode=="perpetual":
                     rights=api(license_base,"/v1/licenses/verify",credentials)
                     assert rights["can_use"] and not rights["can_update"] and rights["usage_expired_at"] is None
                     assert api(license_base,"/v1/licenses/heartbeat",credentials)["accepted"]
-                    assert http(site_base,"/")==before_html
-                    assert http(site_base,"/api/status")["version"]=="1.0.0"
+                    assert site_http("/")==before_html
+                    assert site_http("/api/status")["version"]=="1.0.0"
                 else:
                     assert http(license_base,"/v1/licenses/verify",credentials,expected=403)["error"]["code"]=="LICENSE_EXPIRED"
                     assert http(license_base,"/v1/licenses/heartbeat",credentials,expected=403)["error"]["code"]=="LICENSE_EXPIRED"
-                    blocked_page=http(site_base,"/",expected=403).decode()
+                    blocked_page=site_http("/",expected=403).decode()
                     assert "应用授权暂不可用" in blocked_page and "已确认的授权安全处置" not in blocked_page
-                    assert http(site_base,"/api/status",expected=403)["code"]=="LICENSE_EXPIRED"
+                    assert site_http("/api/status",expected=403)["code"]=="LICENSE_EXPIRED"
                 assert (site_data/"current"/"index.html").read_bytes()==before_html
                 report["cases"].append({"name": "Expired update rights reject updates; perpetual website stays usable and expired subscription website denies access", "passed": True, "fixture": "Only the isolated test entitlement deadline was moved to yesterday"})
                 with sqlite3.connect(license_db) as fixture:
@@ -208,27 +210,27 @@ def main():
                     page.get_by_role("heading", name="网站已升级，客户数据完整保留。", exact=True).wait_for()
                     page.screenshot(path=str(artifacts / "after-v2.png"), full_page=True)
                 else:
-                    result = http(site_base, "/api/update", {})
+                    result = site_http("/api/update", {})
                     assert result["updated"]
-                after = http(site_base, "/api/status")
-                after_html = http(site_base, "/")
+                after = site_http("/api/status")
+                after_html = site_http("/")
                 assert after["version"] == "2.0.0" and after["schema_version"] == 2 and after["notes"] == before["notes"]
                 assert after_html != before_html and "网站已升级".encode() in after_html
                 report["cases"].append({"name": "Installed website upgraded 1.0.0 to 2.0.0 after licensed signed download", "passed": True, "before_html_sha256": hashlib.sha256(before_html).hexdigest(), "after_html_sha256": hashlib.sha256(after_html).hexdigest()})
                 report["cases"].append({"name": "Database migrated schema 1 to 2 and existing customer article survived", "passed": True})
                 site_process.terminate(); site_process.wait(timeout=10)
                 site_process = start_site()
-                restarted = http(site_base, "/api/status")
+                restarted = site_http("/api/status")
                 assert restarted["version"] == "2.0.0" and restarted["schema_version"] == 2 and restarted["notes"] == before["notes"]
                 report["cases"].append({"name": "Website restart preserves new installed version and customer data", "passed": True})
                 broken = publish(license_base, product, developer, "2.1.0", archive("2.1.0", 3, healthy=False))
-                failure = http(site_base, "/api/update", {}, expected=500)
+                failure = site_http("/api/update", {}, expected=500)
                 assert failure["code"] == "UPDATE_FAILED"
                 assert "新版健康检查未通过" in failure["message"]
-                rolled_back = http(site_base, "/api/status")
+                rolled_back = site_http("/api/status")
                 assert rolled_back["version"] == "2.0.0" and rolled_back["schema_version"] == 2
                 assert rolled_back["notes"] == before["notes"] and "version_three_only" not in rolled_back["tables"]
-                assert http(site_base, "/") == after_html and not (site_data / "pending.json").exists()
+                assert site_http("/") == after_html and not (site_data / "pending.json").exists()
                 assert any("已备份数据库并切换网站文件至 v2.1.0" in event for event in rolled_back["events"])
                 assert any("网站文件与数据库已回滚至 v2.0.0" in event for event in rolled_back["events"])
                 report["cases"].append({"name": "Unhealthy 2.1.0 rolls back website files and schema 3 migration to healthy 2.0.0/schema 2", "passed": True})
@@ -237,7 +239,7 @@ def main():
                     page.get_by_text("Schema 2", exact=True).wait_for()
                     page.screenshot(path=str(artifacts / "rollback-v2.png"), full_page=True)
                 api(license_base, prefix + "/releases/" + broken["id"] + "/withdraw", {}, developer)
-                no_update = http(site_base, "/api/update", {})
+                no_update = site_http("/api/update", {})
                 assert no_update["updated"] is False
                 report["cases"].append({"name": "After broken version withdrawal the current version reports no update", "passed": True})
                 report["result"] = "passed"

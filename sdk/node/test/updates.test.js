@@ -61,3 +61,20 @@ test("update download enforces size and preserves expired-license errors", async
  const client=new LicenseClient({baseUrl:"https://license.example.com",appKey:"app_ebox",fetch:async(url)=>url.endsWith("/download")?new Response(bytes):Response.json({success:false,error:{code:"UPDATES_EXPIRED",message:"expired during transfer"}},{status:403})});
  await assert.rejects(client.downloadUpdate(release,{},expected),e=>isAPIErrorCode(e,"UPDATES_EXPIRED"));
  });
+
+test("signed targets cannot cross client platforms, channels or source version ranges",()=>{
+ const target={os:"linux",arch:"amd64",runtime:"node",channel:"stable",kind:"archive",min_version:"1.0.0",max_version:"1.9.9"};
+ const raw=Buffer.from(JSON.stringify({...claims,target}));const platformRelease={...release,target,manifest_token:raw.toString("base64url")+"."+sign("RSA-SHA256",raw,privateKey).toString("base64url")};
+ const context={...expected,target,currentVersion:"1.0.0"};
+ assert.equal(verifyReleaseManifest(platformRelease,context).target.os,"linux");
+ assert.throws(()=>verifyReleaseManifest(platformRelease,{...context,target:{...target,os:"windows"}}),/platform/);
+ assert.throws(()=>verifyReleaseManifest(platformRelease,{...context,currentVersion:"0.9.0"}),/upgrade path/);
+ assert.throws(()=>verifyReleaseManifest({...platformRelease,target:{...target,channel:"beta"}},context),/signed manifest/);
+});
+
+test("install authorization requires explicit approval for the exact release",async()=>{
+ for(const data of [{authorized:false,release_id:release.id},{authorized:true,release_id:"other"},{}]){
+  const client=new LicenseClient({baseUrl:"https://license.example.com",appKey:"app_ebox",fetch:async()=>Response.json({success:true,data})});
+  await assert.rejects(client.authorizeUpdate(release.id,{}),/authorization was not granted/);
+ }
+});

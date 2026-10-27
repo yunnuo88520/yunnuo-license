@@ -1,59 +1,78 @@
-# 创建应用后接入授权
+# 开发者授权接入
 
-管理员或开发者创建应用时填写名称与授权策略即可，系统自动生成唯一且稳定的应用 ID，不需要填写产品代码。管理员创建成功后自动显示“接入授权”指南，之后也可从产品行重新打开；开发者在产品页直接查看。指南及接入包自动带入应用 ID、绑定方式和期限模式；产品所有者之外的开发者不能下载其接入包。后台涉及应用的表单从当前账号有权操作的应用中选择并自动带入 ID。
+一次集成后统一分发：开发者创建一个应用，接入公开 AppID 和验签公钥；所有客户安装同一产品，在产品内输入各自卡密激活。客户差异存在平台套餐、授权与安装数据中，不在源码或专属编译参数中。
 
-## 按页面完成一次联调
+## 从页面开始
 
-1. 在“快速接入”选择 Node.js、Go 或 Java，核对授权站根地址，填写产品客户端实际使用的绑定值。服务器地址不能填管理后台路径；生产使用 HTTPS。
-2. 下载接入包。包内有 config.json、SDK 源码、README.md 和 demo 程序，不依赖 npm 或 Maven Central 已发布本 SDK，也不需要开发者在本机另装本项目仓库。Java 首次构建仍需要联网下载 Jackson 与 Maven 插件。
-3. 为当前应用生成一张测试卡，按页面显示的命令执行 activate。接入包不包含卡密，不会在下载时发卡或自动激活。
-4. 执行 verify、heartbeat，再执行 serve。另开浏览器访问 http://127.0.0.1:3000/protected；可使用 DEMO_PORT 修改端口，Ctrl+C 停止。
-5. 验证后台吊销后接口返回 403，授权站不可达时返回 503。将同样的授权判断接入产品的服务端中间件或核心功能入口，按负载设置短期校验缓存和心跳，不能只隐藏前端按钮或只检查一次激活结果。
+管理员在产品行点击“接入授权”，开发者在自己的产品页查看指南。先配置默认条款或销售套餐，选择绑定方式、使用／更新期限、实例／设备／席位数量和功能。不同规格共用 AppID 与版本库；修改默认值不改变库存卡和已售授权。
 
-Node.js 要求 18+，Go 要求 1.22+，Java 要求 JDK 17+ 与 Maven 3。接入包 README 给出当前语言的完整命令。其他语言可以直接照页面 HTTP 接口页，保存请求 JSON，执行带入当前授权站地址的 curl 命令；Windows PowerShell 使用 curl.exe。
+选择 Node.js、Go 或 Java，下载接入包。包内含 SDK 源码、公开 config.json 和可执行 demo，不依赖本 SDK 发布到公共仓库。绑定值是可留空的联调默认值。生产将卡密和实际部署信息放进产品安装向导；不要为每个客户修改后重新打包。
 
-## 标识和归属
+```text
+node app.mjs activate CARD_CODE app.example.com
+node app.mjs verify
+node app.mjs heartbeat
+node app.mjs claim
+node app.mjs serve
+```
 
-AppID 采用 `yn` + 16 位小写十六进制字符，共 18 位；AppSecret 为独立的 32 位随机十六进制密钥。格式与生命周期参照微信开发者凭证，使用本平台前缀。AppSecret 在创建或重置后只展示一次，刷新后仅显示配置状态；服务器仅保存摘要。
+Go 使用 go run .；Java 使用 mvn -q compile exec:java -Dexec.args="activate CARD_CODE app.example.com"。设备和实例模式可省略绑定参数；组合绑定为 JSON，使用产品 UI 可避免命令行转义。初次 Java 编译需要 Maven 插件及 Jackson 依赖。
 
-应用 ID 是公开标识，不是密码。开发者复制指南中的应用 ID；当前 SDK 和 HTTP 协议使用 app_key 字段传递该 ID，接入包已自动配置。新应用的 id 与 app_key 相同，不需要管理两套标识。产品代码只由系统维护，供卡密和离线凭证使用，不是用户需要填写的内容。
+私有数据保存在 .license-data。每安装创建随机实例 ID 和私有凭证，重启及容器重建必须保留；发行包不能带已激活目录。Web 的 /protected 检查真实请求 Host，反代到 127.0.0.1:3000，或本机 curl -H 'Host: app.example.com' http://127.0.0.1:3000/protected。不信任任意 X-Forwarded-Host。/healthz 仅作存活探针。
 
-用户中心激活只需卡密及绑定信息，服务端依据实际卡密记录识别应用。公开代理核验先查询代理，再从其当前可售应用中选择，无需记忆应用代码。应用 ID 公开不会赋予后台权限、跨开发者访问权限或授权归属。license_no 来自首次激活返回，公开验真页显示的是脱敏编号，不能复制用于客户端校验。已有授权使用 attach 命令先验证绑定后保存。
+## HTTP 流程
 
-域名填实际域名，设备授权使用稳定的设备标识，账号授权使用产品服务端认可的账号；每次调用的绑定方式和值必须一致。不要让所有客户共享示例绑定值，也不要依赖未经核实的浏览器参数决定服务端的部署绑定。
+所有 JSON 响应包含 success、data、request_id。客户端字段 app_key 使用系统生成的 18 位 AppID（yn + 16 位十六进制）；无需后台登录 token。
 
-直接客户端激活只绑定部署实例，不会自动取得用户中心归属。需要客户自行管理时，可在用户中心用未激活卡密认领，或由管理员分配授权归属，再由产品 attach 对应的完整授权号。更换绑定遵守平台配置的限制；编辑本地配置不能代替换绑。
+1. POST /v1/cards/requirements，提交 app_key、card_code，读取本卡 authorization_terms。按卡的规则获取设备、域名、网段、租户等绑定。
+2. POST /v1/licenses/activate，提交卡密、bind_mode、bind_value，启用实例身份时带 instance_id、instance_secret、device_id。返回完整 license_no、can_use、can_update、授权条款及签名凭证。
+3. POST /v1/licenses/verify，提交 AppID、完整授权号、实际绑定与实例凭证。仅 can_use=true 执行核心业务；不能只判断 HTTP 200。
+4. heartbeat 上报活动；accepted=true 不代替 can_use。renew 增加 renew_card_code，按卡用途分别续使用或更新。
+5. 启用席位时每进程创建 session_id，调用 /v1/licenses/seats/acquire 获取 seat_id 后核验；运行期间续租，退出 release。离线借用在期限内持续占用配额。
+6. 产品调用 /v1/licenses/claim-ticket，客户把十分钟一次性 claim_token 提交用户中心的 /user/licenses/claim，关联账号。公开授权号不能任意认领或转让已有归属。
 
-## AppSecret 的服务端接入
+完整绑定、设备提供器、实例与席位区别、到期矩阵及边界见 [授权场景说明](licensing-scenarios.md)。域名范围校验不能用固定配置值代替真实 Host；IP 应来自可信部署环境。泛域激活登记范围，使用时提交实际子域；CIDR 使用时提交具体 IP。完全离线文件与在线授权分开验证。
 
-AppSecret 用于开发者自己的可信服务端，不分发给客户安装的产品。管理员或所属开发者可以在“接入授权”中复制、生成或重置密钥；代理、普通用户、审计人员与其他开发者不能重置。接入包、应用列表、代理验真和用户授权列表均不包含 AppSecret。
+## 在 Node 产品中使用运行适配器
 
-1. 服务端通过 `POST /v1/app/token` 提交 `{"grant_type":"client_credential","appid":"yn0123456789abcdef","secret":"本应用32位AppSecret"}`，读取 `data.access_token`、`token_type=Bearer`、`expires_in=7200`。
-2. 缓存令牌并在到期前刷新。携带 `Authorization: Bearer ACCESS_TOKEN` 请求 `GET /v1/app/profile`，确认返回的 `appid` 和名称正确。
-3. 使用相同令牌调用 `POST /v1/app/licenses/verify`，提交 `license_no`、`bind_mode`、`bind_value`，由令牌确定应用身份；仍按 `can_use` 和 `can_update` 判断授权。
+```js
+import {RuntimeLicense} from './sdk/src/index.js';
+const license = await RuntimeLicense.open({
+  baseUrl: config.base_url, appKey: config.app_key,
+  productId: config.product_id, productCode: config.product_code,
+  publicKeys: config.public_keys, stateDir: '/private/product-license',
+  currentVersion: '1.0.0',
+  target: {os:'linux',arch:'amd64',runtime:'node',channel:'stable',kind:'archive'}
+});
+// 安装向导：await license.activate(customerCard, registration);
+// 每个受保护请求：await license.verify({request:req});
+// 功能入口：await license.requireFeature('export', {request:req});
+```
 
-令牌只能访问当前应用的服务端接口，不能登录管理员、开发者、代理或用户后台。重置要求填写原因并确认影响，旧 AppSecret 和此前签发的访问令牌立即失效；并发重置的过时版本返回 `APP_SECRET_CHANGED`。密钥重置不改变 AppID、授权期限或产品验签密钥。令牌两小时到期、应用停用或凭证版本不匹配时返回 `INVALID_APP_ACCESS_TOKEN`；错误密钥返回 `INVALID_APP_CREDENTIALS`。
+默认每次在线核验。可选正向缓存最多 60 秒，受签名期限和席位截止约束。离线必须显式配置 allowOffline 和持久 HighWaterGuard。明确拒绝、坏签名不能触发离线回退。Go/Java 提供相同协议字段和验签工具；由应用安排心跳、缓存与安装流程。
 
-客户端 SDK 的普通激活、校验、心跳和更新接口仍使用公开 AppID 加卡密或授权号、绑定信息。公开客户端不需要 AppSecret。服务端凭证保存在环境变量或安全配置中，不能写入 URL、前端资源、客户安装包或日志。页面“AppSecret 服务端接入”提供当前应用的 JSON 和 curl 命令。
+## 使用期限和更新
 
-## 到期、故障与离线
+can_use 管运行，can_update 管升级。永久使用、更新到期可运行旧版本；订阅使用宽限不延长更新资格。4xx 明确拒绝时停止对应业务；网络故障默认 503，不能当作永久授权。
 
-使用资格以 can_use 为准，更新资格以 can_update 为准。订阅使用到期拒绝业务；永久使用而更新服务到期仍可访问旧版，但更新检查与下载必须拒绝。SDK 不会替应用决定或自动锁定其业务，接入包 demo 展示了必须放在业务入口的判断。
+三个接入包支持 updates 1.0.0 和 download 1.0.0。先启用应用升级服务、上传并发布版本。target 匹配平台、CPU、运行时、渠道、交付类型和来源版本。下载会验证产品、公钥版本、签名、目标、大小、SHA-256，并在传输后复验资格。实际替换前再调用 /v1/updates/{id}/authorize。
 
-接入包默认每次请求在线核验，故障时不自动离线放行。SDK 提供返回凭证和验签工具，但不会自动持久化或启用离线容错。实施离线策略时须验签、核对产品与绑定、校验授权期限及 offline_until，并考虑安全存储、系统时间倒拨和重新联网复核。完全离线文件只适用设备绑定。离线期间无法即时获知吊销或安全处置。
+安装由产品完成：备份、切换、迁移、健康检查、失败回滚，并保留实例身份和客户数据。参考 [Web 升级](../examples/update-demo/README.md) 与 [GUI、CLI、Docker 示例](../examples/universal-client/README.md)。升级下载不会自动成为适配所有产品的安装器。
 
-config.json 随包包含当前与历史公钥，按 token/manifest 的 key_version 选钥；未知版本应从可信授权站刷新。不能忽略未知版本、跳过验签或关闭 TLS 校验。产品私钥、管理员/开发者登录 token 不能进入客户产品。演示保存的 .license.json 是敏感凭证；生产应使用受保护的服务器目录或系统安全存储。
+## AppSecret 服务端接入
 
-## 可选在线升级
+AppSecret 为独立 32 位随机十六进制密钥，创建或重置后只展示一次；服务端仅保存摘要。只放开发者自己的可信服务端，不能随客户产品分发。
 
-Node.js 接入包提供 updates 和 download 命令。先在产品页开启升级服务，上传并发布高版本包；客户端检查后按公钥验证签名与 SHA-256，再保存 update.zip。下载不等于安装：备份、程序切换、数据迁移、健康检查和回滚由真实产品实现。完整示例见 [Ebox 在线升级](../examples/update-demo/README.md)。
+1. POST /v1/app/token：{"grant_type":"client_credential","appid":"yn0123456789abcdef","secret":"32位AppSecret"}，返回 access_token、token_type=Bearer、expires_in=7200。
+2. 缓存并到期刷新，Bearer 令牌请求 GET /v1/app/profile 核对应用身份。
+3. POST /v1/app/licenses/verify，带相同令牌以及授权号、绑定、实例字段，应用由令牌确定；仍分别判断 can_use 和 can_update。
 
-Go/Java 快速接入包提供授权能力，升级流程按页面 HTTP 接口实现，不能假定当前 SDK 已包含下载与安装器。
+令牌不能访问后台或其他应用。重置要求原因并使旧密钥、旧应用令牌立即失效；不会改变已有授权或验签公钥。普通产品客户端使用 AppID、客户凭证与绑定，无需 AppSecret。
 
-## 部署与验收
+公钥可随产品分发，按 key_version 选历史公钥；未知版本从可信授权站更新，不能跳过验签。私钥、后台 token、数据库密码不进入产品；卡密、完整 token 不写入日志和 URL。排障保留 code、request_id。
 
-接入包接口为 `GET /admin/products/{productID}/integration-kit` 或开发者对应路径，参数为 language、base_url、bind_value，需要后台登录。公开授权 API 只需要该产品的客户端字段，不需要后台 token。
+## 权限和验证
 
-SDK 源码目录由 YN_SDK_DIR 指定，本地默认 ../sdk，Docker 默认 /opt/yunnuo/sdk。官方 Docker 镜像包含接入所需源码与许可证；直接分发后端二进制时须同时部署该目录和上一级 LICENSE 文件。目录缺失返回 INTEGRATION_ASSETS_UNAVAILABLE，页面其他 HTTP 文档仍可使用。
+接入包下载仅限管理员或所属开发者：GET /admin/products/{id}/integration-kit（或 /developer 对应路径），参数 language、base_url、可选 bind_value。默认条款、套餐目录、安装管理同样执行产品范围隔离；用户只管理自己的授权。
 
-`examples/platform-e2e/test_integration.py` 直接从开发者页面创建应用并下载包，以实际 README 对应命令编译和运行三种语言，验证激活、心跳、续费、错误绑定、吊销、使用到期、更新过期和断网拒绝。前端 CI 运行并上传截图，Docker 验收检查镜像内三种语言的完整接入资源。
+CI 会从真实页面下载三个语言接入包并编译运行，验证卡密、实例、席位、心跳、续费、一次性归属、签名升级、实际 Host、到期、吊销和断网；另测原生 GUI、容器镜像实际更新与回滚，并保存报告和截图。

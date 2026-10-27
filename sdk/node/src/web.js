@@ -1,3 +1,4 @@
+import {requestHostname} from "./request.js";
 const escape = (text) => String(text ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 
 export function renderLicenseBlockPage(decision, unavailable = false) {
@@ -24,11 +25,22 @@ ${decision.case_id || support ? `<footer class="panel-bottom"><div class="refere
 <footer class="page-footer">${blocked ? "支持正版软件 · 尊重开发者劳动成果" : "应用授权服务"}</footer></div></body></html>`;
 }
 
+// A website checks the actual protected hostname on every request. Proxy headers
+// are trusted only when the caller explicitly supplies its proxy addresses.
+export function bindingForWebRequest(binding, request, options={}) {
+  if (!["domain","domain_wildcard","composite"].includes(binding.bind_mode)) return {...binding};
+  const host=requestHostname(request,options);
+  if(binding.bind_mode!=="composite")return {...binding,bind_value:host};
+  const parts=JSON.parse(binding.bind_value);
+  for(const kind of ["domain","domain_wildcard"])if(Object.hasOwn(parts,kind))parts[kind]=host;
+  return {...binding,bind_value:JSON.stringify(parts)};
+}
+
 // Returns true after responding; false means the application can continue serving.
-export async function enforceWebLicense(client, binding, response) {
+export async function enforceWebLicense(client, binding, response, request, options={}) {
   let decision;
   try {
-    decision = await client.securityDecision(binding);
+    decision = await client.securityDecision(bindingForWebRequest(binding,request,options));
     if (!decision || typeof decision.can_use !== "boolean") throw new Error("invalid security decision");
   }
   catch (error) {

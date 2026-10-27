@@ -1,0 +1,6 @@
+product-client
+product-client.exe
+product.json
+.license-data/
+*.tar.gz
+__pycache__/

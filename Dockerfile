@@ -13,7 +13,7 @@ COPY VERSION /src/VERSION
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
-COPY sdk/node/src/web.js sdk/node/src/web.d.ts sdk/node/src/index.d.ts /src/sdk/node/src/
+COPY sdk/node/src/request.js sdk/node/src/web.js sdk/node/src/web.d.ts sdk/node/src/index.d.ts /src/sdk/node/src/
 RUN npm run build
 
 FROM ${GO_IMAGE} AS builder

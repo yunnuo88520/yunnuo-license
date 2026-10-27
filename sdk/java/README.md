@@ -1,5 +1,7 @@
 # 允诺云授权 Java SDK
 
+统一产品分发、套餐快照、安装身份、浮动席位、用户关联与多平台更新见 [接入说明](https://github.com/yunnuo88520/yunnuo-license/blob/main/docs/developer-integration.md) 和 [场景说明](https://github.com/yunnuo88520/yunnuo-license/blob/main/docs/licensing-scenarios.md)。低层 API 不会自动保护业务入口；运行示例和安装器见 examples/universal-client。
+
 官方 Java SDK，支持在线激活、验证、心跳、续费、解绑，以及在线缓存 token 和完全
 离线 `license.key` 的本地 RSA 验签。要求 Java 17+。
 

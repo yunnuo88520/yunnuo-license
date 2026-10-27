@@ -9,14 +9,15 @@ type ProductGroup struct {
 	ProductIDs []string `json:"product_ids"`
 }
 type CardPackage struct {
-	ID           string `json:"id"`
-	ProductID    string `json:"product_id"`
-	Name         string `json:"name"`
-	DurationDays int    `json:"duration_days"`
-	IsPermanent  bool   `json:"is_permanent"`
-	BaseCost     int64  `json:"base_cost"`
-	UseQuota     bool   `json:"use_quota"`
-	Enabled      bool   `json:"enabled"`
+	AuthorizationTerms *AuthorizationTerms `json:"authorization_terms,omitempty"`
+	ID                 string              `json:"id"`
+	ProductID          string              `json:"product_id"`
+	Name               string              `json:"name"`
+	DurationDays       int                 `json:"duration_days"`
+	IsPermanent        bool                `json:"is_permanent"`
+	BaseCost           int64               `json:"base_cost"`
+	UseQuota           bool                `json:"use_quota"`
+	Enabled            bool                `json:"enabled"`
 }
 type AgentTier struct {
 	ID          string `json:"id"`

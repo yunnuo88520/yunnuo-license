@@ -1,51 +1,40 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import { LicenseClient, enforceWebLicense } from "./sdk/src/index.js";
+import {readFile,writeFile,mkdir} from "node:fs/promises";
+import {createHash} from "node:crypto";
+import {createServer} from "node:http";
+import {join} from "node:path";
+import {RuntimeLicense,renderLicenseBlockPage} from "./sdk/src/index.js";
 
-const config = JSON.parse(await readFile("config.json", "utf8"));
-const client = new LicenseClient({baseUrl: config.base_url, appKey: config.app_key, timeoutMs: 10000});
-const binding = {bind_mode: config.bind_mode, bind_value: config.bind_value};
-let state;
-try { state = JSON.parse(await readFile(".license.json", "utf8")); } catch (error) { if (error.code !== "ENOENT") throw error; }
-const credentials = () => {
-  if (!state?.license_no) throw Object.assign(new Error("请先 activate 或 attach"), {httpStatus:403, code:"LICENSE_REQUIRED"});
-  return {...binding, license_no:state.license_no};
-};
-async function save(result) {
-  if (result.can_use !== true) throw Object.assign(new Error("当前授权不可使用"), {httpStatus:403});
-  await writeFile(".license.json",JSON.stringify(result,null,2)+"\n",{mode:0o600});state=result;
-}
-const output = (result) => console.log(JSON.stringify({license_no:result.license_no, can_use:result.can_use, can_update:result.can_update, usage_expired_at:result.usage_expired_at, updates_expired_at:result.updates_expired_at, accepted:result.accepted}));
-const [command="verify", value] = process.argv.slice(2);
-try {
-  if (command === "activate") { if (!value) throw Error("需要 CARD_CODE"); const result=await client.activate({...binding,card_code:value,device_name:"integration-demo",client_version:"1.0.0"});await save(result);output(result); }
-  else if (command === "attach") { if (!value) throw Error("需要 LICENSE_NO");const result=await client.verify({...binding,license_no:value});await save(result);output(result); }
-  else if (command === "verify") { const result=await client.verify(credentials());await save(result);output(result); }
-  else if (command === "heartbeat") output(await client.heartbeat(credentials()));
-  else if (command === "renew") { if (!value) throw Error("需要 RENEW_CARD_CODE");const result=await client.renew({...credentials(),renew_card_code:value});await save(result);output(result); }
-  else if (command === "updates" || command === "download") {
-    if (!value) throw Error("需要当前版本，例如 1.0.0");
-    const result=await client.checkUpdate({...credentials(),current_version:value});
-    if (command === "download" && result.update_available && result.release) {
-      const release=result.release, publicKeyPem=config.public_keys[String(release.key_version)];
-      if (!publicKeyPem) throw Error("未知 key_version，请从可信授权站刷新公钥环后重试");
-      const bytes=await client.downloadUpdate(release,credentials(),{publicKeyPem,productId:config.product_id});
-      await writeFile("update.zip",bytes,{mode:0o600});console.log(JSON.stringify({downloaded:true,filename:"update.zip",version:release.version}));
-    } else console.log(JSON.stringify(result));
-  } else if (command === "serve") {
-    createServer(async (req,res) => {
-      if (req.url !== "/protected") {res.writeHead(404);res.end();return;}
-      try {
-        const input=credentials();
-        if (await enforceWebLicense(client,input,res)) return;
-        const result=await client.verify(input);
-        if (result.can_use !== true) throw Object.assign(Error("授权不可使用"),{httpStatus:403});
-        res.writeHead(200,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"});
-        res.end(JSON.stringify({message:"已进入受保护业务",can_use:true,can_update:result.can_update}));
-      } catch(error) {
-        res.writeHead([400,401,403,404].includes(error.httpStatus)?403:503,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"});
-        res.end(JSON.stringify({error:error.code||"AUTHORIZATION_UNAVAILABLE",request_id:error.requestId||""}));
-      }
-    }).listen(Number(process.env.DEMO_PORT||3000),"127.0.0.1",()=>console.log("http://127.0.0.1:"+(process.env.DEMO_PORT||3000)+"/protected"));
-  } else throw Error("命令：activate、attach、verify、heartbeat、renew、serve、updates、download");
-} catch(error) { console.error(error.code||error.message, error.requestId||"");process.exitCode=1; }
+const config=JSON.parse(await readFile("config.json","utf8"));
+const stateDir=process.env.LICENSE_DATA_DIR||join(".license-data",createHash("sha256").update(config.app_key).digest("hex").slice(0,16));
+const runtime=await RuntimeLicense.open({baseUrl:config.base_url,appKey:config.app_key,productId:config.product_id,productCode:config.product_code,publicKeys:config.public_keys,stateDir,currentVersion:config.current_version||"1.0.0",target:config.target});
+const [command="verify",value,registration]=process.argv.slice(2);
+const context={host:process.env.LICENSE_ACTUAL_HOST||(["verify","heartbeat","claim"].includes(command)?value:"")||config.actual_host||(!String(config.bind_value).startsWith("*.")?config.bind_value:undefined),ip:process.env.LICENSE_ACTUAL_IP||config.actual_ip};
+const output=r=>console.log(JSON.stringify({license_no:r.license_no,can_use:r.can_use,can_update:r.can_update,usage_expired_at:r.usage_expired_at,updates_expired_at:r.updates_expired_at,accepted:r.accepted,authorization_terms:r.authorization_terms}));
+try{
+ if(command==="activate"){if(!value)throw Error("需要 CARD_CODE");output(await runtime.activate(value,registration||process.env.LICENSE_BIND_VALUE||config.bind_value||undefined))}
+ else if(command==="attach"){if(!value)throw Error("需要 LICENSE_NO；实例授权请用原卡激活");output(await runtime.attach(value,config.bind_mode,config.bind_value))}
+ else if(command==="verify")output(await runtime.verify(context));
+ else if(command==="heartbeat"){await runtime.verify(context);output(await runtime.heartbeat(context))}
+ else if(command==="renew"){if(!value)throw Error("需要 RENEW_CARD_CODE");output(await runtime.renew(value,context))}
+ else if(command==="claim")console.log(JSON.stringify(await runtime.claimTicket(context)));
+ else if(command==="updates"||command==="download"){
+   if(!value)throw Error("需要当前版本，例如 1.0.0");
+   const active=await RuntimeLicense.open({baseUrl:config.base_url,appKey:config.app_key,productId:config.product_id,productCode:config.product_code,publicKeys:config.public_keys,stateDir,currentVersion:value,target:config.target});
+   const result=await active.checkUpdate(context);
+   if(command==="download"&&result.update_available){
+    const bytes=await active.downloadUpdate(result.release,context),filename=join(stateDir,"update.package");
+    await mkdir(stateDir,{recursive:true,mode:0o700});await writeFile(filename,bytes,{mode:0o600});console.log(JSON.stringify({downloaded:true,filename,version:result.release.version}));
+   }else console.log(JSON.stringify(result));
+ }else if(command==="serve"){
+   createServer(async(req,res)=>{
+    if(req.url==="/healthz"){res.end("ok");return}
+    if(req.url!=="/protected"){res.writeHead(404);res.end();return}
+    try{
+     const decision=await runtime.securityDecision({request:req});
+     if(!decision.can_use){res.writeHead(403,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});res.end(renderLicenseBlockPage(decision));return}
+     res.writeHead(200,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"});res.end(JSON.stringify({message:"已进入受保护业务",can_use:true,can_update:decision.can_update}));
+    }catch(error){res.writeHead([400,401,403,404].includes(error.httpStatus)?403:503,{"Content-Type":"application/json","Cache-Control":"no-store"});res.end(JSON.stringify({error:error.code||"AUTHORIZATION_UNAVAILABLE",request_id:error.requestId||""}))}
+   }).listen(Number(process.env.DEMO_PORT||3000),"127.0.0.1");
+ }else throw Error("命令：activate、attach、verify、heartbeat、renew、claim、serve、updates、download");
+}catch(error){console.error(error.code||error.message,error.requestId||"");process.exitCode=1}
+finally{if(command!=="serve")await runtime.releaseSeat(context).catch(()=>{})}

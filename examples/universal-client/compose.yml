@@ -1,0 +1,14 @@
+services:
+  product:
+    image: vendor/ebox:1.0.0
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DEMO_ADDR: "0.0.0.0:8080"
+    volumes:
+      - ./product.json:/product/config.json:ro
+      - product-data:/data
+    restart: unless-stopped
+    stop_grace_period: 30s
+volumes:
+  product-data:

@@ -590,3 +590,8 @@ var claims = verifier.verifyOfflineToken(
 
 完整在线调用、异常处理、完全离线 `license.key` 验签和高水位示例见
 `sdk/java/README.md`。产品公钥应随客户端发布，产品私钥不得进入客户端。
+
+
+## 标准产品与高级套餐
+
+新产品无需逐客户编译。先调用 POST /v1/cards/requirements（app_key、card_code）读取本卡快照，再按规则激活。启用安装身份时，激活、验证、心跳、续费和更新均带 instance_id、instance_secret、device_id；席位还需 session_id 与 seat_id。套餐规则、范围绑定、一次性归属、平台版本和完整新接口流程见 [开发者接入](../developer-integration.md) 与 [场景说明](../licensing-scenarios.md)。旧示例为兼容的基础字段，不能省略高级套餐要求的凭证。

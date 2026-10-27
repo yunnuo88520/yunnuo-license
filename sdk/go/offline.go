@@ -12,6 +12,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -137,25 +139,34 @@ func (v *OfflineVerifier) selectKey(token string) (*rsa.PublicKey, OfflineCacheC
 }
 
 type OfflineExpectation struct {
-	LicenseNo string
-	BindMode  string
-	BindValue string
+	SessionID  string
+	InstanceID string
+	SeatID     string
+	LicenseNo  string
+	BindMode   string
+	BindValue  string
 }
 
 type OfflineCacheClaims struct {
-	LicenseMode      string     `json:"license_mode"`
-	UsageExpiredAt   *time.Time `json:"usage_expired_at"`
-	UpdatesExpiredAt *time.Time `json:"updates_expired_at"`
-	Type             string     `json:"type"`
-	LicenseNo        string     `json:"license_no"`
-	ProductCode      string     `json:"product_code"`
-	BindMode         string     `json:"bind_mode"`
-	BindHash         string     `json:"bind_hash"`
-	BindDigest       string     `json:"bind_digest"`
-	LicenseExpiredAt *time.Time `json:"license_expired_at,omitempty"`
-	OfflineUntil     time.Time  `json:"offline_until"`
-	IssuedAt         time.Time  `json:"issued_at"`
-	KeyVersion       int        `json:"key_version"`
+	InstanceID         string         `json:"instance_id"`
+	SeatID             string         `json:"seat_id"`
+	SessionID          string         `json:"session_id"`
+	Purpose            string         `json:"purpose"`
+	CanUse             bool           `json:"can_use"`
+	AuthorizationTerms map[string]any `json:"authorization_terms"`
+	LicenseMode        string         `json:"license_mode"`
+	UsageExpiredAt     *time.Time     `json:"usage_expired_at"`
+	UpdatesExpiredAt   *time.Time     `json:"updates_expired_at"`
+	Type               string         `json:"type"`
+	LicenseNo          string         `json:"license_no"`
+	ProductCode        string         `json:"product_code"`
+	BindMode           string         `json:"bind_mode"`
+	BindHash           string         `json:"bind_hash"`
+	BindDigest         string         `json:"bind_digest"`
+	LicenseExpiredAt   *time.Time     `json:"license_expired_at,omitempty"`
+	OfflineUntil       time.Time      `json:"offline_until"`
+	IssuedAt           time.Time      `json:"issued_at"`
+	KeyVersion         int            `json:"key_version"`
 }
 
 func (v *OfflineVerifier) VerifyOfflineToken(token string, expected OfflineExpectation) (OfflineCacheClaims, error) {
@@ -175,6 +186,9 @@ func (v *OfflineVerifier) VerifyOfflineToken(token string, expected OfflineExpec
 	}
 	if expected.LicenseNo != "" && strings.TrimSpace(claims.LicenseNo) != strings.TrimSpace(expected.LicenseNo) {
 		return OfflineCacheClaims{}, verificationError(VerificationWrongLicense, "license number does not match")
+	}
+	if expected.InstanceID != "" && claims.InstanceID != expected.InstanceID || expected.SeatID != "" && claims.SeatID != expected.SeatID || expected.SessionID != "" && claims.SessionID != expected.SessionID {
+		return OfflineCacheClaims{}, verificationError(VerificationBindingMismatch, "installation or seat does not match")
 	}
 	if !equalFoldTrim(claims.BindMode, expected.BindMode) || claims.BindDigest == "" {
 		return OfflineCacheClaims{}, verificationError(VerificationBindingMismatch, "binding mode or digest does not match")
@@ -258,8 +272,58 @@ func BindingDigest(bindMode, bindValue string) string {
 	sum := sha256.New()
 	sum.Write([]byte(strings.ToLower(strings.TrimSpace(bindMode))))
 	sum.Write([]byte{0})
-	sum.Write([]byte(strings.ToLower(strings.TrimSpace(bindValue))))
+	value := strings.TrimSpace(bindValue)
+	mode := strings.ToLower(strings.TrimSpace(bindMode))
+	switch mode {
+	case "tenant", "instance", "cluster":
+	case "ip", "ip_cidr":
+		value = canonicalDigestComponent(mode, value)
+	case "domain", "domain_wildcard":
+		value = canonicalDigestComponent(mode, value)
+	case "composite":
+		var fields map[string]string
+		if json.Unmarshal([]byte(value), &fields) == nil {
+			for kind, v := range fields {
+				fields[kind] = canonicalDigestComponent(kind, v)
+			}
+			if raw, e := json.Marshal(fields); e == nil {
+				value = string(raw)
+			}
+		}
+	default:
+		value = strings.ToLower(value)
+	}
+	sum.Write([]byte(value))
 	return hex.EncodeToString(sum.Sum(nil))
+}
+
+func canonicalDigestComponent(mode, value string) string {
+	value = strings.TrimSpace(value)
+	switch mode {
+	case "ip", "ip_cidr":
+		if ip, e := netip.ParseAddr(value); e == nil {
+			return ip.Unmap().String()
+		}
+		if prefix, e := netip.ParsePrefix(value); e == nil {
+			return prefix.Masked().String()
+		}
+	case "domain", "domain_wildcard":
+		wild := strings.HasPrefix(value, "*.")
+		value = strings.TrimPrefix(value, "*.")
+		if !strings.Contains(value, "://") {
+			value = "http://" + value
+		}
+		if parsed, e := url.Parse(value); e == nil {
+			value = strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+			if wild {
+				value = "*." + value
+			}
+			return value
+		}
+	case "account":
+		return strings.ToLower(value)
+	}
+	return value
 }
 
 func verifySignedJSON[T any](key *rsa.PublicKey, token string) (T, error) {

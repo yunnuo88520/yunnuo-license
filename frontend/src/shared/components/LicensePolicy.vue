@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from "vue";
+import { ref, watch } from "vue";
+import AuthorizationTermsFields from "./AuthorizationTermsFields.vue";
+import { authorizationDefaults } from "../authorization";
 const props = defineProps<{
   productId: string;
   api: <T = any>(path: string, options?: RequestInit) => Promise<T>;
@@ -7,45 +9,39 @@ const props = defineProps<{
   canWrite: boolean;
 }>();
 const emit = defineEmits<{ saved: [] }>();
-const form = reactive({
-  license_mode: "subscription",
-  update_duration_days: 0,
-  expire_grace_days: 0,
-});
-const locked = ref(true),
+const terms = ref(authorizationDefaults()),
   busy = ref(false),
-  error = ref("");
+  error = ref(""),
+  message = ref("");
 let generation = 0;
 const path = () =>
-  `${props.prefix}/products/${encodeURIComponent(props.productId)}/license-policy`;
-async function load() {
-  const current = ++generation;
-  locked.value = true;
-  error.value = "";
-  if (!props.productId) return;
-  try {
-    const result = await props.api(path());
-    if (current !== generation) return;
-    Object.assign(form, result);
-    locked.value = result.locked;
-  } catch (e: any) {
-    if (current === generation) error.value = e.message;
-  }
-}
-watch(() => props.productId, load, { immediate: true });
+  `${props.prefix}/products/${encodeURIComponent(props.productId)}/authorization-terms`;
+watch(
+  () => props.productId,
+  async () => {
+    const current = ++generation;
+    error.value = "";
+    message.value = "";
+    try {
+      const result = await props.api(path());
+      if (current === generation)
+        terms.value = { ...authorizationDefaults(), ...result };
+    } catch (e: any) {
+      if (current === generation) error.value = e.message;
+    }
+  },
+  { immediate: true },
+);
 async function save() {
   busy.value = true;
   error.value = "";
+  message.value = "";
   try {
-    await props.api(path(), {
+    terms.value = await props.api(path(), {
       method: "POST",
-      body: JSON.stringify({
-        license_mode: form.license_mode,
-        update_duration_days: form.update_duration_days,
-        expire_grace_days: form.expire_grace_days,
-      }),
+      body: JSON.stringify(terms.value),
     });
-    await load();
+    message.value = "默认条款已保存。库存卡和已有客户授权保持原条款。";
     emit("saved");
   } catch (e: any) {
     error.value = e.message;
@@ -55,66 +51,44 @@ async function save() {
 }
 </script>
 <template>
-  <section v-if="productId" class="policy-panel">
-    <h3>使用与更新期限</h3>
+  <section v-if="productId" class="policy-panel" aria-label="默认授权条款">
+    <h3>默认授权条款</h3>
     <p>
-      订阅使用：使用到期后停用。永久使用：保留已有版本，更新资格按期限计算。
+      用于之后按应用默认规则生成的卡密。不同销售规格请在“套餐与结算”建立独立套餐，所有套餐共用此应用的
+      AppID 和版本库。
     </p>
-    <p v-if="locked">
-      此产品已发卡或创建授权，期限规则已锁定。需要不同销售规则时请创建新产品。
-    </p>
-    <form class="policy-form" @submit.prevent="save">
-      <label class="field"
-        >授权模式<select
-          v-model="form.license_mode"
-          :disabled="locked || !canWrite || busy"
+    <form @submit.prevent="save">
+      <fieldset :disabled="busy || !canWrite" class="terms-fieldset">
+        <AuthorizationTermsFields v-model="terms" /><button
+          v-if="canWrite"
+          class="btn secondary"
         >
-          <option value="subscription">订阅使用（到期停用）</option>
-          <option value="perpetual">永久使用、限期更新</option>
-        </select></label
-      >
-      <label class="field"
-        >每次发卡/续期的更新天数<input
-          v-model.number="form.update_duration_days"
-          type="number"
-          min="0"
-          max="36500"
-          required
-          :disabled="locked || !canWrite || busy"
-      /></label>
-      <small
-        >0 表示跟随卡密期限；永久卡在此设置为 0
-        时包含永久更新。订阅的更新资格最晚在使用到期时结束。</small
-      >
-      <label class="field"
-        >使用到期宽限天数<input
-          v-model.number="form.expire_grace_days"
-          type="number"
-          min="0"
-          max="365"
-          required
-          :disabled="
-            locked || !canWrite || busy || form.license_mode === 'perpetual'
-          "
-      /></label>
-      <small>0 表示到期即停用。使用宽限期不会延长更新资格。</small>
-      <button v-if="canWrite && !locked" class="btn secondary" :disabled="busy">
-        保存期限规则
-      </button>
+          保存默认授权条款
+        </button>
+      </fieldset>
     </form>
-    <p v-if="error" role="alert" class="error">{{ error }}</p>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <p v-if="message" role="status">{{ message }}</p>
   </section>
 </template>
 <style scoped>
 .policy-panel {
   border-top: 1px solid var(--line);
-  padding: 20px 20px 6px;
+  padding: 20px 0;
   margin-top: 24px;
 }
-.policy-form {
+.terms-fieldset {
+  border: 0;
+  padding: 0;
   display: grid;
-  gap: 14px;
-  max-width: 650px;
-  margin: 20px 0;
+  gap: 20px;
+  min-width: 0;
+}
+.policy-panel > p {
+  color: var(--muted);
+  line-height: 1.7;
+}
+.terms-fieldset > .btn {
+  justify-self: start;
 }
 </style>

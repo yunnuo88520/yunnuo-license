@@ -46,7 +46,7 @@ def main():
             base = f"http://127.0.0.1:{port}"
             database = folder / "license.sqlite"
             env = os.environ.copy()
-            env.update(YN_ADDR=f"127.0.0.1:{port}", YN_DB_DRIVER="sqlite", YN_DB=f"file:{database}?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", YN_DB_CONFIG_FILE=str(folder / "config.json"), YN_RELEASE_DIR=str(folder / "releases"), YN_SDK_DIR=str(REPO / "sdk"))
+            env.update(YN_ADDR=f"127.0.0.1:{port}", YN_DB_DRIVER="sqlite", YN_DB=f"file:{database}?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", YN_DB_CONFIG_FILE=str(folder / "config.json"), YN_RELEASE_DIR=str(folder / "releases"), YN_SDK_DIR=str(REPO / "sdk"),YN_CLIENT_WRITE_RATE_LIMIT="2000")
             server = subprocess.Popen([str(args.server.resolve())], cwd=REPO / "backend", env=env, stdout=server_log, stderr=server_log)
             http.wait_ready(base, "/healthz", server)
             http.initialize(base, "admin", password, env["YN_DB"])
@@ -163,7 +163,7 @@ def main():
                 process = subprocess.Popen(command, cwd=project, env=site_env, stdout=log, stderr=log, start_new_session=True)
                 site = f"http://127.0.0.1:{demo_port}"
                 sites.append((process, site))
-                http.wait_ready(site, "/protected", process)
+                http.wait_ready(site, "/healthz", process)
                 return site
 
             for language in ["node", "go", "java"]:
@@ -213,21 +213,18 @@ def main():
                 assert cli(language, project, "heartbeat")["accepted"]
                 assert cli(language, project, "renew", codes[1])["can_use"]
                 site = start_site(language, project)
-                assert http.http(site, "/protected")["can_use"]
-                changed = {**config, "bind_value": "wrong.example.com"}
-                (project / "config.json").write_text(json.dumps(changed))
-                cli(language, project, "verify", expected=1)
-                (project / "config.json").write_text(json.dumps(config))
+                assert http.http(site, "/protected", extra_headers={"Host":"ebox.example.com"})["can_use"]
+                cli(language, project, "verify", "wrong.example.com", expected=1)
                 http.api(base, "/admin/licenses/revoke", {"license_no":license["license_no"], "reason": "真实接入包吊销验证"}, root)
-                http.http(site, "/protected", expected=403)
+                http.http(site, "/protected", extra_headers={"Host":"ebox.example.com"}, expected=403)
                 cli(language, project, "verify", expected=1)
                 http.api(base,"/admin/licenses/restore",{"license_no":license["license_no"],"reason":"恢复后单独验证到期边界"},root)
-                assert http.http(site,"/protected")["can_use"]
+                assert http.http(site,"/protected", extra_headers={"Host":"ebox.example.com"})["can_use"]
                 past = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)).isoformat().replace("+00:00", "Z")
                 with sqlite3.connect(database) as db:
                     db.execute("UPDATE licenses SET status='active',expired_at=? WHERE license_no=?", (past, license["license_no"]))
                     db.execute("UPDATE license_entitlements SET updates_expired_at=? WHERE license_id=(SELECT id FROM licenses WHERE license_no=?)", (past, license["license_no"]))
-                http.http(site, "/protected", expected=403)
+                http.http(site, "/protected", extra_headers={"Host":"ebox.example.com"}, expected=403)
                 cli(language, project, "verify", expected=1, expected_code="LICENSE_EXPIRED")
                 report["languages"].append(language)
                 report["checks"].append(f"{language}: downloaded project builds, activates, verifies, heartbeats, renews and rejects wrong bindings, revocation and usage expiry at its real business endpoint")
@@ -242,20 +239,44 @@ def main():
                     package=http.archive("2.0.0",2)
                     http.publish(base,permanent,developer,"2.0.0",package)
                     assert cli(language,project,"updates","1.0.0")["update_available"]
-                    assert cli(language,project,"download","1.0.0")["downloaded"]
-                    assert hashlib.sha256((project/"update.zip").read_bytes()).digest()==hashlib.sha256(package).digest()
-                    (project/"update.zip").unlink()
+                    downloaded=cli(language,project,"download","1.0.0")
+                    assert downloaded["downloaded"]
+                    package_file=project/downloaded["filename"]
+                    assert hashlib.sha256(package_file.read_bytes()).digest()==hashlib.sha256(package).digest()
+                    package_file.unlink()
                 with sqlite3.connect(database) as db:
                     db.execute("UPDATE license_entitlements SET updates_expired_at=? WHERE license_id=(SELECT id FROM licenses WHERE license_no=?)",(past,permanent_license["license_no"]))
                 current=cli(language,project,"verify")
                 assert current["can_use"] and current["can_update"] is False
                 permanent_site=start_site(language,project)
-                rights=http.http(permanent_site,"/protected")
+                rights=http.http(permanent_site,"/protected", extra_headers={"Host":"ebox.example.com"})
                 assert rights["can_use"] and rights["can_update"] is False
                 if language=="node":
                     cli(language,project,"download","1.0.0",expected=1,expected_code="UPDATES_EXPIRED")
                     assert not (project/"update.zip").exists()
                 report["checks"].append(f"{language}: perpetual usage stays available after update entitlement expires; Node upgrade download additionally verifies signed bytes and refuses expired updates")
+
+                modern=http.api(base,"/developer/products",{"name":"标准产品实例验收 "+language,"bind_mode":"device"},developer)
+                terms=http.api(base,"/developer/products/"+modern["id"]+"/authorization-terms",token=developer)
+                terms.update(version=2,bind_mode="device",require_instance=True,max_deployments=1,max_devices=1,max_concurrent_seats=1,features=["export"],forms=["gui","service"])
+                http.api(base,"/developer/products/"+modern["id"]+"/authorization-terms",terms,developer)
+                query=urllib.parse.urlencode({"base_url":base,"language":language})
+                with zipfile.ZipFile(io.BytesIO(http.http(base,"/developer/products/"+modern["id"]+"/integration-kit?"+query,token=developer))) as archive:
+                    (project/"config.json").write_bytes(archive.read("config.json"))
+                stock=http.api(base,"/developer/products/"+modern["id"]+"/card-batches",{"name":"安装向导自动识别","quantity":1,"duration_days":30},developer)["codes"][0]
+                instance_license=cli(language,project,"activate",stock)
+                assert cli(language,project,"verify")["authorization_terms"]["features"]==["export"]
+                assert cli(language,project,"heartbeat")["accepted"]
+                ticket=cli(language,project,"claim")
+                assert len(ticket["claim_token"])==32
+                http.api(base,"/developer/products/"+modern["id"]+"/updates",{"enabled":True},developer)
+                http.publish(base,modern,developer,"2.0.0",http.archive("2.0.0",2),{"os":"any","arch":"any","runtime":"any","channel":"stable","kind":"archive","min_version":"1.0.0","max_version":"1.9.9"})
+                # Go also supplies an explicit target for signed platform selection.
+                config_file=project/"config.json";modern_config=json.loads(config_file.read_text());modern_config["target"]={"os":"linux","arch":"amd64","runtime":"any","channel":"stable","kind":"archive"};config_file.write_text(json.dumps(modern_config))
+                assert cli(language,project,"updates","1.0.0")["update_available"]
+                downloaded=cli(language,project,"download","1.0.0")
+                assert downloaded["downloaded"]
+                report["checks"].append(f"{language}: the same kit activates from runtime card requirements, persists installation credentials, checks out a process seat, heartbeats, creates a claim ticket and downloads a signed platform-targeted release")
 
             if page:
                 page.goto(base + "/admin#products")
@@ -283,7 +304,7 @@ def main():
             server.terminate()
             server.wait(timeout=10)
             for _, site in sites:
-                http.http(site, "/protected", expected=503)
+                http.http(site, "/protected", extra_headers={"Host":"ebox.example.com"}, expected=503)
             report["checks"].append("All three running product demos refuse protected business with HTTP 503 when the authorization platform is unavailable")
             report["result"] = "passed"
             print(json.dumps({"result": "passed", "languages": report["languages"], "checks": len(report["checks"])}))

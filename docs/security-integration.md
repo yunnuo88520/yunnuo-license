@@ -25,7 +25,7 @@ const client = new LicenseClient({
 });
 
 // 在自己的 HTTP 请求处理函数中，在输出应用内容之前执行：
-if (await enforceWebLicense(client, binding, response)) return;
+if (await enforceWebLicense(client, binding, response, request)) return;
 // 通过后继续处理应用请求。
 ```
 

@@ -263,6 +263,7 @@ func (s *Service) RotateProductKey(ctx context.Context, productID, actorID strin
 }
 
 type CreateCardBatchInput struct {
+	PackageID    string `json:"package_id,omitempty"`
 	ProductID    string `json:"product_id"`
 	Name         string `json:"name"`
 	Quantity     int    `json:"quantity"`
@@ -276,6 +277,15 @@ type CreateCardBatchResult struct {
 }
 
 func (s *Service) CreateCardBatch(ctx context.Context, input CreateCardBatchInput) (CreateCardBatchResult, error) {
+	var selectedPackage *domain.CardPackage
+	if input.PackageID != "" {
+		pkg, err := s.currentStore().Package(ctx, input.PackageID)
+		if err != nil || !pkg.Enabled || input.ProductID != "" && input.ProductID != pkg.ProductID {
+			return CreateCardBatchResult{}, ErrPackageDenied
+		}
+		input.ProductID, input.DurationDays, input.IsPermanent = pkg.ProductID, pkg.DurationDays, pkg.IsPermanent
+		selectedPackage = &pkg
+	}
 	if input.ProductID == "" || input.Quantity <= 0 || input.Quantity > 1000 {
 		return CreateCardBatchResult{}, ErrInvalidRequest
 	}
@@ -291,6 +301,9 @@ func (s *Service) CreateCardBatch(ctx context.Context, input CreateCardBatchInpu
 	}
 	if product.Status != domain.ProductActive {
 		return CreateCardBatchResult{}, ErrProductDisabled
+	}
+	if selectedPackage != nil {
+		product = effectiveProduct(product, selectedPackage.AuthorizationTerms)
 	}
 	batch, cards, codes, err := s.buildCardBatch(product, "", nonEmpty(input.Name, "Manual batch"), input.Quantity, input.DurationDays, input.IsPermanent, "platform_generated")
 	if err != nil {
@@ -824,11 +837,33 @@ func (s *Service) queryPublicBindings(ctx context.Context, queryType, query stri
 	if err != nil {
 		return PublicLicenseQueryResult{}, err
 	}
+	patternBindings, patternErr := s.publicPatternBindings(ctx, queryType, value)
+	if patternErr != nil {
+		return PublicLicenseQueryResult{}, patternErr
+	}
+	seenBindings := map[string]bool{}
+	for _, b := range bindings {
+		seenBindings[b.ID] = true
+	}
+	for _, b := range patternBindings {
+		if !seenBindings[b.ID] {
+			bindings = append(bindings, b)
+			seenBindings[b.ID] = true
+		}
+	}
 	if len(bindings) == 0 {
 		return PublicLicenseQueryResult{}, ErrAuthorizationNotFound
 	}
 	matches := make([]PublicLicenseQueryMatch, 0, len(bindings))
+	matchedLicenses := map[string]bool{}
 	for _, binding := range bindings {
+		if matchedLicenses[binding.LicenseID] {
+			continue
+		}
+		matchedLicenses[binding.LicenseID] = true
+		if len(matches) >= 10 {
+			break
+		}
 		license, err := s.currentStore().GetLicenseByID(ctx, binding.LicenseID)
 		if err != nil {
 			if store.IsNotFound(err) {
@@ -907,6 +942,7 @@ func (s *Service) publicLicenseResult(ctx context.Context, queryType string, car
 }
 
 type ActivateInput struct {
+	domain.ClientInstance
 	OwnerUserID   string `json:"-"`
 	AppKey        string `json:"app_key"`
 	CardCode      string `json:"card_code"`
@@ -919,18 +955,21 @@ type ActivateInput struct {
 }
 
 type LicenseResponse struct {
-	LicenseMode      string     `json:"license_mode"`
-	CanUse           bool       `json:"can_use"`
-	CanUpdate        bool       `json:"can_update"`
-	UsageExpiredAt   *time.Time `json:"usage_expired_at"`
-	UpdatesExpiredAt *time.Time `json:"updates_expired_at"`
-	LicenseNo        string     `json:"license_no"`
-	Status           string     `json:"status"`
-	ExpiredAt        *time.Time `json:"expired_at,omitempty"`
-	GraceUntil       *time.Time `json:"grace_until,omitempty"`
-	LicenseToken     string     `json:"license_token,omitempty"`
-	OfflineToken     string     `json:"offline_token,omitempty"`
-	ServerTime       time.Time  `json:"server_time"`
+	BindMode           string                     `json:"bind_mode,omitempty"`
+	BindValue          string                     `json:"bind_value,omitempty"`
+	AuthorizationTerms *domain.AuthorizationTerms `json:"authorization_terms,omitempty"`
+	LicenseMode        string                     `json:"license_mode"`
+	CanUse             bool                       `json:"can_use"`
+	CanUpdate          bool                       `json:"can_update"`
+	UsageExpiredAt     *time.Time                 `json:"usage_expired_at"`
+	UpdatesExpiredAt   *time.Time                 `json:"updates_expired_at"`
+	LicenseNo          string                     `json:"license_no"`
+	Status             string                     `json:"status"`
+	ExpiredAt          *time.Time                 `json:"expired_at,omitempty"`
+	GraceUntil         *time.Time                 `json:"grace_until,omitempty"`
+	LicenseToken       string                     `json:"license_token,omitempty"`
+	OfflineToken       string                     `json:"offline_token,omitempty"`
+	ServerTime         time.Time                  `json:"server_time"`
 }
 
 func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseResponse, error) {
@@ -941,6 +980,11 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 	if !yncrypto.ValidateChecksum(product.Code, input.CardCode) {
 		return LicenseResponse{}, ErrCardInvalid
 	}
+	product = s.productForCard(ctx, product, input.CardCode)
+	if product.AuthorizationTerms != nil && product.AuthorizationTerms.CardPurpose != "" && product.AuthorizationTerms.CardPurpose != "license" {
+		return LicenseResponse{}, badRequest("CARD_RENEWAL_ONLY", "该卡仅用于续费，不能创建新授权")
+	}
+	input.BindValue = bindingInput(input.BindValue, input.Bindings)
 	bindMode, bindValue, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
 	if err != nil {
 		return LicenseResponse{}, err
@@ -985,6 +1029,13 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 				return err
 			}
 		}
+		if err = tx.LockLicense(ctx, lic.ID); err != nil {
+			return err
+		}
+		lic, err = tx.GetLicenseByID(ctx, lic.ID)
+		if err != nil {
+			return err
+		}
 		if input.OwnerUserID != "" && lic.OwnerUserID != input.OwnerUserID {
 			return ErrOwnerRequired
 		}
@@ -996,7 +1047,7 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 		}
 		binding, err = tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
 		if err == nil {
-			return nil
+			return s.registerInstallationTx(ctx, tx, product, lic, binding, input)
 		}
 		if !store.IsNotFound(err) {
 			return err
@@ -1047,6 +1098,12 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 		if err := tx.CreateBinding(ctx, binding); err != nil {
 			return err
 		}
+		if err := s.indexBinding(ctx, tx, binding, bindValue); err != nil {
+			return err
+		}
+		if err := s.registerInstallationTx(ctx, tx, product, lic, binding, input); err != nil {
+			return err
+		}
 		if input.OwnerUserID != "" {
 			return s.transactionAudit(ctx, tx, "customer", input.OwnerUserID, product.ID, lic.ID, "license.claim", nil)
 		}
@@ -1059,10 +1116,12 @@ func (s *Service) Activate(ctx context.Context, input ActivateInput) (LicenseRes
 	}
 	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.activate", "success", "", input.ClientIP, input.UserAgent)
 	s.evaluateActivationRisk(ctx, product.ID, lic, binding, input.ClientIP, bindValue)
-	return s.licenseResponse(ctx, product, lic, binding, now)
+	return s.licenseResponse(ctx, product, lic, binding, now, input.ClientInstance)
 }
 
 type VerifyInput struct {
+	skipSeat bool
+	domain.ClientInstance
 	AppKey       string `json:"app_key"`
 	LicenseNo    string `json:"license_no"`
 	BindMode     string `json:"bind_mode"`
@@ -1077,6 +1136,8 @@ func (s *Service) Verify(ctx context.Context, input VerifyInput) (LicenseRespons
 	if err != nil {
 		return LicenseResponse{}, err
 	}
+	product = s.productForLicense(ctx, product, input.LicenseNo)
+	input.BindValue = bindingInput(input.BindValue, input.Bindings)
 	bindMode, bindValue, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
 	if err != nil {
 		return LicenseResponse{}, err
@@ -1103,11 +1164,14 @@ func (s *Service) Verify(ctx context.Context, input VerifyInput) (LicenseRespons
 		if lic.Status == domain.LicenseRevoked {
 			return ErrLicenseRevoked
 		}
-		binding, err = tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
+		binding, err = s.authorizedBinding(ctx, tx, product, lic.ID, bindMode, bindValue, bindHash)
 		if err != nil {
 			if store.IsNotFound(err) {
 				return ErrBindingMismatch
 			}
+			return err
+		}
+		if err := s.checkInstallationTx(ctx, tx, product, lic, binding, input.ClientInstance, !input.skipSeat); err != nil {
 			return err
 		}
 		if err := s.ensureUsable(product, lic, now); err != nil {
@@ -1128,7 +1192,11 @@ func (s *Service) Verify(ctx context.Context, input VerifyInput) (LicenseRespons
 		return LicenseResponse{}, err
 	}
 	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.verify", "success", "", input.ClientIP, input.UserAgent)
-	return s.licenseResponse(ctx, product, lic, binding, now)
+	binding.BindValueEncrypted, err = yncrypto.EncryptString(s.dataKey, bindValue)
+	if err != nil {
+		return LicenseResponse{}, err
+	}
+	return s.licenseResponse(ctx, product, lic, binding, now, input.ClientInstance)
 }
 
 func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]any, error) {
@@ -1136,6 +1204,8 @@ func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]
 	if err != nil {
 		return nil, err
 	}
+	product = s.productForLicense(ctx, product, input.LicenseNo)
+	input.BindValue = bindingInput(input.BindValue, input.Bindings)
 	bindMode, bindValue, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
 	if err != nil {
 		return nil, err
@@ -1156,11 +1226,14 @@ func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]
 		if lic.ProductID != product.ID {
 			return ErrLicenseNotFound
 		}
-		binding, err := tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
+		binding, err := s.authorizedBinding(ctx, tx, product, lic.ID, bindMode, bindValue, bindHash)
 		if err != nil {
 			if store.IsNotFound(err) {
 				return ErrBindingMismatch
 			}
+			return err
+		}
+		if err := s.checkInstallationTx(ctx, tx, product, lic, binding, input.ClientInstance, true); err != nil {
 			return err
 		}
 		if err := s.ensureUsable(product, lic, now); err != nil {
@@ -1180,6 +1253,7 @@ func (s *Service) Heartbeat(ctx context.Context, input VerifyInput) (map[string]
 }
 
 type RenewInput struct {
+	domain.ClientInstance
 	OwnerUserID   string `json:"-"`
 	AppKey        string `json:"app_key"`
 	LicenseNo     string `json:"license_no"`
@@ -1195,6 +1269,8 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 	if err != nil {
 		return LicenseResponse{}, err
 	}
+	product = s.productForLicense(ctx, product, input.LicenseNo)
+	input.BindValue = bindingInput(input.BindValue, input.Bindings)
 	bindMode, bindValue, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
 	if err != nil {
 		return LicenseResponse{}, err
@@ -1249,11 +1325,18 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 		if err := enforceSecurity(ctx, tx, lic, false); err != nil {
 			return err
 		}
-		binding, err = tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
+		if input.OwnerUserID != "" {
+			binding, err = tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
+		} else {
+			binding, err = s.authorizedBinding(ctx, tx, product, lic.ID, bindMode, bindValue, bindHash)
+		}
 		if err != nil {
 			if store.IsNotFound(err) {
 				return ErrBindingMismatch
 			}
+			return err
+		}
+		if err := s.checkInstallationTx(ctx, tx, product, lic, binding, input.ClientInstance, false); input.OwnerUserID == "" && err != nil {
 			return err
 		}
 		if card.Status == domain.CardConsumedForRenewal {
@@ -1267,12 +1350,27 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 		if lic.ExpiredAt == nil && lic.UpdatesExpiredAt == nil {
 			return ErrLicensePermanent
 		}
-		lic.ExpiredAt = extendExpiry(lic.ExpiredAt, card.DurationDays, card.IsPermanent, now)
+		purpose := "license"
 		updateDays := product.UpdateDurationDays
+		if card.AuthorizationTerms != nil && card.AuthorizationTerms.Version >= 2 {
+			purpose = card.AuthorizationTerms.CardPurpose
+			updateDays = card.AuthorizationTerms.UpdateDurationDays
+		}
+		if purpose == "" {
+			purpose = "license"
+		}
+		if purpose == "renew_usage" && lic.ExpiredAt == nil {
+			return ErrLicensePermanent
+		}
+		if purpose != "renew_updates" {
+			lic.ExpiredAt = extendExpiry(lic.ExpiredAt, card.DurationDays, card.IsPermanent, now)
+		}
 		if updateDays == 0 {
 			updateDays = card.DurationDays
 		}
-		lic.UpdatesExpiredAt = extendExpiry(lic.UpdatesExpiredAt, updateDays, card.IsPermanent && product.UpdateDurationDays == 0, now)
+		if purpose != "renew_usage" {
+			lic.UpdatesExpiredAt = extendExpiry(lic.UpdatesExpiredAt, updateDays, card.IsPermanent && (card.AuthorizationTerms == nil || card.AuthorizationTerms.UpdateDurationDays == 0), now)
+		}
 		if lic.ExpiredAt != nil && (lic.UpdatesExpiredAt == nil || lic.UpdatesExpiredAt.After(*lic.ExpiredAt)) {
 			lic.UpdatesExpiredAt = lic.ExpiredAt
 		}
@@ -1294,10 +1392,11 @@ func (s *Service) Renew(ctx context.Context, input RenewInput) (LicenseResponse,
 		return LicenseResponse{}, err
 	}
 	_ = s.auditClient(ctx, product.ID, lic.ID, "", "license.renew", "success", "", input.ClientIP, input.UserAgent)
-	return s.licenseResponse(ctx, product, lic, binding, now)
+	return s.licenseResponse(ctx, product, lic, binding, now, input.ClientInstance)
 }
 
 type UnbindInput struct {
+	domain.ClientInstance
 	AppKey    string `json:"app_key"`
 	LicenseNo string `json:"license_no"`
 	BindMode  string `json:"bind_mode"`
@@ -1312,6 +1411,8 @@ func (s *Service) Unbind(ctx context.Context, input UnbindInput) (map[string]any
 	if err != nil {
 		return nil, err
 	}
+	product = s.productForLicense(ctx, product, input.LicenseNo)
+	input.BindValue = bindingInput(input.BindValue, input.Bindings)
 	bindMode, bindValue, bindHash, err := s.normalizeBinding(product, input.BindMode, input.BindValue)
 	if err != nil {
 		return nil, err
@@ -1345,11 +1446,14 @@ func (s *Service) Unbind(ctx context.Context, input UnbindInput) (map[string]any
 		if lic.Status == domain.LicenseRevoked {
 			return ErrLicenseRevoked
 		}
-		binding, err = tx.ActiveBindingByHash(ctx, lic.ID, bindMode, bindHash)
+		binding, err = s.authorizedBinding(ctx, tx, product, lic.ID, bindMode, bindValue, bindHash)
 		if err != nil {
 			if store.IsNotFound(err) {
 				return ErrBindingMismatch
 			}
+			return err
+		}
+		if err := s.checkInstallationTx(ctx, tx, product, lic, binding, input.ClientInstance, false); err != nil {
 			return err
 		}
 		if err := s.guardBindingChange(ctx, tx, product, lic); err != nil {
@@ -1545,6 +1649,9 @@ func (s *Service) normalizeBinding(product domain.Product, inputMode, inputValue
 	if err != nil {
 		return "", "", "", ErrBindingRequired
 	}
+	if err := validateBindingShape(product, value); err != nil {
+		return "", "", "", err
+	}
 	return mode, value, yncrypto.BindHash(s.cardPepper, mode, value), nil
 }
 
@@ -1554,6 +1661,8 @@ func normalizeBindingValue(mode, value string) (string, error) {
 		return "", ErrBindingRequired
 	}
 	switch mode {
+	case "domain_wildcard", "ip_cidr", "instance", "tenant", "cluster", "composite":
+		return normalizeExtendedBinding(mode, value)
 	case domain.BindIP:
 		ip := net.ParseIP(value)
 		if ip == nil {
@@ -1573,10 +1682,11 @@ func normalizeBindingValue(mode, value string) (string, error) {
 			host = strings.Split(host, ":")[0]
 		}
 		host = strings.TrimSuffix(host, ".")
-		if !isValidDomain(host) {
+		normalized, err := canonicalDomain(host, false)
+		if err != nil {
 			return "", ErrBindingRequired
 		}
-		return host, nil
+		return normalized, nil
 	case domain.BindAccount:
 		return strings.ToLower(value), nil
 	default:
@@ -1680,6 +1790,7 @@ func isASCIIDigits(value string) bool {
 }
 
 func (s *Service) ensureUsable(product domain.Product, lic domain.License, now time.Time) error {
+	product = effectiveProduct(product, lic.AuthorizationTerms)
 	if lic.Status == domain.LicenseRevoked {
 		return ErrLicenseRevoked
 	}
@@ -1693,28 +1804,34 @@ func (s *Service) ensureUsable(product domain.Product, lic domain.License, now t
 	return nil
 }
 
-func (s *Service) licenseResponse(ctx context.Context, product domain.Product, lic domain.License, binding domain.Binding, now time.Time) (LicenseResponse, error) {
+func (s *Service) licenseResponse(ctx context.Context, product domain.Product, lic domain.License, binding domain.Binding, now time.Time, instances ...domain.ClientInstance) (LicenseResponse, error) {
+	product = effectiveProduct(product, lic.AuthorizationTerms)
+	instanceID := ""
+	if len(instances) > 0 {
+		instanceID = instances[0].InstanceID
+	}
 	action, _, _, err := securityAction(ctx, s.currentStore(), lic)
 	if err != nil {
-		return LicenseResponse{}, err
+		return LicenseResponse{AuthorizationTerms: lic.AuthorizationTerms}, err
 	}
 	canUse := s.ensureUsable(product, lic, now) == nil && action != "deny_use" && action != "block_page"
 	canUpdate := licenseCanUpdate(lic, now) && action == "observe"
 	if !canUse {
-		return LicenseResponse{LicenseMode: lic.LicenseMode, CanUse: false, CanUpdate: false, LicenseNo: lic.LicenseNo, Status: lic.Status, UsageExpiredAt: lic.ExpiredAt, UpdatesExpiredAt: lic.UpdatesExpiredAt, ServerTime: now}, nil
+		return LicenseResponse{AuthorizationTerms: lic.AuthorizationTerms, LicenseMode: lic.LicenseMode, CanUse: false, CanUpdate: false, LicenseNo: lic.LicenseNo, Status: lic.Status, UsageExpiredAt: lic.ExpiredAt, UpdatesExpiredAt: lic.UpdatesExpiredAt, ServerTime: now}, nil
 	}
 	privatePEM, err := yncrypto.DecryptString(s.dataKey, product.PrivateKeyEncrypted)
 	if err != nil {
-		return LicenseResponse{}, err
+		return LicenseResponse{AuthorizationTerms: lic.AuthorizationTerms}, err
 	}
 	bindValue, err := yncrypto.DecryptString(s.dataKey, binding.BindValueEncrypted)
 	if err != nil {
-		return LicenseResponse{}, err
+		return LicenseResponse{AuthorizationTerms: lic.AuthorizationTerms}, err
 	}
 	bindDigest := yncrypto.BindDigest(binding.BindMode, bindValue)
 	graceUntil := usageGraceUntil(product, lic)
 	payload := map[string]any{
-		"type":    "license",
+		"type":        "license",
+		"instance_id": instanceID, "authorization_terms": lic.AuthorizationTerms, "grace_until": graceUntil,
 		"can_use": canUse, "can_update": canUpdate, "security_action": action,
 		"license_no":         lic.LicenseNo,
 		"product_code":       product.Code,
@@ -1731,14 +1848,18 @@ func (s *Service) licenseResponse(ctx context.Context, product domain.Product, l
 	}
 	licenseToken, err := yncrypto.SignJSON(privatePEM, payload)
 	if err != nil {
-		return LicenseResponse{}, err
+		return LicenseResponse{AuthorizationTerms: lic.AuthorizationTerms}, err
 	}
 	offlineUntil := now.AddDate(0, 0, product.OfflineGraceDays)
+	if domain.LegacyTerms(product).MaxConcurrentSeats > 0 {
+		offlineUntil = now
+	}
 	if graceUntil != nil && graceUntil.Before(offlineUntil) {
 		offlineUntil = *graceUntil
 	}
 	offlinePayload := map[string]any{
-		"type":    "offline_cache",
+		"type":        "offline_cache",
+		"instance_id": instanceID, "authorization_terms": lic.AuthorizationTerms,
 		"can_use": canUse, "can_update": canUpdate, "security_action": action,
 		"license_no":         lic.LicenseNo,
 		"product_code":       product.Code,
@@ -1755,9 +1876,9 @@ func (s *Service) licenseResponse(ctx context.Context, product domain.Product, l
 	}
 	offlineToken, err := yncrypto.SignJSON(privatePEM, offlinePayload)
 	if err != nil {
-		return LicenseResponse{}, err
+		return LicenseResponse{AuthorizationTerms: lic.AuthorizationTerms}, err
 	}
-	return LicenseResponse{
+	return LicenseResponse{BindMode: binding.BindMode, BindValue: bindValue, AuthorizationTerms: lic.AuthorizationTerms,
 		LicenseMode:      lic.LicenseMode,
 		CanUse:           canUse,
 		CanUpdate:        canUpdate,
@@ -1774,6 +1895,7 @@ func (s *Service) licenseResponse(ctx context.Context, product domain.Product, l
 }
 
 func newLicense(product domain.Product, card domain.Card, now time.Time) domain.License {
+	product = effectiveProduct(product, card.AuthorizationTerms)
 	var expiredAt *time.Time
 	if !card.IsPermanent {
 		t := now.AddDate(0, 0, card.DurationDays)
@@ -1795,6 +1917,7 @@ func newLicense(product domain.Product, card domain.Card, now time.Time) domain.
 		mode = domain.LicenseSubscription
 	}
 	return domain.License{
+		AuthorizationTerms:  card.AuthorizationTerms,
 		LicenseMode:         mode,
 		UpdatesExpiredAt:    updateExpiry,
 		UsageExpiredAt:      expiredAt,
@@ -1814,6 +1937,8 @@ func newLicense(product domain.Product, card domain.Card, now time.Time) domain.
 }
 
 func (s *Service) buildCardBatch(product domain.Product, agentID, name string, quantity, durationDays int, isPermanent bool, source string) (domain.CardBatch, []domain.Card, []string, error) {
+	terms := domain.LegacyTerms(product)
+	product = terms.Apply(product)
 	now := s.now()
 	batch := domain.CardBatch{
 		ID:           yncrypto.NewID("batch"),
@@ -1848,19 +1973,20 @@ func (s *Service) buildCardBatch(product domain.Product, agentID, name string, q
 		}
 		codes = append(codes, code)
 		cards = append(cards, domain.Card{
-			ID:            yncrypto.NewID("card"),
-			ProductID:     product.ID,
-			BatchID:       batch.ID,
-			AgentID:       agentID,
-			CodeHash:      hash,
-			CodeEncrypted: encrypted,
-			CodePrefix:    product.Code,
-			DurationDays:  durationDays,
-			IsPermanent:   isPermanent,
-			Status:        domain.CardUnused,
-			CreatedBy:     agentID,
-			CreatedAt:     now,
-			UpdatedAt:     now,
+			AuthorizationTerms: &terms,
+			ID:                 yncrypto.NewID("card"),
+			ProductID:          product.ID,
+			BatchID:            batch.ID,
+			AgentID:            agentID,
+			CodeHash:           hash,
+			CodeEncrypted:      encrypted,
+			CodePrefix:         product.Code,
+			DurationDays:       durationDays,
+			IsPermanent:        isPermanent,
+			Status:             domain.CardUnused,
+			CreatedBy:          agentID,
+			CreatedAt:          now,
+			UpdatedAt:          now,
 		})
 	}
 	return batch, cards, codes, nil

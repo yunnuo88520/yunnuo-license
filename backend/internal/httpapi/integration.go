@@ -21,6 +21,9 @@ func (api *API) integrationKit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+	if p.AuthorizationTerms != nil {
+		p = p.AuthorizationTerms.Apply(p)
+	}
 	config := integration.Config{ProductID: p.ID, BaseURL: r.URL.Query().Get("base_url"), AppKey: p.ID, ProductCode: p.Code, BindMode: p.BindMode, BindValue: strings.TrimSpace(r.URL.Query().Get("bind_value")), PublicKeys: map[int]string{}}
 	for _, key := range keys.Keys {
 		config.PublicKeys[key.KeyVersion] = key.PublicKeyPEM

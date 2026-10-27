@@ -89,6 +89,7 @@ public final class OfflineVerifier {
         if (!MessageDigest.isEqual(actual, wanted)) {
             fail(VerificationCode.BINDING_MISMATCH, "binding value does not match");
         }
+        if(expected.instanceId()!=null&&!expected.instanceId().equals(claims.instanceId())||expected.seatId()!=null&&!expected.seatId().equals(claims.seatId())||expected.sessionId()!=null&&!expected.sessionId().equals(claims.sessionId()))fail(VerificationCode.BINDING_MISMATCH,"installation or seat does not match");
         Instant now = clock.instant();
         if (claims.issuedAt().isAfter(now.plus(clockSkew))) {
             fail(VerificationCode.ISSUED_IN_FUTURE, "token issue time is in the future");
@@ -141,11 +142,36 @@ public final class OfflineVerifier {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(normalize(bindMode).getBytes(StandardCharsets.UTF_8));
             digest.update((byte) 0);
-            digest.update(normalize(bindValue).getBytes(StandardCharsets.UTF_8));
+            String mode=normalize(bindMode),value=bindValue==null?"":bindValue.trim();
+            if("composite".equals(mode)){
+                @SuppressWarnings("unchecked") var fields=new ObjectMapper().readValue(value,TreeMap.class);
+                fields.replaceAll((k,v)->canonicalComponent(String.valueOf(k),String.valueOf(v)));
+                value=new ObjectMapper().writeValueAsString(fields).replace("<","\\u003c").replace(">","\\u003e").replace("&","\\u0026").replace("\u2028","\\u2028").replace("\u2029","\\u2029");
+            }else{value=canonicalComponent(mode,value);if(!java.util.Set.of("tenant","instance","cluster").contains(mode)){value=normalize(value);}}
+            digest.update(value.getBytes(StandardCharsets.UTF_8));
             return java.util.HexFormat.of().formatHex(digest.digest());
-        } catch (GeneralSecurityException impossible) {
+        } catch (GeneralSecurityException | IOException impossible) {
             throw new IllegalStateException(impossible);
         }
+    }
+
+    private static String canonicalComponent(String mode,String value){
+        value=value.trim();
+        if((mode.equals("ip")||mode.equals("ip_cidr"))&&value.indexOf(':')>=0&&value.matches("[a-fA-F0-9:.]+")){
+            try{
+                byte[] address=java.net.InetAddress.getByName(value).getAddress();
+                if(address.length==4)return (address[0]&255)+"."+(address[1]&255)+"."+(address[2]&255)+"."+(address[3]&255);
+                int[] words=new int[8];for(int i=0;i<8;i++)words[i]=((address[i*2]&255)<<8)|(address[i*2+1]&255);
+                int best=-1,length=1;for(int i=0;i<8;){if(words[i]!=0){i++;continue;}int end=i;while(end<8&&words[end]==0)end++;if(end-i>length){best=i;length=end-i;}i=end;}
+                StringBuilder out=new StringBuilder();for(int i=0;i<8;i++){if(i==best){out.append("::");i+=length-1;continue;}if(out.length()>0&&out.charAt(out.length()-1)!=':')out.append(':');out.append(Integer.toHexString(words[i]));}return out.toString();
+            }catch(java.net.UnknownHostException ignored){return value;}
+        }
+        if(mode.equals("domain")||mode.equals("domain_wildcard")){
+            boolean wildcard=value.startsWith("*.");String host=wildcard?value.substring(2):value;
+            try{java.net.URI uri=java.net.URI.create(host.contains("://")?host:"http://"+host);if(uri.getHost()!=null)return (wildcard?"*.":"")+uri.getHost().toLowerCase(java.util.Locale.ROOT).replaceFirst("\\.$","");}catch(IllegalArgumentException ignored){}
+            return value.toLowerCase(java.util.Locale.ROOT);
+        }
+        return mode.equals("account")?value.toLowerCase(java.util.Locale.ROOT):value;
     }
 
     private <T> T verifySignedJson(String token, Class<T> type) {

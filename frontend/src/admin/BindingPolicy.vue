@@ -52,7 +52,7 @@ async function save() {
 </script>
 <template>
   <section class="binding-policy">
-    <h3>换绑与归属规则</h3>
+    <h3>兼容授权的换绑与归属规则</h3><p>此处用于旧授权规则。新套餐的换绑次数和冷却时间在授权条款中单独设置，已售条款不会随默认设置改变。</p>
     <p>
       当前绑定类型：{{
         {

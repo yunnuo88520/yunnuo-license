@@ -27,16 +27,22 @@ func (tx *Tx) LockProduct(ctx context.Context, id string) error {
 	return err
 }
 func readPackage(row scanner) (domain.CardPackage, error) {
+	var termsJSON string
 	var p domain.CardPackage
 	var permanent, quota, enabled int
-	err := row.Scan(&p.ID, &p.ProductID, &p.Name, &p.DurationDays, &permanent, &p.BaseCost, &quota, &enabled)
+	err := row.Scan(&p.ID, &p.ProductID, &p.Name, &p.DurationDays, &permanent, &p.BaseCost, &quota, &enabled, &termsJSON)
+	if err != nil {
+		return p, err
+	}
+	p.AuthorizationTerms, err = decodeTerms(termsJSON)
 	p.IsPermanent = permanent == 1
 	p.UseQuota = quota == 1
 	p.Enabled = enabled == 1
 	return p, err
 }
 
-const packageCols = `id,product_id,name,duration_days,is_permanent,base_cost,use_quota,enabled`
+const packageWriteCols = `id,product_id,name,duration_days,is_permanent,base_cost,use_quota,enabled`
+const packageCols = packageWriteCols + `,COALESCE((SELECT terms_json FROM authorization_snapshots WHERE scope='package' AND resource_id=card_packages.id),'')`
 
 func (s *Store) Packages(ctx context.Context) ([]domain.CardPackage, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+packageCols+` FROM card_packages ORDER BY name,id`)
@@ -61,8 +67,11 @@ func (tx *Tx) Package(ctx context.Context, id string) (domain.CardPackage, error
 	return readPackage(tx.tx.QueryRowContext(ctx, `SELECT `+packageCols+` FROM card_packages WHERE id=?`, id))
 }
 func (tx *Tx) CreatePackage(ctx context.Context, p domain.CardPackage) error {
-	_, err := tx.tx.ExecContext(ctx, `INSERT INTO card_packages (`+packageCols+`) VALUES (?,?,?,?,?,?,?,?)`, p.ID, p.ProductID, p.Name, p.DurationDays, boolInt(p.IsPermanent), p.BaseCost, boolInt(p.UseQuota), boolInt(p.Enabled))
-	return err
+	_, err := tx.tx.ExecContext(ctx, `INSERT INTO card_packages (`+packageWriteCols+`) VALUES (?,?,?,?,?,?,?,?)`, p.ID, p.ProductID, p.Name, p.DurationDays, boolInt(p.IsPermanent), p.BaseCost, boolInt(p.UseQuota), boolInt(p.Enabled))
+	if err != nil {
+		return err
+	}
+	return tx.SaveTerms(ctx, "package", p.ID, p.AuthorizationTerms)
 }
 func (tx *Tx) SetPackage(ctx context.Context, id string, enabled bool, cost int64) error {
 	_, err := tx.tx.ExecContext(ctx, `UPDATE card_packages SET enabled=?,base_cost=? WHERE id=?`, boolInt(enabled), cost, id)

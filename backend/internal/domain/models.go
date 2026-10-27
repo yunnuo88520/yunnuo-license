@@ -64,29 +64,30 @@ const (
 )
 
 type Product struct {
-	LicenseMode          string    `json:"license_mode"`
-	UpdateDurationDays   int       `json:"update_duration_days"`
-	DeveloperID          string    `json:"developer_id,omitempty"`
-	ID                   string    `json:"id"`
-	Name                 string    `json:"name"`
-	Code                 string    `json:"code"`
-	AppKey               string    `json:"app_key"`
-	AppSecret            string    `json:"app_secret,omitempty"` // Creation response only; never populated by product reads.
-	AppSecretHash        string    `json:"-"`
-	PublicKeyPEM         string    `json:"public_key_pem"`
-	PrivateKeyEncrypted  string    `json:"-"`
-	KeyVersion           int       `json:"key_version"`
-	BindMode             string    `json:"bind_mode"`
-	MaxBindCount         int       `json:"max_bind_count"`
-	BindConflictStrategy string    `json:"bind_conflict_strategy"`
-	OfflineMode          string    `json:"offline_mode"`
-	OfflineGraceDays     int       `json:"offline_grace_days"`
-	ExpireGraceDays      int       `json:"expire_grace_days"`
-	UnbindLimit          int       `json:"unbind_limit"`
-	UnbindCooldownHours  int       `json:"unbind_cooldown_hours"`
-	Status               string    `json:"status"`
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
+	AuthorizationTerms   *AuthorizationTerms `json:"authorization_terms,omitempty"`
+	LicenseMode          string              `json:"license_mode"`
+	UpdateDurationDays   int                 `json:"update_duration_days"`
+	DeveloperID          string              `json:"developer_id,omitempty"`
+	ID                   string              `json:"id"`
+	Name                 string              `json:"name"`
+	Code                 string              `json:"code"`
+	AppKey               string              `json:"app_key"`
+	AppSecret            string              `json:"app_secret,omitempty"` // Creation response only; never populated by product reads.
+	AppSecretHash        string              `json:"-"`
+	PublicKeyPEM         string              `json:"public_key_pem"`
+	PrivateKeyEncrypted  string              `json:"-"`
+	KeyVersion           int                 `json:"key_version"`
+	BindMode             string              `json:"bind_mode"`
+	MaxBindCount         int                 `json:"max_bind_count"`
+	BindConflictStrategy string              `json:"bind_conflict_strategy"`
+	OfflineMode          string              `json:"offline_mode"`
+	OfflineGraceDays     int                 `json:"offline_grace_days"`
+	ExpireGraceDays      int                 `json:"expire_grace_days"`
+	UnbindLimit          int                 `json:"unbind_limit"`
+	UnbindCooldownHours  int                 `json:"unbind_cooldown_hours"`
+	Status               string              `json:"status"`
+	CreatedAt            time.Time           `json:"created_at"`
+	UpdatedAt            time.Time           `json:"updated_at"`
 }
 
 type SiteSettings struct {
@@ -106,25 +107,26 @@ type ProductKey struct {
 }
 
 type Card struct {
-	ID                 string     `json:"id"`
-	ProductID          string     `json:"product_id"`
-	BatchID            string     `json:"batch_id"`
-	AgentID            string     `json:"agent_id,omitempty"`
-	CodeHash           string     `json:"-"`
-	CodeEncrypted      string     `json:"-"`
-	CodePrefix         string     `json:"code_prefix"`
-	DurationDays       int        `json:"duration_days"`
-	IsPermanent        bool       `json:"is_permanent"`
-	Status             string     `json:"status"`
-	OrderNo            string     `json:"-"`
-	ActivatedLicenseID string     `json:"activated_license_id,omitempty"`
-	ActivatedAt        *time.Time `json:"activated_at,omitempty"`
-	ConsumedAt         *time.Time `json:"consumed_at,omitempty"`
-	VoidedAt           *time.Time `json:"voided_at,omitempty"`
-	VoidReason         string     `json:"void_reason,omitempty"`
-	CreatedBy          string     `json:"created_by,omitempty"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	AuthorizationTerms *AuthorizationTerms `json:"authorization_terms,omitempty"`
+	ID                 string              `json:"id"`
+	ProductID          string              `json:"product_id"`
+	BatchID            string              `json:"batch_id"`
+	AgentID            string              `json:"agent_id,omitempty"`
+	CodeHash           string              `json:"-"`
+	CodeEncrypted      string              `json:"-"`
+	CodePrefix         string              `json:"code_prefix"`
+	DurationDays       int                 `json:"duration_days"`
+	IsPermanent        bool                `json:"is_permanent"`
+	Status             string              `json:"status"`
+	OrderNo            string              `json:"-"`
+	ActivatedLicenseID string              `json:"activated_license_id,omitempty"`
+	ActivatedAt        *time.Time          `json:"activated_at,omitempty"`
+	ConsumedAt         *time.Time          `json:"consumed_at,omitempty"`
+	VoidedAt           *time.Time          `json:"voided_at,omitempty"`
+	VoidReason         string              `json:"void_reason,omitempty"`
+	CreatedBy          string              `json:"created_by,omitempty"`
+	CreatedAt          time.Time           `json:"created_at"`
+	UpdatedAt          time.Time           `json:"updated_at"`
 }
 
 type CardBatch struct {
@@ -144,24 +146,25 @@ type CardBatch struct {
 }
 
 type License struct {
-	OwnerUserID         string     `json:"owner_user_id,omitempty"`
-	LicenseMode         string     `json:"license_mode"`
-	UsageExpiredAt      *time.Time `json:"usage_expired_at"`
-	UpdatesExpiredAt    *time.Time `json:"updates_expired_at"`
-	ID                  string     `json:"id"`
-	LicenseNo           string     `json:"license_no"`
-	ProductID           string     `json:"product_id"`
-	CardID              string     `json:"card_id"`
-	AgentID             string     `json:"agent_id,omitempty"`
-	Status              string     `json:"status"`
-	IssuedAt            time.Time  `json:"issued_at"`
-	ActivatedAt         time.Time  `json:"activated_at"`
-	ExpiredAt           *time.Time `json:"expired_at,omitempty"`
-	LastVerifyAt        *time.Time `json:"last_verify_at,omitempty"`
-	LastHeartbeatAt     *time.Time `json:"last_heartbeat_at,omitempty"`
-	OfflineTokenVersion int        `json:"offline_token_version"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	AuthorizationTerms  *AuthorizationTerms `json:"authorization_terms,omitempty"`
+	OwnerUserID         string              `json:"owner_user_id,omitempty"`
+	LicenseMode         string              `json:"license_mode"`
+	UsageExpiredAt      *time.Time          `json:"usage_expired_at"`
+	UpdatesExpiredAt    *time.Time          `json:"updates_expired_at"`
+	ID                  string              `json:"id"`
+	LicenseNo           string              `json:"license_no"`
+	ProductID           string              `json:"product_id"`
+	CardID              string              `json:"card_id"`
+	AgentID             string              `json:"agent_id,omitempty"`
+	Status              string              `json:"status"`
+	IssuedAt            time.Time           `json:"issued_at"`
+	ActivatedAt         time.Time           `json:"activated_at"`
+	ExpiredAt           *time.Time          `json:"expired_at,omitempty"`
+	LastVerifyAt        *time.Time          `json:"last_verify_at,omitempty"`
+	LastHeartbeatAt     *time.Time          `json:"last_heartbeat_at,omitempty"`
+	OfflineTokenVersion int                 `json:"offline_token_version"`
+	CreatedAt           time.Time           `json:"created_at"`
+	UpdatedAt           time.Time           `json:"updated_at"`
 }
 
 type OfflineLicense struct {

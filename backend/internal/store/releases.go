@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 
 	"github.com/yunnuo88520/yunnuo-license/backend/internal/domain"
@@ -26,18 +27,40 @@ func (s *Store) SetProductUpdates(ctx context.Context, settings domain.ProductUp
 	return err
 }
 
-const releaseColumns = `id, product_id, version, notes, status, filename, size, sha256, key_version, manifest_token, created_at`
+const releaseWriteColumns = `id, product_id, version, notes, status, filename, size, sha256, key_version, manifest_token, created_at`
+const releaseColumns = releaseWriteColumns + `,COALESCE((SELECT target_json FROM release_targets WHERE release_id=product_releases.id),''),COALESCE((SELECT version FROM release_targets WHERE release_id=product_releases.id),version)`
 
 func scanRelease(row interface{ Scan(...any) error }) (domain.ProductRelease, error) {
 	var r domain.ProductRelease
-	var created string
-	err := row.Scan(&r.ID, &r.ProductID, &r.Version, &r.Notes, &r.Status, &r.Filename, &r.Size, &r.SHA256, &r.KeyVersion, &r.ManifestToken, &created)
+	var created, target, version string
+	err := row.Scan(&r.ID, &r.ProductID, &r.Version, &r.Notes, &r.Status, &r.Filename, &r.Size, &r.SHA256, &r.KeyVersion, &r.ManifestToken, &created, &target, &version)
+	if err != nil {
+		return r, err
+	}
+	if target != "" {
+		r.Target = &domain.ReleaseTarget{}
+		if err = json.Unmarshal([]byte(target), r.Target); err != nil {
+			return r, err
+		}
+	}
+	r.Version = version
 	r.CreatedAt = parseTS(created)
 	return r, err
 }
 
 func (s *Store) CreateRelease(ctx context.Context, r domain.ProductRelease) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO product_releases (`+releaseColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.ID, r.ProductID, r.Version, r.Notes, r.Status, r.Filename, r.Size, r.SHA256, r.KeyVersion, r.ManifestToken, ts(r.CreatedAt))
+	return s.WithTx(ctx, func(tx *Tx) error { return tx.CreateRelease(ctx, r) })
+}
+
+func (tx *Tx) saveReleaseTarget(ctx context.Context, r domain.ProductRelease) error {
+	if r.Target == nil {
+		return nil
+	}
+	raw, err := json.Marshal(r.Target)
+	if err != nil {
+		return err
+	}
+	_, err = tx.tx.ExecContext(ctx, `INSERT INTO release_targets(release_id,version,target_json) VALUES(?,?,?)`, r.ID, r.Version, string(raw))
 	return err
 }
 

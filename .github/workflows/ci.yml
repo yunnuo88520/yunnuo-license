@@ -126,7 +126,7 @@ jobs:
   frontend:
     # Keep the browser/font environment stable while ubuntu-latest migrates.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -177,7 +177,7 @@ jobs:
         timeout-minutes: 6
         run: |
           sudo "$(command -v python)" .github/scripts/check-command.py --timeout 180 --log "$RUNNER_TEMP/yunnuo-ci-setup/dependencies.log" "Browser dependency setup" "$(command -v python)" -m playwright install-deps chromium
-          sudo "$(command -v python)" .github/scripts/check-command.py --timeout 120 --log "$RUNNER_TEMP/yunnuo-ci-setup/fonts.log" "CJK font setup" apt-get install -y -o Dpkg::Use-Pty=0 fonts-noto-cjk
+          sudo "$(command -v python)" .github/scripts/check-command.py --timeout 120 --log "$RUNNER_TEMP/yunnuo-ci-setup/fonts.log" "CJK font setup" apt-get install -y -o Dpkg::Use-Pty=0 fonts-noto-cjk xvfb python3-tk python3-pil
       - name: Build the server for browser acceptance tests
         timeout-minutes: 3
         run: go -C backend build -o /tmp/yunnuo-appearance-server ./cmd/server
@@ -188,6 +188,12 @@ jobs:
       - name: Compile and run the projects downloaded from the integration guide
         timeout-minutes: 8
         run: python .github/scripts/check-command.py "Developer integration acceptance" python examples/platform-e2e/test_integration.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-integration"
+      - name: Verify standard-product licensing and native GUI upgrades
+        timeout-minutes: 6
+        run: |
+          go -C examples/universal-client build -buildvcs=false -o /tmp/yunnuo-product-client .
+          python .github/scripts/check-command.py "Licensing scenario browser acceptance" python examples/platform-e2e/test_scenarios.py --server /tmp/yunnuo-appearance-server --client /tmp/yunnuo-product-client --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-scenarios/browser"
+          /usr/bin/python3 examples/platform-e2e/test_scenarios.py --server /tmp/yunnuo-appearance-server --client /tmp/yunnuo-product-client --gui --artifacts "$RUNNER_TEMP/yunnuo-scenarios/native"
       - name: Verify ordinary login, image CAPTCHA and opt-in two-factor login
         timeout-minutes: 4
         run: python .github/scripts/check-command.py "Login flow acceptance" python examples/platform-e2e/test_login.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-login"
@@ -233,11 +239,25 @@ jobs:
             ${{ runner.temp }}/yunnuo-ci-setup
             ${{ runner.temp }}/yunnuo-login
             ${{ runner.temp }}/yunnuo-password
+            ${{ runner.temp }}/yunnuo-scenarios
 
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Verify actual Docker product upgrades and persistent installations
+        timeout-minutes: 6
+        run: |
+          go -C backend build -o /tmp/yunnuo-scenario-server ./cmd/server
+          CGO_ENABLED=0 go -C examples/universal-client build -buildvcs=false -o /tmp/yunnuo-product-client .
+          python3 .github/scripts/check-command.py "Docker product update acceptance" python3 examples/platform-e2e/test_scenarios.py --server /tmp/yunnuo-scenario-server --client /tmp/yunnuo-product-client --docker --artifacts "$RUNNER_TEMP/yunnuo-docker-scenarios"
       - name: Build and test all-in-one image
         run: python3 .github/scripts/check-command.py "Docker image acceptance" ./docker/test-image.sh yunnuo-license:test
         env:
@@ -257,3 +277,4 @@ jobs:
             /tmp/yunnuo-image-security
             ${{ runner.temp }}/yunnuo-mysql
             ${{ runner.temp }}/yunnuo-compose-deployment
+            ${{ runner.temp }}/yunnuo-docker-scenarios

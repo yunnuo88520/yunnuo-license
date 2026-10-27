@@ -209,6 +209,7 @@ func (s *Service) CustomerLicense(ctx context.Context, userID, no string) (domai
 	if err != nil {
 		return view, err
 	}
+	p = effectiveProduct(p, lic.AuthorizationTerms)
 	p.PrivateKeyEncrypted = ""
 	p.DeveloperID = ""
 	bindings, err := s.currentStore().GetBindings(ctx, lic.ID)
@@ -244,7 +245,11 @@ func (s *Service) CustomerLicense(ctx context.Context, userID, no string) (domai
 	}
 	view.License = lic
 	view.Product = p
-	view.Policy, err = s.currentStore().BindingPolicy(ctx, p)
+	if lic.AuthorizationTerms != nil && lic.AuthorizationTerms.Version >= 2 {
+		view.Policy = domain.BindingPolicy{ProductID: p.ID, BindMode: p.BindMode, Allowed: p.UnbindLimit != 0, Limit: p.UnbindLimit, CooldownHours: p.UnbindCooldownHours}
+	} else {
+		view.Policy, err = s.currentStore().BindingPolicy(ctx, p)
+	}
 	if err != nil {
 		return view, err
 	}
@@ -305,7 +310,13 @@ func (s *Service) SetBindingPolicy(ctx context.Context, productID, actor string,
 	return input, err
 }
 func (s *Service) guardBindingChange(ctx context.Context, tx *store.Tx, p domain.Product, lic domain.License) error {
-	policy, err := tx.BindingPolicy(ctx, p)
+	var policy domain.BindingPolicy
+	var err error
+	if lic.AuthorizationTerms != nil && lic.AuthorizationTerms.Version >= 2 {
+		policy = domain.BindingPolicy{ProductID: p.ID, BindMode: p.BindMode, Allowed: p.UnbindLimit != 0, Limit: p.UnbindLimit, CooldownHours: p.UnbindCooldownHours}
+	} else {
+		policy, err = tx.BindingPolicy(ctx, p)
+	}
 	if err != nil {
 		return err
 	}
@@ -391,6 +402,9 @@ func (s *Service) CustomerRebind(ctx context.Context, userID, no string, input R
 			return err
 		}
 		if err := tx.ReplaceBinding(ctx, binding.ID, hash, encrypted, s.now()); err != nil {
+			return err
+		}
+		if err := s.indexBinding(ctx, tx, binding, value); err != nil {
 			return err
 		}
 		if err := tx.AddBindingChange(ctx, yncrypto.NewID("change"), lic.ID, binding.ID, input.RequestID, hash, "replace", s.now()); err != nil {

@@ -72,8 +72,8 @@ func TestConfigurationRejectsUnsafeOrIncompleteOrigins(t *testing.T) {
 		t.Fatal("accepted invalid language")
 	}
 	cfg.BindValue = ""
-	if Validate(cfg, "go") == nil {
-		t.Fatal("accepted empty required binding")
+	if err := Validate(cfg, "go"); err != nil {
+		t.Fatal("standard product kits must allow runtime activation input", err)
 	}
 	cfg.BindMode = "none"
 	if err := Validate(cfg, "go"); err != nil {

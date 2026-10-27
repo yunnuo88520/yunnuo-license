@@ -167,6 +167,8 @@ func (s *Service) securityDecision(ctx context.Context, in VerifyInput) (Securit
 	if err != nil {
 		return d, lic, err
 	}
+	p = s.productForLicense(ctx, p, in.LicenseNo)
+	in.BindValue = bindingInput(in.BindValue, in.Bindings)
 	mode, value, hash, err := s.normalizeBinding(p, in.BindMode, in.BindValue)
 	if err != nil {
 		return d, lic, err
@@ -178,17 +180,20 @@ func (s *Service) securityDecision(ctx context.Context, in VerifyInput) (Securit
 	if err != nil || lic.ProductID != p.ID {
 		return d, lic, ErrLicenseNotFound
 	}
-	bindings, err := s.currentStore().GetBindings(ctx, lic.ID)
+	err = s.currentStore().WithTx(ctx, func(tx *store.Tx) error {
+		binding, e := s.authorizedBinding(ctx, tx, p, lic.ID, mode, value, hash)
+		if e != nil {
+			if store.IsNotFound(e) {
+				return ErrBindingMismatch
+			}
+			return e
+		}
+		return s.checkInstallationTx(ctx, tx, p, lic, binding, in.ClientInstance, true)
+	})
 	if err != nil {
 		return d, lic, err
 	}
-	found := false
-	for _, b := range bindings {
-		found = found || b.Status == domain.BindingActive && b.BindMode == mode && b.BindValueHash == hash
-	}
-	if !found {
-		return d, lic, ErrBindingMismatch
-	}
+
 	a, c, policy, err := securityAction(ctx, s.currentStore(), lic)
 	if err != nil {
 		return d, lic, err

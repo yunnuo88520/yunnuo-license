@@ -73,7 +73,7 @@ def main():
             if args.screenshots:
                 from playwright.sync_api import sync_playwright
                 playwright = sync_playwright().start()
-                browser = playwright.chromium.launch(executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox"])
+                browser = playwright.chromium.launch(executable_path="/usr/bin/chromium", headless=True, args=["--no-sandbox","--no-proxy-server","--host-resolver-rules=MAP ebox.example.com 127.0.0.1"])
                 page = browser.new_page(viewport={"width": 1500, "height": 1100}, locale="zh-CN", timezone_id="Asia/Shanghai")
                 page.on("pageerror", lambda e: errors.append(str(e)))
                 page.goto(base + "/admin#security")
@@ -125,13 +125,13 @@ await assert.rejects(client.downloadUpdate(c.release,c.binding,{publicKeyPem:c.p
             review_path = "/admin/security/cases/" + case["id"] + "/review"
             http.http(base, review_path, {"status": "confirmed", "action": "block_page", "reason": "user override"}, token, expected=401)
             http.api(base, review_path, {"status": "confirmed", "action": "deny_updates", "reason": "核实后仅限制更新，保留运行"}, root)
-            assert "Ebox 网站正常运行" in http.http(site, "/").decode()
-            assert http.http(site, "/api/update", {}, expected=403)["code"] == "SECURITY_UPDATES_DENIED"
+            assert "Ebox 网站正常运行" in http.http(site, "/", extra_headers={"Host":"ebox.example.com"}).decode()
+            assert http.http(site, "/api/update", {}, extra_headers={"Host":"ebox.example.com"}, expected=403)["code"] == "SECURITY_UPDATES_DENIED"
             assert http.http(base, "/v1/updates/" + release["id"] + "/download", credentials, expected=403)["error"]["code"] == "SECURITY_UPDATES_DENIED"
             if args.screenshots:
                 app = browser.new_page(viewport={"width": 1500, "height": 1100}, locale="zh-CN")
                 app.on("pageerror", lambda e: errors.append(str(e)))
-                app.goto(site)
+                app.goto(f"http://ebox.example.com:{site_port}")
                 app.get_by_role("button", name="检查在线更新", exact=True).click()
                 app.get_by_text("仅更新服务被限制，当前网站仍可使用。", exact=True).wait_for()
                 app.screenshot(path=str(args.artifacts / "updates-denied-website-usable.png"), full_page=True)
@@ -145,11 +145,11 @@ await assert.rejects(client.downloadUpdate(c.release,c.binding,{publicKeyPem:c.p
                 page.screenshot(path=str(args.artifacts / "admin-confirmed-security-case.png"), full_page=True)
             else:
                 http.api(base, review_path, {"status": "confirmed", "action": "block_page", "reason": "核实异常部署，等待申诉"}, root)
-            assert "授权安全拦截" in http.http(site, "/", expected=403).decode()
+            assert "授权安全拦截" in http.http(site, "/", extra_headers={"Host":"ebox.example.com"}, expected=403).decode()
             for endpoint in ["/v1/licenses/verify", "/v1/licenses/heartbeat", "/v1/updates/" + release["id"] + "/download"]:
                 assert http.http(base, endpoint, credentials, expected=403)["error"]["code"] == "SECURITY_USE_DENIED"
             if args.screenshots:
-                response = app.goto(site)
+                response = app.goto(f"http://ebox.example.com:{site_port}")
                 assert response.status == 403
                 app.get_by_role("heading", name="授权安全拦截", exact=True).wait_for()
                 assert app.locator(".announcement-text").inner_text() == policy["message"]
@@ -165,7 +165,7 @@ await assert.rejects(client.downloadUpdate(c.release,c.binding,{publicKeyPem:c.p
                 page.get_by_text("应用安全策略已保存。", exact=True).wait_for()
             else:
                 http.api(base, "/admin/products/" + product["id"] + "/security-policy", {**policy, "message": revised_notice}, root)
-            updated_html = http.http(site, "/", expected=403).decode()
+            updated_html = http.http(site, "/", extra_headers={"Host":"ebox.example.com"}, expected=403).decode()
             assert revised_notice in updated_html and policy["message"] not in updated_html
             http.api(base, "/admin/products/" + product["id"] + "/security-policy", policy, root)
             report["checks"].append("Editing the announcement updates the blocked application immediately without restarting it")
@@ -187,12 +187,12 @@ await assert.rejects(client.downloadUpdate(c.release,c.binding,{publicKeyPem:c.p
             appeals = http.api(base, "/admin/security/appeals", token=root)
             appeal = next(a for a in appeals if a["case_id"] == case["id"])
             http.api(base, review_path, {"status": "resolved", "reason": "核实购买与迁移记录，排除误报并解除"}, root)
-            assert "Ebox 网站正常运行" in http.http(site, "/").decode()
+            assert "Ebox 网站正常运行" in http.http(site, "/", extra_headers={"Host":"ebox.example.com"}).decode()
             assert http.api(base, "/v1/licenses/verify", credentials)["can_update"]
             http.http(base, "/v1/updates/" + release["id"] + "/download", credentials)
             assert next(a for a in http.api(base, "/user/security/appeals", token=token) if a["id"] == appeal["id"])["status"] == "closed"
             if args.screenshots:
-                app.goto(site)
+                app.goto(f"http://ebox.example.com:{site_port}")
                 app.get_by_role("heading", name="Ebox 网站正常运行", exact=True).wait_for()
                 app.screenshot(path=str(args.artifacts / "real-application-restored.png"), full_page=True)
                 assert not errors, errors

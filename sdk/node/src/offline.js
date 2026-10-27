@@ -1,3 +1,4 @@
+import {isIP} from "node:net";
 import { createHash, createPublicKey, timingSafeEqual, verify as verifySignature } from "node:crypto";
 import { VerificationError } from "./errors.js";
 
@@ -67,6 +68,14 @@ export class OfflineVerifier {
     this.#clockSkewMs = clockSkewMs;
   }
 
+  verifyLicenseToken(token,expected){
+    const claims=this.#verifyClaims(token);
+    if(claims.type!=="license"||!equalFoldTrim(claims.product_code,this.#productCode)||claims.license_no!==expected.licenseNo)fail(VerificationCode.WRONG_PRODUCT,"online license identity does not match");
+    if(claims.bind_mode!==expected.bindMode||claims.bind_digest!==bindingDigest(expected.bindMode,expected.bindValue)||expected.instanceId&&claims.instance_id!==expected.instanceId)fail(VerificationCode.BINDING_MISMATCH,"online license binding does not match");
+    const now=validClockDate(this.#clock());const issued=parseRequiredDate(claims.issued_at,"issued_at");if(issued.getTime()>now.getTime()+this.#clockSkewMs)fail(VerificationCode.ISSUED_IN_FUTURE,"token issue time is in the future");
+    const until=claims.grace_until??claims.usage_expired_at;if(until!=null&&now>=parseRequiredDate(until,"usage expiry"))fail(VerificationCode.LICENSE_EXPIRED,"license has expired");
+    if(claims.can_use!==true)fail(VerificationCode.LICENSE_EXPIRED,"license does not permit use");return claims;
+  }
   verifyOfflineToken(token, expected) {
     const claims = this.#verifyClaims(token);
     const offlineUntil = parseRequiredDate(claims.offline_until, "offline_until");
@@ -87,6 +96,7 @@ export class OfflineVerifier {
     if (!constantTimeStringEqual(String(claims.bind_digest).toLowerCase(), expectedDigest)) {
       fail(VerificationCode.BINDING_MISMATCH, "binding value does not match");
     }
+    if(expected?.instanceId&&claims.instance_id!==expected.instanceId||expected?.seatId&&claims.seat_id!==expected.seatId||expected?.sessionId&&claims.session_id!==expected.sessionId)fail(VerificationCode.BINDING_MISMATCH,"installation or seat does not match");
     const now = validClockDate(this.#clock());
     if (issuedAt.getTime() > now.getTime() + this.#clockSkewMs) {
       fail(VerificationCode.ISSUED_IN_FUTURE, "token issue time is in the future");
@@ -181,9 +191,31 @@ export class OfflineVerifier {
   }
 }
 
+function canonicalAddress(value){
+ if(isIP(value)===4)return value;
+ if(isIP(value)!==6)return value;
+ let address=new URL("http://["+value+"]").hostname.slice(1,-1);
+ const mapped=/^::ffff:([a-f0-9]{1,4}):([a-f0-9]{1,4})$/.exec(address);
+ if(mapped){const a=parseInt(mapped[1],16),b=parseInt(mapped[2],16);address=[a>>8,a&255,b>>8,b&255].join(".")}
+ return address;
+}
+function canonicalComponent(mode,value){
+ value=String(value??"").trim();
+ if(mode==="ip"||mode==="ip_cidr")return canonicalAddress(value);
+ if(mode==="account")return value.toLowerCase();
+ if(mode==="domain"||mode==="domain_wildcard"){
+  const wildcard=value.startsWith("*.");const host=new URL(value.includes("://")?value:"http://"+(wildcard?value.slice(2):value)).hostname.toLowerCase().replace(/\.$/,"");
+  return (wildcard?"*.":"")+host;
+ }
+ return value;
+}
 export function bindingDigest(bindMode, bindValue) {
   const mode = String(bindMode ?? "").trim().toLowerCase();
-  const value = String(bindValue ?? "").trim().toLowerCase();
+  let value=String(bindValue??"").trim();
+  if(mode==="composite"){
+    const fields=JSON.parse(value),sorted=Object.fromEntries(Object.entries(fields).map(([kind,value])=>[kind,canonicalComponent(kind,value)]).sort(([a],[b])=>a<b?-1:a>b?1:0));
+    value=JSON.stringify(sorted).replace(/[<>&\u2028\u2029]/g,c=>"\\u"+c.charCodeAt(0).toString(16).padStart(4,"0"));
+  }else{value=canonicalComponent(mode,value);if(!["tenant","instance","cluster"].includes(mode))value=value.toLowerCase();}
   return createHash("sha256").update(mode).update(Buffer.from([0])).update(value).digest("hex");
 }
 

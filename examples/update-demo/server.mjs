@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
-import { LicenseClient, enforceWebLicense } from "../../sdk/node/src/index.js";
+import { LicenseClient, enforceWebLicense, bindingForWebRequest } from "../../sdk/node/src/index.js";
 
 const execute = promisify(execFile);
 const config = JSON.parse(await readFile(process.env.YN_DEMO_CONFIG, "utf8"));
@@ -35,13 +35,13 @@ function json(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
-async function update() {
+async function update(binding) {
   const before = await currentRelease();
   events.push(`检查 v${before.metadata.version} 的更新与当前授权`);
-  const result = await client.checkUpdate({ ...config.binding, current_version: before.metadata.version });
+  const result = await client.checkUpdate({ ...binding, current_version: before.metadata.version });
   if (!result.update_available) return { updated: false, message: "当前已是最新版本。" };
   const release = result.release;
-  const bytes = await client.downloadUpdate(release, config.binding, { publicKeyPem: config.publicKeyPem, productId: config.productId });
+  const bytes = await client.downloadUpdate(release, binding, { publicKeyPem: config.publicKeyPem, productId: config.productId });
   events.push(`v${release.version} 升级包签名、产品归属与 SHA-256 校验通过`);
   const staging = await mkdtemp(join(dataDir, "staging-"));
   let applied = false;
@@ -50,7 +50,7 @@ async function update() {
     await writeFile(archive, bytes, { mode: 0o600, flag: "wx" });
     // The package can take time to transfer and stage. Authorize this exact
     // published release again immediately before modifying files or data.
-    await client.authorizeUpdate(release.id,config.binding);
+    await client.authorizeUpdate(release.id,binding);
     await install("apply", archive, release.version);
     applied = true;
     events.push(`已备份数据库并切换网站文件至 v${release.version}`);
@@ -73,11 +73,11 @@ async function update() {
 
 const server = createServer(async (request, response) => {
   try {
-    if (request.method === "GET" && request.url === "/" && await enforceWebLicense(client, config.binding, response)) return;
+    if (request.method === "GET" && request.url === "/" && await enforceWebLicense(client, config.binding, response, request)) return;
     if (request.method === "GET" && request.url === "/api/status") {
       // The product enforces usage; update expiry alone must never disable a perpetual installation.
       try {
-        const rights = await client.verify(config.binding);
+        const rights = await client.verify(bindingForWebRequest(config.binding,request));
         if (!rights.can_use) return json(response, 403, { code: "USAGE_DENIED", message: "当前授权不允许使用" });
       } catch (error) {
         return json(response, error.httpStatus || 503, { code: error.code || "LICENSE_CHECK_FAILED", message: "当前无法确认使用权限" });
@@ -94,13 +94,13 @@ const server = createServer(async (request, response) => {
       return json(response, healthy ? 200 : 503, { healthy, version: metadata.version });
     }
     if (request.url === "/api/update" && request.method === "POST") {
-      if (request.headers.origin && request.headers.origin !== origin) return json(response, 403, { message: "来源不受信任" });
+      if (request.headers.origin && request.headers.origin !== "http://"+request.headers.host) return json(response, 403, { message: "来源不受信任" });
       if (request.headers["content-type"] !== "application/json") return json(response, 415, { message: "需要 JSON 请求" });
       if (updating) return json(response, 409, { message: "正在升级，请稍后重试" });
       request.resume();
       updating = true;
       try {
-        return json(response, 200, await update());
+        return json(response, 200, await update(bindingForWebRequest(config.binding,request)));
       } catch (error) {
         events.push(`更新未完成：${error.code || error.message}`);
         return json(response, error.httpStatus || 500, { updated: false, code: error.code || "UPDATE_FAILED", message: `${error.code || error.message}；当前网站版本已保留。` });

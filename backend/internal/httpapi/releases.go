@@ -128,7 +128,12 @@ func (api *API) uploadRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	result, err := api.service.UploadRelease(r.Context(), service.UploadReleaseInput{ProductID: r.PathValue("productID"), Version: r.FormValue("version"), Notes: r.FormValue("notes"), Filename: header.Filename}, file, adminSessionFrom(r.Context()).UserID)
+	target, targetErr := service.ParseReleaseTarget(r.FormValue("target"))
+	if targetErr != nil {
+		writeError(w, r, targetErr)
+		return
+	}
+	result, err := api.service.UploadRelease(r.Context(), service.UploadReleaseInput{Target: target, ProductID: r.PathValue("productID"), Version: r.FormValue("version"), Notes: r.FormValue("notes"), Filename: header.Filename}, file, adminSessionFrom(r.Context()).UserID)
 	if err != nil {
 		writeError(w, r, err)
 		return
