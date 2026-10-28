@@ -14,6 +14,9 @@ import (
 )
 
 func operationCategory(route string) string {
+	if strings.Contains(route, "/v2/console/applications") && !strings.Contains(route, "/{collection}") {
+		return "applications"
+	}
 	if strings.Contains(route, "/credentials") || strings.Contains(route, "/v1/app/") {
 		return "applications"
 	}
@@ -51,7 +54,7 @@ func (api *API) operationAudit(next http.Handler, mux *http.ServeMux) http.Handl
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, route := mux.Handler(r)
 		business := false
-		for _, prefix := range []string{"/admin/", "/agent/", "/developer/", "/user/", "/v1/"} {
+		for _, prefix := range []string{"/admin/", "/agent/", "/developer/", "/user/", "/v1/", "/v2/"} {
 			if strings.HasPrefix(r.URL.Path, prefix) {
 				business = true
 			}
@@ -77,7 +80,7 @@ func (api *API) operationAudit(next http.Handler, mux *http.ServeMux) http.Handl
 				a.ID = customer.ID
 				a.Role = "customer"
 				// A shared identity acts in the scope of the endpoint it uses.
-				if strings.HasPrefix(r.URL.Path, "/agent/") {
+				if strings.HasPrefix(r.URL.Path, "/agent/") || strings.HasPrefix(r.URL.Path, "/v2/agent/") {
 					if agent, err := api.service.AuthenticateAgentToken(r.Context(), token); err == nil {
 						a.Type, a.ID, a.Role = "agent", agent.UserID, agent.Role
 					}
@@ -89,7 +92,7 @@ func (api *API) operationAudit(next http.Handler, mux *http.ServeMux) http.Handl
 			}
 		}
 		ctx := service.WithAuditActor(r.Context(), a)
-		ticket, err := api.service.BeginOperation(ctx, requestIDFrom(r), operationCategory(route), r.Method, route, api.clientIP(r), a)
+		ticket, err := api.service.BeginOperation(ctx, requestIDFrom(r), operationCategoryForRequest(r, route), r.Method, route, api.clientIP(r), a)
 		if err != nil {
 			writeError(w, r, service.AppError{Code: "AUDIT_UNAVAILABLE", Message: "operation logging is unavailable; retry later", HTTPStatus: 503})
 			return
@@ -97,7 +100,7 @@ func (api *API) operationAudit(next http.Handler, mux *http.ServeMux) http.Handl
 		capture := &operationWriter{ResponseWriter: w}
 		audited := r.WithContext(ctx)
 		next.ServeHTTP(capture, audited)
-		for _, key := range []string{"licenseNo", "productID", "userID", "agentID", "packageID", "tierID", "caseID"} {
+		for _, key := range []string{"appID", "itemID", "releaseID", "licenseNo", "productID", "userID", "agentID", "packageID", "tierID", "caseID"} {
 			if id := audited.PathValue(key); id != "" {
 				ticket.Log.ObjectID = id[:min(len(id), 96)]
 				break
@@ -154,4 +157,59 @@ func (api *API) exportOperations(w http.ResponseWriter, r *http.Request) {
 	for _, l := range result.Items {
 		writer.Write([]string{l.CreatedAt.Format(time.RFC3339), l.Category, l.ActorType, l.ActorID, l.Method, l.Route, l.Result, strconv.Itoa(l.HTTPStatus), l.ErrorCode, l.RequestID})
 	}
+}
+
+func operationCategoryForRequest(r *http.Request, route string) string {
+	if strings.HasPrefix(r.URL.Path, "/v2/") && (strings.Contains(r.URL.Path, "/security/") || strings.HasSuffix(r.URL.Path, "/security") || strings.HasSuffix(r.URL.Path, "/appeal")) {
+		return "security"
+	}
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) == 0 || parts[0] != "v2" {
+		return operationCategory(route)
+	}
+	if len(parts) > 1 {
+		switch parts[1] {
+		case "activate", "verify", "installations":
+			return "licenses"
+		case "updates":
+			return "updates"
+		case "sales":
+			return "finance"
+		case "agent":
+			if len(parts) > 2 && parts[2] == "catalog" {
+				return "applications"
+			}
+			return "cards"
+		case "user":
+			return operationCategory(r.URL.Path)
+		case "public":
+			if len(parts) > 2 && parts[2] == "query" {
+				return "licenses"
+			}
+			return "applications"
+		}
+	}
+	if len(parts) > 4 && parts[2] == "applications" {
+		switch parts[4] {
+		case "plans":
+			return "packages"
+		case "orders", "sales-channels":
+			return "finance"
+		case "cards":
+			return "cards"
+		case "licenses", "activations", "pending-installations":
+			return "licenses"
+		case "binding-rules":
+			return "binding"
+		case "releases":
+			return "updates"
+		case "audit", "audit-integrity", "diagnostics":
+			return "audit"
+		case "agent-grants":
+			return "agents"
+		case "reset-secret", "rotate-key", "jwks":
+			return "applications"
+		}
+	}
+	return "applications"
 }

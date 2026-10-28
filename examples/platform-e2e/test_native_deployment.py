@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 import uuid
 import zipfile
+from v2_product import Product
 
 REPO=pathlib.Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('demo_http',REPO/'examples/update-demo/test_e2e.py');http=importlib.util.module_from_spec(spec);spec.loader.exec_module(http)
@@ -84,30 +85,23 @@ def main():
             for path in ['/backend/yunnuo-server','/runtime.env','/.env','/admin-console/index.html']:
                 assert raw(base,path)[0]==404,path
             report['checks'].append('Installation completes through the same-origin Nginx API, all role entries work, and private/backend files and raw admin HTML are inaccessible')
-            product=http.api(base,'/admin/products',{'name':'Nginx Ebox','bind_mode':'domain','license_mode':'perpetual','update_duration_days':7},token)
-            batch=http.api(base,'/admin/card-batches',{'product_id':product['id'],'name':'Release package acceptance','quantity':2,'duration_days':30},token)
-            credentials={'app_key':product['id'],'bind_mode':'domain','bind_value':'ebox.example.com'};license=http.api(base,'/v1/licenses/activate',{**credentials,'card_code':batch['codes'][0]});credentials['license_no']=license['license_no']
-            prefix='/admin/products/'+product['id'];http.api(base,prefix+'/updates',{'enabled':True},token)
-            archive=io.BytesIO()
-            with zipfile.ZipFile(archive,'w') as package:package.writestr('version.txt','Ebox 1.0.0')
-            package=archive.getvalue();boundary=uuid.uuid4().hex;parts=[f'--{boundary}\r\nContent-Disposition: form-data; name="version"\r\n\r\n1.0.0\r\n'.encode(),f'--{boundary}\r\nContent-Disposition: form-data; name="package"; filename="ebox.zip"\r\nContent-Type: application/zip\r\n\r\n'.encode()+package+f'\r\n--{boundary}--\r\n'.encode()]
-            release=http.api(base,prefix+'/releases',b''.join(parts),token,'multipart/form-data; boundary='+boundary);http.api(base,prefix+'/releases/'+release['id']+'/publish',{},token)
-            assert http.api(base,'/v1/updates/check',{**credentials,'current_version':'0.0.0'})['update_available']
-            download='/v1/updates/'+release['id']+'/download';authorize='/v1/updates/'+release['id']+'/authorize'
-            assert hashlib.sha256(http.http(base,download,credentials)).hexdigest()==release['sha256'];assert http.api(base,authorize,credentials)['authorized']
-            assert raw(base,'/admin/products','POST',headers={'Content-Length':'300000000','Content-Type':'application/json'})[0]==413
-            report['checks'].append('Packaged SDK/migrations support real activation, multipart upload, publish, authenticated checksum download and install authorization through Nginx; oversized uploads are rejected')
-            with sqlite3.connect(state/'bootstrap.sqlite') as db:
-                expiry=(datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(seconds=1)).isoformat().replace('+00:00','Z');db.execute('UPDATE license_entitlements SET updates_expired_at=? WHERE license_id=(SELECT id FROM licenses WHERE license_no=?)',(expiry,license['license_no']))
-            verified=http.api(base,'/v1/licenses/verify',credentials);assert verified['can_use'] and not verified['can_update']
-            assert http.http(base,download,credentials,expected=403)['error']['code']=='UPDATES_EXPIRED';http.http(base,authorize,credentials,expected=403)
-            renewed=http.api(base,'/v1/licenses/renew',{**credentials,'renew_card_code':batch['codes'][1]});replayed=http.api(base,'/v1/licenses/renew',{**credentials,'renew_card_code':batch['codes'][1]});assert renewed['updates_expired_at']==replayed['updates_expired_at'] and renewed['usage_expired_at'] is None
-            report['checks'].append('Expired updates remain denied through the proxy while perpetual usage continues; renewing restores updates and a retry does not add another term')
+            product=Product(base,token,temp/'product')
+            release=product.publish();download=product.download()
+            assert hashlib.sha256(pathlib.Path(download['path']).read_bytes()).hexdigest()==release['sha256']
+            assert raw(base,'/v2/applications/'+product.app+'/.well-known/jwks.json')[0]==200
+            assert raw(base,'/.well-known/jwks.json?app_id='+product.app)[0]==200
+            assert raw(base,'/v1/licenses/verify','POST',b'{}',{'Content-Type':'application/json'})[0]==410
+            assert raw(base,'/v2/console/applications','POST',headers={'Content-Length':'300000000','Content-Type':'application/json'})[0]==413
+            report['checks'].append('Generated V2 client activates through Nginx; both JWKS routes, signed update upload/download/install authorization work; old protocol and oversized uploads are refused')
+            product.expire_updates(state/'bootstrap.sqlite');assert product.verify()['valid']
+            for operation in ['check','download','authorize']:assert 'UPDATES_EXPIRED' in product.run('update.py',operation,ok=False)
+            product.renew_updates();product.download()
+            report['checks'].append('Expired updates remain denied through Nginx while perpetual use continues; renewal restores updates and retries do not add another term')
             config_path=state/'database.json';config=json.loads(config_path.read_text());keys={k:config[k] for k in ['data_key','card_pepper']};config['admin_path']='/private/control';config_path.write_text(json.dumps(config));config_path.chmod(0o600)
             process.terminate();process.wait(timeout=30);subprocess.run(['python3',*backend_config],check=True,capture_output=True,text=True);subprocess.run(['python3',str(web/'deploy/native/configure.py'),'--state-dir',str(frontstate),'--frontend-only'],check=True,capture_output=True,text=True)
             assert all(json.loads(config_path.read_text())[k]==v for k,v in keys.items());assert f'127.0.0.1:{nginx_port}' in (frontstate/'deploy/nginx-server.conf').read_text()
             process=start();http.wait_ready(direct,'/readyz',process)
-            assert raw(base,'/admin')[0]==404 and raw(base,'/private/control')[0]==200;assert http.api(base,'/admin/profile',token=token)['username']=='admin';assert hashlib.sha256(http.http(base,download,credentials)).hexdigest()==release['sha256']
+            assert raw(base,'/admin')[0]==404 and raw(base,'/private/control')[0]==200;assert http.api(base,'/admin/profile',token=token)['username']=='admin';assert product.verify()['valid'];product.download()
             report['checks'].append('Reconfiguration preserves keys, ports and hostnames; restarting Go alone changes the admin page path immediately, preserving data, sessions and packages')
             if args.screenshots:
                 page.goto(base+'/private/control#operations');page.get_by_label('账号',exact=True).fill('admin');page.get_by_label('密码',exact=True).fill(password);page.get_by_role('button',name='安全登录',exact=True).click();page.get_by_role('heading',name='运行与容量',level=3,exact=True).wait_for();page.screenshot(path=str(args.artifacts/'nginx-admin-desktop.png'),full_page=True,animations='disabled');page.emulate_media(color_scheme='dark');page.locator("html[data-theme='dark']").wait_for(state='attached');page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1');page.screenshot(path=str(args.artifacts/'nginx-admin-mobile-dark.png'),animations='disabled');assert not errors
@@ -122,7 +116,7 @@ def main():
             process=start();http.wait_ready(direct,'/readyz',process)
             subprocess.run(['docker','exec',container,'nginx','-s','reload','-c',str(nginx_conf)],check=True,capture_output=True,text=True)
             assert raw(direct,'/install')[0]==200 and raw(base,'/private/control')[0]==200 and raw(base,'/admin')[0]==404
-            assert hashlib.sha256(http.http(base,download,credentials)).hexdigest()==release['sha256']
+            assert product.verify()['valid'];product.download()
             report['checks'].append('Compatibility mode runs without auth_request directives, preserving the custom admin entry and existing authorization/update data')
             if args.supervisor:
                 import supervisor
@@ -130,7 +124,7 @@ def main():
                 supervisor_conf=state/'supervisord.conf';supervisor_conf.write_text('[supervisord]\nnodaemon=true\nlogfile='+str(state/'logs/supervisord.log')+'\npidfile='+str(state/'supervisord.pid')+'\nchildlogdir='+str(state/'logs')+'\n'+(state/'deploy/supervisor.conf').read_text())
                 process=subprocess.Popen([sys.executable,'-m','supervisor.supervisord','-n','-c',str(supervisor_conf)],env=env,stdout=log,stderr=log)
                 http.wait_ready(direct,'/readyz',process)
-                assert http.api(base,'/v1/licenses/verify',credentials)['can_use'] and raw(base,'/private/control')[0]==200
+                assert product.verify()['valid'] and raw(base,'/private/control')[0]==200
                 report['checks'].append('The generated Supervisor configuration starts and supervises the packaged Go binary with private runtime.env, persistent database and custom page routing')
             report.update(result='passed',split_backend_static_serving=False,compatibility_verified=True,supervisor_verified=args.supervisor,frontend='nginx',database='sqlite',build_info=info)
         finally:

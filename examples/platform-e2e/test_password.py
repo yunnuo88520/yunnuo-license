@@ -93,7 +93,7 @@ def main():
                 if portal in ['admin', 'agent']:
                     page.locator('.console').wait_for()
                 else:
-                    page.get_by_text('我的产品' if portal == 'developer' else '激活新授权', exact=True).wait_for()
+                    page.get_by_role('heading',name='应用授权中心' if portal == 'developer' else '关联购买的授权',exact=True,level=2).wait_for()
                 page.wait_for_load_state('networkidle')
                 saved = page.evaluate('(key) => sessionStorage.getItem(key)', key)
                 assert saved
@@ -152,7 +152,7 @@ def main():
                 if portal in ['admin', 'agent']:
                     page.locator('.console').wait_for()
                 else:
-                    page.get_by_text('我的产品' if portal == 'developer' else '激活新授权', exact=True).wait_for()
+                    page.get_by_role('heading',name='应用授权中心' if portal == 'developer' else '关联购买的授权',exact=True,level=2).wait_for()
                 report['checks'].append(portal+': three password fields, client mismatch rejection, inline current-password error with retained session, legacy 401 form-error handling and successful re-login are verified in Chromium')
                 context.close()
             assert not errors, errors

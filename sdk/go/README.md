@@ -1,3 +1,5 @@
+> 历史 V1 资料，供存档参考。当前生产授权接口已切换 V2，请使用后台“应用授权中心 → 接入文档”和 [当前接入指南](../../docs/developer-integration.md)，不要使用本文旧接口或 SDK 接入新应用。
+
 # 允诺云授权 Go SDK
 
 统一产品分发、套餐快照、安装身份、浮动席位、用户关联与多平台更新见 [接入说明](https://github.com/yunnuo88520/yunnuo-license/blob/main/docs/developer-integration.md) 和 [场景说明](https://github.com/yunnuo88520/yunnuo-license/blob/main/docs/licensing-scenarios.md)。低层 API 不会自动保护业务入口；运行示例和安装器见 examples/universal-client。

@@ -5,52 +5,49 @@
 ## 授权和更新规则
 
 - `subscription`：使用期限到期后按应用配置的使用宽限处理，宽限结束拒绝使用；更新权限在更新期限或使用期限任一到期时停止。
-- `perpetual`：既有版本永久使用，更新权益单独到期。永久卡可以把相应权益变为永久；已经永久的权益不会被普通续费卡缩短。
+- `perpetual`：既有版本永久使用，更新权益单独到期。套餐发售时冻结更新权益，续费仅延长对应的使用或更新权益，不能借续费更换模型、数量、功能或绕过 SKU 兼容约束。
 - 所有截止时间以服务器 UTC 为准，`now >= deadline` 即到期。使用宽限不会延长更新资格。续费从原截止时间和当前时间的较晚者起算。
 - 续费卡在事务内与目标授权关联。同一卡、同授权及有效绑定重试返回当前权益，不重复延长；换成其他授权、其他归属或错误绑定则拒绝。历史已消费但没有关联记录的卡不重新消费。
 - 激活、续费、换绑在同一授权聚合上串行；同卡激活只产生一份授权，最大绑定数量、换绑次数和冷却期必须在锁内检查。代理扣款、发卡及价格历史仍在同一事务中完成。
 - 更新服务默认关闭。草稿不可见，发布后可检查和下载；下架、删除、应用停用、吊销、风控或安全处置立即影响后续请求。下载地址不是公开静态文件地址，不签发可绕过期限的长期下载票据。
-- 检查、下载、下载文件哈希校验后及安装前均重新判断更新资格。安装前调用 `POST /v1/updates/{releaseID}/authorize`，字段同在线校验，成功返回 `authorized: true`；该响应只表示当次请求通过，不能缓存为未来安装的许可。Node SDK 下载后自动复验，安装器修改文件和数据库前再次调用 `authorizeUpdate`。
+- 检查、下载、下载文件哈希校验后及安装前均重新判断更新资格。安装前调用 `POST /v2/updates/{releaseID}/authorize`，字段为 app_id、activation_id、binding、form、current_version、target，成功返回新的 `manifest_jwt` 与当前 `release`；该响应只表示当次请求通过，不能缓存为未来安装的许可。V2 接入包中的更新传输示例下载时验证签名和摘要，安装器修改文件和数据库前再次调用 Go 的 `update-authorize` 或 Python 的 `update.py authorize`。
 - 产品应用必须执行使用决定、安装前复验和失败回滚。移除客户端校验的破解程序、此前已经下载的文件不能由授权服务器远程收回；SDK 和在线接口共同提供执行点。
 
 ## 验收映射
 
-| 范围 | 自动化证据 |
+| 范围 | 当前 V2 自动化证据 |
 | --- | --- |
-| 订阅/永久使用 × 无绑定/设备/域名/IPv4/IPv6/账号 × 更新、使用、宽限的到期前/恰好到期/到期后 | `backend/internal/service/authorization_matrix_test.go`，132 个时间边界子场景，校验、心跳、检查、下载及安装许可 |
-| 未到期/已过期续费，永久卡、普通卡、重复重试、错误绑定 | 同文件的续费矩阵、`entitlements_test.go`、`customers_test.go` |
-| 已检查后吊销/下架/关闭更新/停用应用/换绑定/跨应用访问 | 期限矩阵、`releases_test.go`、`security_test.go` |
-| 真实网站升级、数据迁移、过期拒绝、故障回滚 | `examples/update-demo/test_e2e.py` 的 subscription/perpetual 两次执行 |
-| 三种语言从页面下载接入包后编译运行，过期/吊销/断网等 | `examples/platform-e2e/test_integration.py`；各 SDK 测试 |
-| 并发激活、三张卡累加 90 天、同卡竞争、续费重试、真实混合负载 | `test_production.py`，SQLite 和 Docker 内 MySQL 均执行 |
-| 代理等级、套餐、扣款幂等、身份及产品隔离、换绑、恢复、分类日志、盗版处置 | `test_stage1.py` 至 `test_stage4.py`、`test_agent_accounts.py`、`test_agent_tiers.py`、`test_recovery_history.py` |
-| 可信代理链/伪造转发头、限流和失败锁定一致、请求大小、安装令牌 | `production_security_test.go`、`production_operations_test.go`、`test_install.py` |
-| 管理员动态码、一次性恢复码、重放拒绝、撤销旧会话 | `admin_mfa_test.go`、`test_production.py` 的页面验收 |
-| 容量并发防超额、下架删除释放空间、已删除版本不可复用、临时文件清理 | `resources_test.go`、`test_production.py` |
-| 数据库/审计写入/包存储故障，监控认证 | `production_operations_test.go`，故障触发 `/readyz` 503、`/healthz` 保持存活 |
-| 通知持久化、失败重试、重启后投递、去重、完成后清除正文 | `outbox_test.go`、`expiry_reminders_test.go` |
-| 一次迁移、历史校验和拒绝、迁移失败回滚、并发启动 | `store/migrations_test.go`；MySQL Docker 重启验收 |
-| 加密备份、全新 SQLite 实例恢复、坏包/错密钥拒绝、日志归档失败不删除 | `maintenance/*_test.go` |
-| 全新 MySQL 数据库与第二个进程恢复，期限/余额/迁移记录一致，继续下载并校验签名包 | `docker/test-production-restore.sh`、`docker/test-product-updates.py` |
+| 强制应用范围、复合外键、无审计回滚、跨应用拒绝、超过一万条历史记录的完整失效 | `store/application_scope_test.go`、`licensing/architecture_test.go` |
+| 签名、nonce、audience、用途、绑定、过期与密钥轮换 | `licensing/jwt_test.go`、`service_test.go`、`runtime_test.go`、`scenario_matrix_test.go` |
+| 换绑额度/冷却、审批与所有者变更、旧邀请失效、泛域根域/层级规则实时变更 | `licensing/lifecycle_test.go` |
+| 租约并发、崩溃超时、离线借用、幂等按量 | `licensing/runtime_test.go` |
+| 回调签名、重试、批量卡密摘要、人工待收款、续费兼容及退款重算 | `licensing/sales_test.go`、`renewal_test.go`、`renewal_refund_test.go` |
+| 更新到期边界、订阅宽限、目标隔离、下载和安装前复验 | `licensing/updates_test.go` |
+| 实际客户网站激活、更新、文件验签、SQLite 数据迁移、到期拒绝、故障健康检查和回滚 | `examples/update-demo/test_v2.py` |
+| 五种语言实际编译运行、同包两客户、离线与明确拒绝、无卡恢复、JWKS 轮换 | `httpapi/licensing_v2_clients_test.go`，设置 `YN_RUN_GENERATED_CLIENTS=1` |
+| 创建应用到客户、代理、公开查询、独立开发者、公告和申诉的实际页面 | `examples/platform-e2e/test_authorization_v2.py`，含 PC/手机截图 |
+| 真实 Tk GUI；真实 Docker 镜像切换、身份卷、数据保留和失败回退 | `test_v2_gui.py`、`test_v2_docker.py` |
+| V2 安全处置不授予已到期更新权、跨所有者申诉拒绝、HTML 转义 | `licensing/security_test.go`、`httpapi/licensing_block_page_test.go` |
+| SQLite 加密恢复及新应用密钥/包/摘要；MySQL 新库第二进程恢复、代理余额与原期限 | `maintenance/licensing_v2_test.go`、`docker/test-production-restore.sh`、`test_v2_image.py` |
+| Compose 持久化；Nginx + Go、安装门禁、后台路径重启、Supervisor | `test_compose_deployment.py`、`test_native_deployment.py` |
+| 登录图形验证码、可选两步验证、四端修改密码与主题 | `test_login.py`、`test_password.py`、`test_appearance.py` |
 
-执行命令：
+上述 Go 文件路径相对 `backend/internal/`，Python 文件位于 `examples/platform-e2e/`（另有说明除外）。CI 分别执行 SQLite、MySQL、浏览器、实际客户端、产品更新、Docker 与依赖安全检查；只能以当前提交的成功结果作为交付证据。
 
 ```bash
 go -C backend test ./...
 go -C backend vet ./...
-go -C backend test -race ./internal/service ./internal/httpapi ./internal/store ./internal/maintenance
+go -C backend test -race ./internal/service ./internal/httpapi ./internal/store ./internal/maintenance ./internal/licensing
 npm --prefix frontend ci
 npm --prefix frontend run check
-npm --prefix frontend run check:sdk
 npm --prefix frontend run build
 go -C backend build -o /tmp/yunnuo-acceptance ./cmd/server
-python3 examples/platform-e2e/test_production.py --server /tmp/yunnuo-acceptance --screenshots --artifacts /tmp/yunnuo-production
-python3 examples/update-demo/test_e2e.py --license-server /tmp/yunnuo-acceptance --license-mode subscription --artifacts /tmp/yunnuo-subscription
-python3 examples/update-demo/test_e2e.py --license-server /tmp/yunnuo-acceptance --license-mode perpetual --artifacts /tmp/yunnuo-perpetual
+python3 examples/platform-e2e/test_authorization_v2.py --server /tmp/yunnuo-acceptance --artifacts /tmp/yunnuo-v2-browser
+python3 examples/update-demo/test_v2.py --server /tmp/yunnuo-acceptance --artifacts /tmp/yunnuo-v2-updates
 YN_DOCKER_ARTIFACTS=/tmp/yunnuo-mysql ./docker/test-image.sh yunnuo-license:test
 ```
 
-截图、报告与混合请求的 P50/P95 随验收产出。混合场景使用 40 个受控测试客户端、并发 8、160 次请求，保留默认限流；这不是生产容量承诺。正式容量按硬件、包大小和业务频率复测。本版以单应用进程为部署基线；多实例部署应先把限流、失败锁定和文件协调迁移到共享入口/存储方案。
+本版以单应用进程为部署基线；多实例先将限流、失败锁定与文件协调移到共享入口/存储。验收不是生产容量承诺，正式容量按实际硬件、文件大小与业务频率复测。旧 V1 的场景编号和性能报告仅作存档，不能替代上述 V2 证据。
 
 ## 部署交付
 
@@ -88,6 +85,8 @@ Docker 日常启动使用根目录 `compose.yml`；HTTPS 和可选监控使用 `
 | `YN_RELEASE_MIN_FREE_BYTES` | 256 MiB |
 
 单包仍为 256 MiB。下载并发独立限额防止文件句柄和哈希工作挤占授权流量，写响应的总时限为 15 分钟。数据库锁内核算平台/开发者/产品额度；HTTP 层在解析大文件前取得上传槽位并预留临时文件空间。发布版本不能删除，先下架再确认删除可释放容量；版本号不复用。每小时清理应用自有且超过 24 小时的临时文件，保留正常发布包和不明确的恢复副本。
+
+V2 尚未启用授权到期自动提醒，不能依赖旧提醒任务通知新许可证；客户可在用户中心查看截止时间，管理员可从应用诊断查看即将到期数。账号恢复等平台通知继续工作。
 
 通知在数据库中加密保存，失败指数退避，最多 12 次，租约超时可由重启后的工作进程继续发送；最终失败在后台由超级管理员重试。SMTP 只能实现至少一次投递，服务端接收邮件后进程崩溃仍可能重发；这不会重复扣款或发卡。密码找回码继续同步发送，不把过期验证码排队重发。
 

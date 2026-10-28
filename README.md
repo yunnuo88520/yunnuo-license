@@ -4,59 +4,33 @@
 [![License](https://img.shields.io/github/license/yunnuo88520/yunnuo-license)](LICENSE)
 [![Version](https://img.shields.io/badge/version-%E6%9F%A5%E7%9C%8B%20VERSION%20%E6%96%87%E4%BB%B6-146447)](CHANGELOG.md)
 
-允诺云授权系统（Yunnuo License）是一套可自托管的通用应用授权服务平台，面向桌面软件、
-插件、私有化应用和 SaaS 产品。管理员管理平台、代理销售已获授权的应用套餐、用户管理自己的授权，
-开发者独立管理自己的产品与版本；提供在线与离线授权，以及 Go、Java、Node.js SDK。
+允诺云授权系统是可自托管的应用授权与可选升级服务平台。管理员管理平台，开发者管理所属应用，代理用统一用户账号销售已授予套餐，客户管理自己的许可证。
 
-> 当前项目处于早期版本，API 和数据结构在 `1.0.0` 前可能调整。请在生产部署前完成备份、
-> 安全配置和业务验收。
+> 当前为上线前的 V2 核心重构。V1 授权、共享实例密钥及旧 SDK 协议已停用；已有数据库升级前先备份，历史授权只读保留，需在新应用中核对权益后重新签发。迁移处理见 [历史授权](docs/authorization-migration.md)。
 
-## 功能
+## 授权与交付
 
-- 产品与签名密钥管理，支持产品密钥轮换
-- 卡密批量生成、导出、作废、激活与续期
-- 精确／泛域名、IPv4／IPv6／CIDR、设备、安装实例、账号、租户、集群、组合与无绑定策略
-- 同一产品统一分发，套餐、库存卡及授权保存条款快照，独立管理绑定、实例、设备、并发席位与功能
-- 持久安装身份、受限离线借用、一次性用户中心关联及独立使用／更新续费卡
-- 在线验证、心跳、解绑、吊销和公开授权查询
-- 在线缓存凭证与完全离线授权文件
-- 管理员角色权限与审计日志
-- IP/设备黑名单、异常激活检测与风控告警
-- 代理账号、产品策略、发卡额度和代理数据隔离
-- 独立普通用户中心、授权归属隔离、续费与受次数和冷却时间限制的换绑
-- 应用分组、管理员统一套餐、代理等级价格、预付余额及事务发卡成本流水
-- 全业务 API 分类操作记录、拒绝请求查询、分页与导出
-- 首页免登录代理验真，按公开代理编号与可售应用核对身份
-- 可配置安全检测、人工核实处置、用户申诉，以及 Node.js 应用拦截页
-- Go、Java、Node.js 客户端 SDK
-- 独立开发者控制台，产品、授权和版本按开发者隔离
-- 按应用提供授权接入指南及 Node.js、Go、Java 可运行接入包，包含 SDK 源码、配置和受保护接口 demo
-- 18 位 AppID 与独立 AppSecret，支持服务端访问令牌、密钥重置和应用范围隔离
-- 可选的产品升级服务：同版本多平台、架构、渠道与来源版本匹配，签名升级包或 Docker 镜像归档，下载后及安装前复验
-- 独立的使用期限与更新期限，支持订阅到期停用和永久使用、限期更新
-- 单 Docker 镜像部署，内置 MySQL，仅需开放 Web 端口
-- 首次安装私有令牌、可选的管理员两步验证、运行指标与容量管理、加密全量备份/恢复和通知重试
+- 应用自动生成公开 AppID、一次性 AppSecret，独立 RS256 签名密钥和 JWKS，按应用轮换。
+- 应用范围仓储强制注入 application_id，复合外键阻止跨应用引用；开发者、代理、客户分别检查所属权限。
+- 永久、订阅、浮动席位和按量套餐；使用期限与更新期限分别管理，冻结发售规格。
+- 机器指纹、域名与别名、泛域名、IPv4/IPv6/CIDR、持久安装、席位、账号、租户和集群锚点。
+- 同一 AppID、同一发行包交付多个客户，支持 Web、Docker、Kubernetes、GUI、CLI、服务、插件、移动、IoT、SaaS；客户凭卡密、一次性邀请或已批准安装关联。
+- 卡密只存摘要且原文只当次返回；人工订单确认、独立签名销售回调及幂等退款撤销。
+- 独立安装 Ed25519 签名、防重放、限流，标准 RS256 JWT 本地验签与在线状态刷新；独立且有限的离线凭证。
+- 浮动租约签出/心跳/超时归还，受限离线借用；按量原子扣减与业务键去重。
+- 应用分组、开发者归属、代理等级比例/专属成本、预付余额、事务发卡及流水；首期收款由管理员登记。
+- 客户归属、卡密续费、受次数与冷却限制的换绑；默认禁止客户转让授权。
+- 页面生成 Go、Java、Python、Rust、TypeScript 的可运行接入项目及 HTTP/OpenAPI 文档；无需必须安装的专有 SDK。
+- 可选升级服务按平台/架构/运行时/渠道/来源版本分发，签名清单、文件摘要，检查/下载/安装前均在线核验资格。
+- 应用追加审计与诊断、平台分类操作日志，前台免登录脱敏授权查询和代理验真。
+- 首次强制安装向导、普通登录/图片验证码/可选两步验证、浅色/深色/系统主题、电脑及手机页面。
+- Docker Compose、Nginx + Go/宝塔、前后端独立 tar.gz、私有备份与运行指标。
 
-平台支持内部预付余额与发卡成本核算，余额由管理员登记。第三方支付、退款及分佣对账需业务系统另行接入。
-代理采用统一用户账号加代理资格，一次开通即可用账号或邮箱登录，用户中心与代理工作台可直接切换。等级、套餐和余额在代理详情统一配置，多人协作为可选功能。张数额度为套餐的可选附加限制。流程见 [用户与代理账号](docs/agent-accounts.md)。
+创建应用后进入“接入文档”，选择套餐、部署形态、绑定和语言，下载代码。开发者只集成一次，不为每个客户重新编译。AppSecret 只用于开发者自己的中央服务端，客户部署的服务器同样属于客户端，不能内置 AppSecret。
 
-创建应用后，在管理员产品行点击“接入授权”，或直接在开发者产品页查看指南。页面会带入当前应用参数并提供接入包下载；不需要假定 SDK 已发布到公共包仓库。统一分发与各产品形态见 [授权场景说明](docs/licensing-scenarios.md)，实际 GUI／Docker 更新见 [通用产品示例](examples/universal-client/README.md)。具体流程见 [开发者授权接入](docs/developer-integration.md)。
+完整流程见 [开发者接入](docs/developer-integration.md)、[产品升级](docs/product-updates.md)、[销售回调](docs/sales-webhooks.md) 与 [授权设计](docs/authorization-v2.md)。
 
-实施与验收范围见 [平台功能说明](docs/platform-implementation.md)，应用端拦截接入与能力边界见
-[安全接入说明](docs/security-integration.md)。
-
-## 版本与更新
-
-发布版本维护在仓库根目录 `VERSION` 文件（唯一来源）。管理员登录后可在“系统设置”查看运行版本、构建信息、发布通道、
-升级能力状态和结构化更新记录；这些内部信息不在公开查询页展示。
-
-“系统设置”也提供全局站点品牌配置，可统一修改网站名称、浏览器标题、Logo 和网站图标。
-配置保存在数据库中，容器重启或升级后仍会保留。
-
-各端页面的“外观主题”支持浅色、深色和跟随系统，默认跟随系统并实时响应深浅变化。手动选择保存在当前浏览器，各入口和标签页同步使用。前台、管理员、代理、用户、开发者、安装与恢复页面均支持电脑及手机布局；手机后台底部导航可左右滑动，宽表格在表格区域内横向滚动。
-
-完整迭代内容见 [CHANGELOG.md](CHANGELOG.md)，版本发布与未来在线升级设计见
-[版本发布与升级](docs/release-management.md)。授权站自身仍采用备份后人工升级；被授权产品的在线升级服务已提供。
+离线吊销存在窗口期，本地校验无法阻止客户端代码被篡改；短 TTL、有限宽限和在线关键业务共同约束风险。更新不使用离线宽限，永久使用不代表永久更新。
 
 ## 部署方式
 
@@ -87,8 +61,8 @@ docker compose exec license cat /var/lib/mysql/.yunnuo/database.json.install-tok
 
 ```bash
 umask 022
-tar --no-same-owner -xzf yunnuo-license-v0.3.0-linux-amd64.tar.gz
-cd yunnuo-license-v0.3.0-linux-amd64
+tar --no-same-owner -xzf yunnuo-license-v0.4.0-linux-amd64.tar.gz
+cd yunnuo-license-v0.4.0-linux-amd64
 python3 deploy/native/configure.py --domain license.example.com --user www
 ```
 
@@ -124,25 +98,18 @@ go run ./cmd/server
 
 账号恢复入口为 `/recover`。管理员在“账号恢复”中核实身份后发放一次性恢复码或重置密码，原会话随即失效。管理员全部忘记密码时可在服务器本地恢复，详见 [安装与账号恢复](docs/installation-and-recovery.md)。资金流水、安全记录和申诉支持分页、筛选与完整 CSV 导出。
 
-API 接入示例见 [API Quickstart](docs/api/quickstart.md)，详细设计见
-[系统设计](docs/system-design-v1.md)。
-风控规则、告警阈值与数据处理方式见 [风控中心](docs/risk-control.md)。
+API 接入见 [当前协议](docs/api/quickstart.md)、[开发者接入](docs/developer-integration.md) 和 [安全拦截与申诉](docs/security-integration.md)。
 
-## SDK
+## 多语言接入
 
-| 语言 | 目录 | 最低版本 |
-| --- | --- | --- |
-| Go | [`sdk/go`](https://github.com/yunnuo88520/yunnuo-license/tree/main/sdk/go) | Go 1.22 |
-| Java | [`sdk/java`](https://github.com/yunnuo88520/yunnuo-license/tree/main/sdk/java) | Java 17 |
-| Node.js | [`sdk/node`](https://github.com/yunnuo88520/yunnuo-license/tree/main/sdk/node) | Node.js 18 |
+在应用接入页按套餐、绑定与形态生成 Go、Java、Python、Rust、TypeScript 完整项目，也可下载 OpenAPI 供任意语言实现。项目使用标准 HTTP、Ed25519 安装证明和 RS256 JWT/JWKS，无必须安装的专有 SDK。Python 包还包含真实网站及原生 GUI，Go/Python 提供签名更新传输示例。
 
-SDK 当前随源码提供，尚未发布到公共包仓库。各语言的初始化、在线验证和离线验签示例见对应
-目录中的 README。
+仓库 `sdk/` 是历史 V1 SDK 的存档和兼容回归代码，不能用于 V2 新应用。不要按旧 SDK README 初始化新产品。
 
 ## 为产品提供升级服务
 
 站点超级管理员在“系统”创建角色为“开发者”的账号。开发者在 `/developer-console/` 登录，
-创建自己的产品并接入授权；也可由管理员在“产品升级”将已有产品分配给开发者。
+创建自己的产品并接入授权；也可由管理员在“应用授权中心 → 应用与策略”分配应用。
 每个产品默认只提供授权，按需启用升级服务后可上传、发布和下架版本。
 只有更新资格未到期、未吊销且绑定匹配的客户端才能检查和下载更新。
 支持“订阅使用”和“永久使用、限期更新”；使用宽限期不会延长更新资格。

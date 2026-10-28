@@ -1,0 +1,89 @@
+package main
+
+// Optional standard-protocol update transport. The product installer owns
+// backups, database migration, process replacement and health rollback.
+import (
+ "bytes"
+ "context"
+ "crypto/ed25519"
+ "crypto/rand"
+ "crypto/sha256"
+ "encoding/base64"
+ "encoding/hex"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "io"
+ "net/http"
+ "os"
+ "path/filepath"
+ "runtime"
+ "strings"
+ "time"
+)
+
+type ReleaseMeta struct {
+ ID string `json:"id"`
+ Version string `json:"version"`
+ Target map[string]string `json:"target"`
+ SHA256 string `json:"sha256"`
+ Size int64 `json:"size"`
+ Filename string `json:"filename"`
+}
+type UpdateSelection struct { Payload map[string]any `json:"payload"`; Release ReleaseMeta `json:"release"` }
+type UpdateEnvelope struct { Success bool `json:"success"`; Data struct { Available bool `json:"available"`; Manifest string `json:"manifest_jwt"` } `json:"data"` }
+
+func updatePayload(cache Cache) map[string]any {
+ return map[string]any{"app_id":appID,"activation_id":cache.ActivationID,"binding":binding,"form":form,"current_version":env("YN_CURRENT_VERSION",productVersion),"target":map[string]string{"os":env("YN_UPDATE_OS",runtime.GOOS),"arch":env("YN_UPDATE_ARCH",runtime.GOARCH),"runtime":env("YN_UPDATE_RUNTIME","go"),"channel":env("YN_UPDATE_CHANNEL","stable"),"kind":env("YN_UPDATE_KIND","archive")}}
+}
+func updateHTTP(path string,payload any)(*http.Response,error){
+ body,e:=json.Marshal(payload);if e!=nil{return nil,e};nonce:=make([]byte,24);if _,e=rand.Read(nonce);e!=nil{return nil,e};nonceText:=base64.RawURLEncoding.EncodeToString(nonce);stamp:=fmt.Sprint(time.Now().Unix())
+ message:=strings.Join([]string{"YN-AUTH-V2","POST",path,appID,stamp,nonceText,digest(body)},"\n")
+ request,e:=http.NewRequestWithContext(context.Background(),"POST",baseURL+path,bytes.NewReader(body));if e!=nil{return nil,e}
+ request.Header.Set("Content-Type","application/json");request.Header.Set("X-YN-Timestamp",stamp);request.Header.Set("X-YN-Nonce",nonceText);request.Header.Set("X-YN-Signature",base64.RawURLEncoding.EncodeToString(ed25519.Sign(private,[]byte(message))))
+ response,e:=httpClient.Do(request);if e!=nil{return nil,e}
+ if response.StatusCode!=200 {defer response.Body.Close();raw,_:=io.ReadAll(io.LimitReader(response.Body,1<<20));var failure struct{Error struct{Code string `json:"code"`} `json:"error"`};_=json.Unmarshal(raw,&failure);code:=failure.Error.Code;usageRefusal:=code=="APPLICATION_DISABLED"||code=="MODEL_DISABLED"||code=="SOURCE_IP_MISMATCH";for _,prefix:=range []string{"LICENSE_","ACTIVATION_","BINDING_","TOKEN_","REQUEST_","SIGNATURE_","SEAT_"}{usageRefusal=usageRefusal||strings.HasPrefix(code,prefix)};if usageRefusal{_=discardTokens()};return nil,Refusal{"update server refused: "+string(raw)}}
+ return response,nil
+}
+func updateJSON(path string,payload any)(UpdateEnvelope,error){
+ var result UpdateEnvelope;response,e:=updateHTTP(path,payload);if e!=nil{return result,e};defer response.Body.Close()
+ e=json.NewDecoder(io.LimitReader(response.Body,1<<20)).Decode(&result);if e==nil&&!result.Success {e=errors.New("invalid update response")};return result,e
+}
+func verifyManifest(token string,cache Cache,payload map[string]any,expected *ReleaseMeta)(ReleaseMeta,error){
+ claims,e:=localVerify(token,"update_manifest",cache.ActivationID,cache);if e!=nil{return ReleaseMeta{},e}
+ if claims.Subject!=cache.LicenseID||claims.Release==nil{return ReleaseMeta{},errors.New("wrong update license or missing manifest")};r:=*claims.Release
+ if r.Size<=0||r.Size>256<<20||len(r.SHA256)!=64{return r,errors.New("invalid package size or digest")};if _,e=hex.DecodeString(r.SHA256);e!=nil{return r,e}
+ raw,_:=json.Marshal(payload["target"]);var target map[string]string;if e=json.Unmarshal(raw,&target);e!=nil{return r,e}
+ for _,name:=range []string{"os","arch","runtime","channel","kind"}{if r.Target[name]!=target[name]&&r.Target[name]!="any"{return r,errors.New("wrong update target")}}
+ if expected!=nil {a,_:=json.Marshal(r);b,_:=json.Marshal(expected);if !bytes.Equal(a,b){return r,errors.New("release changed; check updates again")}}
+ return r,nil
+}
+func checkPackage(path string,r ReleaseMeta)error{
+ file,e:=os.Open(path);if e!=nil{return e};defer file.Close();hash:=sha256.New();n,e:=io.Copy(hash,io.LimitReader(file,r.Size+1));if e!=nil{return e};if n!=r.Size||hex.EncodeToString(hash.Sum(nil))!=r.SHA256{return errors.New("package size or SHA-256 mismatch")};return nil
+}
+func runUpdate(operation string,cache Cache)error{
+ if cache.ActivationID==""{return errors.New("activate first")};payload:=updatePayload(cache)
+ if operation=="update-check" {
+  result,e:=updateJSON("/v2/updates/check",payload);if e!=nil{return e}
+  if !result.Data.Available {_=os.Remove(filepath.Join(state,"update.json"));return json.NewEncoder(os.Stdout).Encode(map[string]any{"available":false})}
+  r,e:=verifyManifest(result.Data.Manifest,cache,payload,nil);if e!=nil{return e};if e=save("update.json",UpdateSelection{payload,r});e!=nil{return e}
+  return json.NewEncoder(os.Stdout).Encode(map[string]any{"available":true,"release":r})
+ }
+ var selected UpdateSelection;if e:=load("update.json",&selected);e!=nil{return e};a,_:=json.Marshal(payload);b,_:=json.Marshal(selected.Payload);if !bytes.Equal(a,b){return errors.New("version or deployment target changed; check updates again")}
+ r:=selected.Release;path:=filepath.Join(state,r.SHA256+".package")
+ // All cached file paths are derived from a validated digest, never filenames.
+ if len(r.SHA256)!=64{return errors.New("invalid cached digest")};if _,e:=hex.DecodeString(r.SHA256);e!=nil{return e}
+ switch operation {
+ case "update-download":
+  response,e:=updateHTTP("/v2/updates/"+r.ID+"/download",payload);if e!=nil{return e};defer response.Body.Close()
+  if _,e=verifyManifest(response.Header.Get("X-YN-Update-Manifest"),cache,payload,&r);e!=nil{return e}
+  file,e:=os.CreateTemp(state,".package-");if e!=nil{return e};defer os.Remove(file.Name());defer file.Close()
+  if _,e=io.Copy(file,io.LimitReader(response.Body,r.Size+1));e!=nil{return e};if e=file.Sync();e!=nil{return e};if e=file.Close();e!=nil{return e}
+  if e=checkPackage(file.Name(),r);e!=nil{return e};if e=os.Rename(file.Name(),path);e!=nil{return e}
+  return json.NewEncoder(os.Stdout).Encode(map[string]any{"downloaded":true,"version":r.Version,"path":path,"sha256":r.SHA256,"target":r.Target})
+ case "update-authorize":
+  if e:=checkPackage(path,r);e!=nil{return e};result,e:=updateJSON("/v2/updates/"+r.ID+"/authorize",payload);if e!=nil{return e};if _,e=verifyManifest(result.Data.Manifest,cache,payload,&r);e!=nil{return e}
+  return json.NewEncoder(os.Stdout).Encode(map[string]any{"authorized":true,"version":r.Version,"path":path,"sha256":r.SHA256,"target":r.Target})
+ default:return errors.New("unknown update operation")
+ }
+}

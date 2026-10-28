@@ -1,6 +1,7 @@
 export const formatTime = (value?: string | null) =>
   value
     ? new Intl.DateTimeFormat("zh-CN", {
+        timeZone: "Asia/Shanghai",
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -19,7 +20,8 @@ export const expiryInfo = (
   expiredAt?: string | null,
   now: Date = new Date(),
 ): { level: ExpiryLevel; daysLeft: number; label: string } => {
-  if (!expiredAt) return { level: "permanent", daysLeft: Infinity, label: "永久" };
+  if (!expiredAt)
+    return { level: "permanent", daysLeft: Infinity, label: "永久" };
   const msLeft = new Date(expiredAt).getTime() - now.getTime();
   const daysLeft = Math.ceil(msLeft / 86400000);
   if (msLeft <= 0) return { level: "expired", daysLeft, label: "已到期" };
@@ -82,3 +84,49 @@ export const onlineStateLabel = (state?: string, days?: number) => {
       return "";
   }
 };
+
+// Datetime-local inputs in management pages use the displayed site timezone.
+export function siteDateTimeToUTC(value: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value))
+    throw new Error("日期时间格式无效");
+  const date = new Date(value + "+08:00");
+  if (!Number.isFinite(date.getTime())) throw new Error("日期时间无效");
+  return date.toISOString();
+}
+
+// Display state only. Every authorization/update decision remains server-side.
+export function licenseStateLabel(license: any, applicationStatus = "active") {
+  if (license.renewal_only) return "续费凭证";
+  if (applicationStatus !== "active") return "应用已停用";
+  if (license.status !== "active")
+    return (
+      (
+        { suspended: "暂停", revoked: "吊销", expired: "到期" } as Record<
+          string,
+          string
+        >
+      )[license.status] || license.status
+    );
+  if (!license.activated_at) return "待激活";
+  if (
+    !license.terms.perpetual &&
+    license.expires_at &&
+    Date.parse(license.expires_at) <= Date.now()
+  )
+    return "使用期限已到";
+  return "有效";
+}
+export function updatePeriodLabel(license: any, enabled = true) {
+  if (license.updates_blocked) return "更新已被人工限制，可提交申诉";
+  if (!enabled) return "应用未启用升级";
+  if (
+    !license.terms.update_duration_days &&
+    (!license.updates_until ||
+      !license.activated_at ||
+      Date.parse(license.updates_until) <= Date.parse(license.activated_at))
+  )
+    return "未购买更新权益";
+  if (!license.updates_until)
+    return `${license.terms.update_duration_days} 天，首次激活起算`;
+  return `${Date.parse(license.updates_until) <= Date.now() ? "已到期 · " : ""}${formatTime(license.updates_until)}`;
+}

@@ -1,78 +1,57 @@
-# 开发者授权接入
+# 开发者接入授权（V2）
 
-一次集成后统一分发：开发者创建一个应用，接入公开 AppID 和验签公钥；所有客户安装同一产品，在产品内输入各自卡密激活。客户差异存在平台套餐、授权与安装数据中，不在源码或专属编译参数中。
+在“应用授权中心”完成创建、套餐、销售、安装关联、版本和诊断。AppID 自动生成，后台选择应用自动带入。当前生产入口已停用 V1 授权协议；旧 SDK 和双段令牌不能接入 V2。
 
-## 从页面开始
+## 创建与交付
 
-管理员在产品行点击“接入授权”，开发者在自己的产品页查看指南。先配置默认条款或销售套餐，选择绑定方式、使用／更新期限、实例／设备／席位数量和功能。不同规格共用 AppID 与版本库；修改默认值不改变库存卡和已售授权。
+1. 创建应用，填写名称、分组，选择模型、绑定与产品形态。管理员可分配给独立开发者账号；开发者只能访问所属应用。
+2. 保存一次性 AppSecret。它只供开发者自己控制的中央服务端使用；客户的服务器、Docker、GUI 和移动端均不能内置它。
+3. 创建套餐，设置使用和更新期限、首次激活或销售起算、节点、站点组、席位、功能、用量和换绑规则。发售后规格冻结，改规格需建立新套餐。
+4. 人工收款订单确认后签发，或配置独立销售渠道的签名回调自动签发。卡密原文只在生成时返回一次，请当次下载；站点只保存摘要。退款回调或页面退款收回关联许可证，若续费已经兑换则按剩余有效购买记录重算期限，不扣除之后另行购买的时长。人工订单退款需自行处理外部款项；代理订单按原成交成本退回平台余额一次。
+5. 接入文档中选择套餐、绑定、产品形态和语言，下载完整项目。Go、Java、Python、Rust、TypeScript 使用标准 HTTP、Ed25519 安装签名和 RS256 JWT；其他语言按同一协议实现，无必须安装的专有 SDK。
+6. 开发者编译一次，所有客户使用相同发行包和公开 AppID。客户只配置自己的授权站地址、卡密或安装邀请、绑定和私有状态目录。卡密在所属应用和套餐内跨语言、跨允许的部署形态使用，不是跨应用通用卡。
 
-选择 Node.js、Go 或 Java，下载接入包。包内含 SDK 源码、公开 config.json 和可执行 demo，不依赖本 SDK 发布到公共仓库。绑定值是可留空的联调默认值。生产将卡密和实际部署信息放进产品安装向导；不要为每个客户修改后重新打包。
+## 安装关联
 
-```text
-node app.mjs activate CARD_CODE app.example.com
-node app.mjs verify
-node app.mjs heartbeat
-node app.mjs claim
-node app.mjs serve
-```
+客户首次运行时在本机生成独立 Ed25519 私钥，授权站只保存安装公钥。所有运行请求均签名，覆盖方法、路径、AppID、时间戳、随机 nonce 和原始请求体 SHA-256。时间窗口为两分钟，nonce 不可复用。
 
-Go 使用 go run .；Java 使用 mvn -q compile exec:java -Dexec.args="activate CARD_CODE app.example.com"。设备和实例模式可省略绑定参数；组合绑定为 JSON，使用产品 UI 可避免命令行转义。初次 Java 编译需要 Maven 插件及 Jackson 依赖。
+- 卡密模式：客户填写购买的卡密，调用 `/v2/activate`。激活后只保留安装身份与签名凭证，后续 `/v2/verify` 不再要求卡密。
+- 预录域名 / IP：先在页面预录许可证绑定，再生成一次性安装邀请交给客户。也可由客户端提交 `/v2/installations/request`，管理员在页面批准后使用申请 ID 激活。公开 AppID 和域名本身不是领取许可证的凭证。
+- 用户中心：客户登录后用激活卡密关联自己的许可证，可以续费、生成安装邀请和在套餐允许范围内换绑。已有归属默认不能转移；管理员开启应用所有者转移策略后才能操作。
+- 代理：统一用户账号附加代理资格；管理员授予应用套餐，设置等级比例或代理专属价。发卡与余额扣减在同一事务中，重复订单不会重复扣款。分组授权只覆盖当前上架套餐。
 
-私有数据保存在 .license-data。每安装创建随机实例 ID 和私有凭证，重启及容器重建必须保留；发行包不能带已激活目录。Web 的 /protected 检查真实请求 Host，反代到 127.0.0.1:3000，或本机 curl -H 'Host: app.example.com' http://127.0.0.1:3000/protected。不信任任意 X-Forwarded-Host。/healthz 仅作存活探针。
+精确域名支持同一站点的根域和 www 别名，别名组与激活节点分别计数。泛域名指定是否包含主域及子域深度。IPv4、IPv6、CIDR 均归一化。IP 默认以受信任代理处理后的出口 IP 校验；NAT/私网必须显式选用批准安装声明模式。请求签名证明安装私钥的持有，不证明物理域名控制权。
 
-## HTTP 流程
+## 本地与在线验证
 
-所有 JSON 响应包含 success、data、request_id。客户端字段 app_key 使用系统生成的 18 位 AppID（yn + 16 位十六进制）；无需后台登录 token。
+每次启动或关键操作前严格检查 RS256 签名、`iss`、`aud`、`exp`、`token_use`、安装 ID 和当前绑定摘要。应用按自己的策略通过 `/v2/verify` 刷新，服务端重查许可证状态、使用期限、规则、安装和租约。
 
-1. POST /v1/cards/requirements，提交 app_key、card_code，读取本卡 authorization_terms。按卡的规则获取设备、域名、网段、租户等绑定。
-2. POST /v1/licenses/activate，提交卡密、bind_mode、bind_value，启用实例身份时带 instance_id、instance_secret、device_id。返回完整 license_no、can_use、can_update、授权条款及签名凭证。
-3. POST /v1/licenses/verify，提交 AppID、完整授权号、实际绑定与实例凭证。仅 can_use=true 执行核心业务；不能只判断 HTTP 200。
-4. heartbeat 上报活动；accepted=true 不代替 can_use。renew 增加 renew_card_code，按卡用途分别续使用或更新。
-5. 启用席位时每进程创建 session_id，调用 /v1/licenses/seats/acquire 获取 seat_id 后核验；运行期间续租，退出 release。离线借用在期限内持续占用配额。
-6. 产品调用 /v1/licenses/claim-ticket，客户把十分钟一次性 claim_token 提交用户中心的 /user/licenses/claim，关联账号。公开授权号不能任意认领或转让已有归属。
+`offline_jwt` 是单独的 `offline_grace` 凭证，有自己的 exp。只有真实连接失败或超时才能使用；暂停、吊销、过期、绑定不符、席位不足或明确 HTTP 拒绝均不得转入离线放行。拒绝时删除 JWT，保留安装私钥与 ID；恢复授权后可在线刷新，无需再次输入卡密。升级从不使用离线宽限。
 
-完整绑定、设备提供器、实例与席位区别、到期矩阵及边界见 [授权场景说明](licensing-scenarios.md)。域名范围校验不能用固定配置值代替真实 Host；IP 应来自可信部署环境。泛域激活登记范围，使用时提交实际子域；CIDR 使用时提交具体 IP。完全离线文件与在线授权分开验证。
+浮动模型每份运行实例签出并续租，崩溃后租约超时归还；主动 release 后可用原安装再次在线签出。离线借用在借用期限内持续占用席位。按量操作必须在线 `consume`，携带稳定的业务幂等键，不能按 JWT 中的静态计数扣费。
 
-## 在 Node 产品中使用运行适配器
+每个应用独立提供 `/v2/applications/{app_id}/.well-known/jwks.json`，也可访问 `/.well-known/jwks.json?app_id=...`。只从开发者配置的可信地址获取，不接受令牌指定的任意 jku/x5u。正常轮换保留旧公钥至重叠期和已签发令牌截止；紧急停用旧 key 影响下一次在线验证，不能瞬间收回离线缓存。
 
-```js
-import {RuntimeLicense} from './sdk/src/index.js';
-const license = await RuntimeLicense.open({
-  baseUrl: config.base_url, appKey: config.app_key,
-  productId: config.product_id, productCode: config.product_code,
-  publicKeys: config.public_keys, stateDir: '/private/product-license',
-  currentVersion: '1.0.0',
-  target: {os:'linux',arch:'amd64',runtime:'node',channel:'stable',kind:'archive'}
-});
-// 安装向导：await license.activate(customerCard, registration);
-// 每个受保护请求：await license.verify({request:req});
-// 功能入口：await license.requireFeature('export', {request:req});
-```
+## 部署选择
 
-默认每次在线核验。可选正向缓存最多 60 秒，受签名期限和席位截止约束。离线必须显式配置 allowOffline 和持久 HighWaterGuard。明确拒绝、坏签名不能触发离线回退。Go/Java 提供相同协议字段和验签工具；由应用安排心跳、缓存与安装流程。
+| 形态 | 建议 |
+| --- | --- |
+| Web/B/S | 域名/IP + 独立安装签名；不能仅相信 Host |
+| GUI/裸机/IoT | 实际硬件提供器的 SHA-256，或明确使用持久安装标识；换硬件走换绑 |
+| Docker/Compose | 浮动席位，或只读挂载宿主机指纹文件；独立持久化安装私钥和缓存 |
+| Kubernetes | 副本使用独立席位，稳定集群标识由部署控制器提供；勿共写身份目录 |
+| CLI/服务/插件/移动/SaaS | 选择套餐允许的机器、安装、账号、租户或集群锚点；业务账号身份由产品验证 |
 
-## 使用期限和更新
+**Docker 不挂载持久卷会丢失安装私钥，重建后会被视为新安装，可能消耗激活额度。** 禁止将私钥烘焙进镜像、用容器 MAC/hostname/machine-id 代替宿主指纹，或多个副本复制同一身份。生成代码会拒绝未提供宿主指纹文件的容器机器绑定。Windows/macOS 硬件锚点需产品提供相应实现；不能把随机 ID 声称为硬件指纹。
 
-can_use 管运行，can_update 管升级。永久使用、更新到期可运行旧版本；订阅使用宽限不延长更新资格。4xx 明确拒绝时停止对应业务；网络故障默认 503，不能当作永久授权。
+## 更新、回调与排障
 
-三个接入包支持 updates 1.0.0 和 download 1.0.0。先启用应用升级服务、上传并发布版本。target 匹配平台、CPU、运行时、渠道、交付类型和来源版本。下载会验证产品、公钥版本、签名、目标、大小、SHA-256，并在传输后复验资格。实际替换前再调用 /v1/updates/{id}/authorize。
+更新可选启用，见 [产品升级](product-updates.md)。页面生成的 Go/Python 项目附带更新工具（Go 的 `update-check` / `update-download` / `update-authorize` 和 Python 的 `update.py`），完成检查、下载验签与 SHA-256、安装前在线复验；文件替换、数据库迁移和健康回滚由产品安装器负责。
 
-安装由产品完成：备份、切换、迁移、健康检查、失败回滚，并保留实例身份和客户数据。参考 [Web 升级](../examples/update-demo/README.md) 与 [GUI、CLI、Docker 示例](../examples/universal-client/README.md)。升级下载不会自动成为适配所有产品的安装器。
+Python 项目还包含真实 `web.py` 和原生 `gui.py`：网站客户可在受保护的激活页输入卡密，GUI 可在窗口激活、刷新和恢复。设置产品自己的管理密码与持久目录，详见随包 `DEPLOYMENT.md` 和 [拦截与申诉](security-integration.md)。
 
-## AppSecret 服务端接入
+销售回调使用独立渠道 HMAC 密钥，见 [销售回调](sales-webhooks.md)。这是通用回调契约，特定电商供应商的签名格式仍需其适配器。
 
-AppSecret 为独立 32 位随机十六进制密钥，创建或重置后只展示一次；服务端仅保存摘要。只放开发者自己的可信服务端，不能随客户产品分发。
+按应用查询审计，查看签名错误、吊销、过期、指纹不符和席位不足的原因分布，支持验证审计摘要链。服务器时钟需同步，客户不能通过回调提交任意价格或跨应用套餐。
 
-1. POST /v1/app/token：{"grant_type":"client_credential","appid":"yn0123456789abcdef","secret":"32位AppSecret"}，返回 access_token、token_type=Bearer、expires_in=7200。
-2. 缓存并到期刷新，Bearer 令牌请求 GET /v1/app/profile 核对应用身份。
-3. POST /v1/app/licenses/verify，带相同令牌以及授权号、绑定、实例字段，应用由令牌确定；仍分别判断 can_use 和 can_update。
-
-令牌不能访问后台或其他应用。重置要求原因并使旧密钥、旧应用令牌立即失效；不会改变已有授权或验签公钥。普通产品客户端使用 AppID、客户凭证与绑定，无需 AppSecret。
-
-公钥可随产品分发，按 key_version 选历史公钥；未知版本从可信授权站更新，不能跳过验签。私钥、后台 token、数据库密码不进入产品；卡密、完整 token 不写入日志和 URL。排障保留 code、request_id。
-
-## 权限和验证
-
-接入包下载仅限管理员或所属开发者：GET /admin/products/{id}/integration-kit（或 /developer 对应路径），参数 language、base_url、可选 bind_value。默认条款、套餐目录、安装管理同样执行产品范围隔离；用户只管理自己的授权。
-
-CI 会从真实页面下载三个语言接入包并编译运行，验证卡密、实例、席位、心跳、续费、一次性归属、签名升级、实际 Host、到期、吊销和断网；另测原生 GUI、容器镜像实际更新与回滚，并保存报告和截图。
+离线吊销有窗口期，客户端代码被 patch 后也无法仅凭授权站彻底阻止运行。高要求产品应将关键业务或收费动作放到可信服务端，并保护客户端完整性和公钥信任根。

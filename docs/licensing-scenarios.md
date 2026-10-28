@@ -1,3 +1,13 @@
+> 历史 V1 资料，供存档参考。当前生产授权接口已切换 V2，请使用后台“应用授权中心 → 接入文档”和 [当前接入指南](developer-integration.md)，不要使用本文旧接口或 SDK 接入新应用。
+
+# 当前 V2 场景入口
+
+新场景契约见 [授权核心](authorization-v2.md)、[开发者接入](developer-integration.md)、[产品升级](product-updates.md)、[安全拦截](security-integration.md)，自动化验证映射见 [部署与验收](production-readiness.md#验收映射)。
+
+旧资料中 `domain_wildcard`、`ip_cidr`、`can_use`、实例共享密钥、`cards/requirements` 等属于旧协议，V2 不接收这些字段或路径。V2 在域名/IP 绑定上附加实时白名单规则，并由独立安装私钥签名。
+
+## 历史场景说明（V1）
+
 # 标准产品授权与更新
 
 开发者维护一个应用、一个 AppID 和版本库，接入一次后统一编译和分发。不同客户购买不同套餐，在产品安装向导输入自己的卡密并登记部署信息；不为每个客户生成源码或专属二进制。公开 config.json 不包含客户卡密、安装凭证和 AppSecret。

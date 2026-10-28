@@ -1,0 +1,512 @@
+// Standard HTTP + RS256 JWT. No vendor SDK; never ship developer AppSecret.
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"io"
+	"math/big"
+	"net"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/net/idna"
+)
+
+const appID = "@@APP_ID@@"
+const issuer = "urn:yunnuo:licensing:v2"
+
+var productVersion = "1.0.0"
+var productHealth = "ok"
+var baseURL, state, kind, form string
+var private ed25519.PrivateKey
+var public, publicHash string
+var binding map[string]any
+var bindingHash string
+var httpClient = &http.Client{Timeout: 15 * time.Second}
+
+type Cache struct {
+	ID           string    `json:"id"`
+	Status       string    `json:"status"`
+	JWT          string    `json:"jwt"`
+	Offline      string    `json:"offline_jwt"`
+	ActivationID string    `json:"activation_id"`
+	LicenseID    string    `json:"license_id"`
+	ServerTime   time.Time `json:"server_time"`
+	Highwater    int64     `json:"highwater"`
+	Released     bool      `json:"released"`
+	Remaining    *int64    `json:"remaining_units"`
+}
+type Claims struct {
+ Release *ReleaseMeta `json:"release,omitempty"`
+	jwt.RegisteredClaims
+	TokenUse     string `json:"token_use"`
+	ActivationID string `json:"activation_id"`
+	Binding      struct {
+		Type string `json:"type"`
+		Hash string `json:"hash"`
+	} `json:"binding"`
+}
+type JWK struct {
+	KID string `json:"kid"`
+	KTY string `json:"kty"`
+	Alg string `json:"alg"`
+	N   string `json:"n"`
+	E   string `json:"e"`
+}
+type JWKS struct {
+	Keys []JWK `json:"keys"`
+}
+
+func env(name, otherwise string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return otherwise
+}
+func digest(value []byte) string { sum := sha256.Sum256(value); return hex.EncodeToString(sum[:]) }
+func save(name string, value any) error {
+	raw, e := json.Marshal(value)
+	if e != nil {
+		return e
+	}
+	f, e := os.CreateTemp(state, ".save-*")
+	if e != nil {
+		return e
+	}
+	path := f.Name()
+	defer os.Remove(path)
+	if _, e = f.Write(raw); e != nil {
+		f.Close()
+		return e
+	}
+	if e = f.Sync(); e != nil {
+		f.Close()
+		return e
+	}
+	if e = f.Close(); e != nil {
+		return e
+	}
+	return os.Rename(path, filepath.Join(state, name))
+}
+func load(name string, target any) error {
+	raw, e := os.ReadFile(filepath.Join(state, name))
+	if e != nil {
+		return e
+	}
+	return json.Unmarshal(raw, target)
+}
+func discardTokens() error {
+	var cache Cache
+	if e := load("cache.json", &cache); e != nil && !errors.Is(e, os.ErrNotExist) {
+		return e
+	}
+	return save("cache.json", Cache{ActivationID: cache.ActivationID, LicenseID: cache.LicenseID, Highwater: cache.Highwater})
+}
+
+func initialize() error {
+	baseURL = strings.TrimRight(env("YN_LICENSE_URL", "@@LICENSE_URL@@"), "/")
+	state = filepath.Join(env("YN_STATE_DIR", "./license-state"), appID)
+	kind = env("YN_BINDING_TYPE", "@@DEFAULT_BINDING@@")
+	form = env("YN_FORM", "@@DEFAULT_FORM@@")
+	if e := os.MkdirAll(state, 0700); e != nil {
+		return e
+	}
+	path := filepath.Join(state, "installation.key")
+	raw, e := os.ReadFile(path)
+	if errors.Is(e, os.ErrNotExist) {
+		_, key, e := ed25519.GenerateKey(rand.Reader)
+		if e != nil {
+			return e
+		}
+		f, e := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if errors.Is(e, os.ErrExist) {
+			raw, e = os.ReadFile(path)
+			if e != nil {
+				return e
+			}
+		} else if e != nil {
+			return e
+		} else {
+			raw = key
+			if _, e = f.Write(raw); e != nil {
+				f.Close()
+				return e
+			}
+			if e = f.Close(); e != nil {
+				return e
+			}
+		}
+	} else if e != nil {
+		return e
+	}
+	if len(raw) != ed25519.PrivateKeySize {
+		return errors.New("invalid installation private key")
+	}
+	private = ed25519.PrivateKey(raw)
+	pub := private.Public().(ed25519.PublicKey)
+	public = base64.RawURLEncoding.EncodeToString(pub)
+	publicHash = digest(pub)
+	value := os.Getenv("YN_BINDING_VALUE")
+	if kind == "installation" && value == "" {
+		value = publicHash
+	}
+	switch kind {
+	case "seat":
+		value = "seat"
+	case "domain":
+		if !strings.Contains(value, "://") {
+			value = "https://" + value
+		}
+		u, e := url.Parse(value)
+		if e != nil {
+			return e
+		}
+		value, e = idna.Lookup.ToASCII(strings.TrimSuffix(strings.ToLower(u.Hostname()), "."))
+		if e != nil {
+			return e
+		}
+	case "ip":
+		address, e := netip.ParseAddr(value)
+		if e != nil {
+			return e
+		}
+		value = address.Unmap().String()
+	case "machine_id":
+		if path := os.Getenv("YN_HOST_FINGERPRINT_FILE"); path != "" {
+			raw, e := os.ReadFile(path)
+			if e != nil {
+				return e
+			}
+			value = strings.TrimSpace(string(raw))
+		} else {
+			if _, e := os.Stat("/.dockerenv"); e == nil || os.Getenv("KUBERNETES_SERVICE_HOST") != "" || form == "container" || form == "cluster" {
+				return errors.New("container machine fingerprint forbidden: use seat or a mounted host fingerprint file and persistent state volume")
+			}
+			if value == "" {
+				for _, path := range []string{"/sys/class/dmi/id/product_uuid", "/etc/machine-id"} {
+					raw, e := os.ReadFile(path)
+					if e == nil && strings.TrimSpace(string(raw)) != "" {
+						value = digest([]byte(strings.TrimSpace(string(raw))))
+						break
+					}
+				}
+			}
+		}
+		value = strings.ToLower(value)
+		raw, e := hex.DecodeString(value)
+		if e != nil || len(raw) != 32 {
+			return errors.New("real SHA-256 hardware fingerprint required; no random fallback")
+		}
+	}
+	if value == "" {
+		return errors.New("set YN_BINDING_VALUE")
+	}
+	binding = map[string]any{"type": kind, "value": value}
+	if kind == "seat" {
+		value = publicHash
+	}
+	bindingHash = digest([]byte(kind + "\x00" + value))
+	return nil
+}
+func keys(force bool) (JWKS, error) {
+	var set JWKS
+	if !force && load("jwks.json", &set) == nil {
+		return set, nil
+	}
+	response, e := httpClient.Get(baseURL + "/v2/applications/" + appID + "/.well-known/jwks.json")
+	if e != nil {
+		return set, e
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		return set, errors.New("JWKS endpoint refused")
+	}
+	if e = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&set); e != nil {
+		return set, e
+	}
+	return set, save("jwks.json", set)
+}
+func publicKey(kid string) (*rsa.PublicKey, error) {
+	for _, force := range []bool{false, true} {
+		set, e := keys(force)
+		if e != nil {
+			return nil, e
+		}
+		for _, key := range set.Keys {
+			if key.KID != kid {
+				continue
+			}
+			if key.KTY != "RSA" || key.Alg != "RS256" || !strings.HasPrefix(kid, appID+".v") {
+				return nil, errors.New("untrusted key")
+			}
+			n, e := base64.RawURLEncoding.DecodeString(key.N)
+			if e != nil {
+				return nil, e
+			}
+			exponent, e := base64.RawURLEncoding.DecodeString(key.E)
+			if e != nil {
+				return nil, e
+			}
+			number := new(big.Int).SetBytes(exponent)
+			if !number.IsInt64() || number.Int64() < 3 || number.Int64() > 1<<31 {
+				return nil, errors.New("invalid exponent")
+			}
+			pub := &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: int(number.Int64())}
+			if pub.N.BitLen() < 2048 {
+				return nil, errors.New("weak key")
+			}
+			return pub, nil
+		}
+	}
+	return nil, errors.New("unknown signing key")
+}
+
+// Optional pinned PEM loading; JWKS is preferred for automatic key rotation.
+func loadPublicPEM(value string) (*rsa.PublicKey, error) {
+	block, _ := pem.Decode([]byte(value))
+	if block == nil {
+		return nil, errors.New("invalid PEM")
+	}
+	parsed, e := x509.ParsePKIXPublicKey(block.Bytes)
+	if e != nil {
+		return nil, e
+	}
+	key, ok := parsed.(*rsa.PublicKey)
+	if !ok {
+		return nil, errors.New("not RSA")
+	}
+	return key, nil
+}
+func trustedTime(cache Cache) (time.Time, error) {
+	now := time.Now().Unix()
+	if now+120 < cache.Highwater {
+		return time.Time{}, errors.New("clock moved backwards; online validation required")
+	}
+	if cache.Highwater > now {
+		now = cache.Highwater
+	}
+	return time.Unix(now, 0), nil
+}
+func localVerify(token, purpose, activation string, cache Cache) (Claims, error) {
+	var claims Claims
+	now, e := trustedTime(cache)
+	if e != nil {
+		return claims, e
+	}
+	_, e = jwt.ParseWithClaims(token, &claims, func(token *jwt.Token) (any, error) {
+		kid, ok := token.Header["kid"].(string)
+		if !ok {
+			return nil, errors.New("missing kid")
+		}
+		return publicKey(kid)
+	}, jwt.WithValidMethods([]string{"RS256"}), jwt.WithAudience(appID), jwt.WithIssuer(issuer), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithTimeFunc(func() time.Time { return now }))
+	if e != nil {
+		return claims, e
+	}
+	if claims.Subject == "" || claims.ID == "" || claims.IssuedAt == nil || claims.NotBefore == nil || claims.TokenUse != purpose || claims.ActivationID != activation || claims.Binding.Type != kind || claims.Binding.Hash != bindingHash {
+		return claims, errors.New("JWT purpose, installation or binding mismatch")
+	}
+	return claims, nil
+}
+
+type Refusal struct{ Message string }
+
+func (e Refusal) Error() string { return e.Message }
+func send(path string, payload any) (Cache, error) {
+	var result Cache
+	body, e := json.Marshal(payload)
+	if e != nil {
+		return result, e
+	}
+	nonce := make([]byte, 24)
+	if _, e = rand.Read(nonce); e != nil {
+		return result, e
+	}
+	nonceText := base64.RawURLEncoding.EncodeToString(nonce)
+	stamp := fmt.Sprint(time.Now().Unix())
+	message := strings.Join([]string{"YN-AUTH-V2", "POST", path, appID, stamp, nonceText, digest(body)}, "\n")
+	signature := base64.RawURLEncoding.EncodeToString(ed25519.Sign(private, []byte(message)))
+	request, e := http.NewRequestWithContext(context.Background(), "POST", baseURL+path, bytes.NewReader(body))
+	if e != nil {
+		return result, e
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-YN-Timestamp", stamp)
+	request.Header.Set("X-YN-Nonce", nonceText)
+	request.Header.Set("X-YN-Signature", signature)
+	response, e := httpClient.Do(request)
+	if e != nil {
+		return result, e
+	}
+	defer response.Body.Close()
+	raw, e := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if e != nil {
+		return result, e
+	}
+	if response.StatusCode != 200 {
+		_ = discardTokens()
+		return result, Refusal{"authorization server refused: " + string(raw)}
+	}
+	var envelope struct {
+		Success bool  `json:"success"`
+		Data    Cache `json:"data"`
+	}
+	if e = json.Unmarshal(raw, &envelope); e != nil {
+		return result, e
+	}
+	if !envelope.Success {
+		_ = discardTokens()
+		return result, Refusal{"invalid response"}
+	}
+	return envelope.Data, nil
+}
+func run() error {
+ if len(os.Args)>1 && os.Args[1]=="health" {if productHealth!="ok" {return errors.New("product health check failed")};fmt.Println("ok");return nil}
+ if len(os.Args)>1 && os.Args[1]=="version" { fmt.Println(productVersion);return nil }
+	if e := initialize(); e != nil {
+		return e
+	}
+	operation := "verify"
+	if len(os.Args) > 1 {
+		operation = os.Args[1]
+	}
+	var cache Cache
+	if e := load("cache.json", &cache); e != nil && !errors.Is(e, os.ErrNotExist) {
+		return e
+	}
+	if _, e := trustedTime(cache); e != nil {
+		return e
+	}
+	if strings.HasPrefix(operation,"update-") {return runUpdate(operation,cache)}
+	if operation == "local" {
+		claims, e := localVerify(cache.JWT, "license", cache.ActivationID, cache)
+		if e != nil {
+			return e
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"valid": true, "license_id": claims.Subject})
+	}
+	if cache.JWT != "" {
+		if _, e := localVerify(cache.JWT, "license", cache.ActivationID, cache); e != nil && !errors.Is(e, jwt.ErrTokenExpired) {
+			if cleanErr := discardTokens(); cleanErr != nil {
+				return cleanErr
+			}
+			cache.JWT = ""
+			cache.Offline = ""
+		}
+	}
+	if operation == "request" {
+		result, e := send("/v2/installations/request", map[string]any{"app_id": appID, "public_key": public, "binding": binding})
+		if e != nil {
+			return e
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"pending_id": result.ID, "status": result.Status})
+	}
+	activating := operation == "activate" || cache.ActivationID == ""
+	path := "/v2/verify"
+	payload := map[string]any{"app_id": appID, "binding": binding, "form": form}
+	if activating {
+		path = "/v2/activate"
+		payload["public_key"] = public
+		if text := os.Getenv("YN_BORROW_SECONDS"); text != "" {
+			var seconds int
+			if _, e := fmt.Sscan(text, &seconds); e != nil {
+				return e
+			}
+			payload["borrow_seconds"] = seconds
+		}
+		if code := os.Getenv("YN_CARD"); code != "" {
+			payload["card_code"] = code
+		} else if id := os.Getenv("YN_INVITATION_ID"); id != "" {
+			payload["invitation_id"] = id
+			payload["invitation_token"] = os.Getenv("YN_INVITATION_TOKEN")
+		} else {
+			payload["pending_id"] = os.Getenv("YN_PENDING_ID")
+		}
+	} else {
+		payload["activation_id"] = cache.ActivationID
+		if operation == "release" {
+			payload["action"] = "release"
+		}
+		if operation == "consume" {
+			payload["action"] = "consume"
+			var units int64 = 1
+			if v := os.Getenv("YN_UNITS"); v != "" {
+				if _, e := fmt.Sscan(v, &units); e != nil {
+					return e
+				}
+			}
+			payload["units"] = units
+			payload["idempotency_key"] = os.Getenv("YN_OPERATION_ID")
+		}
+		if operation == "renew" {
+			payload["action"] = "renew"
+			payload["renewal_card"] = os.Getenv("YN_RENEWAL_CARD")
+		}
+	}
+	result, e := send(path, payload)
+	if e != nil {
+		var refusal Refusal
+		var dial *net.OpError
+		var dns *net.DNSError
+		var invalidCert x509.CertificateInvalidError
+		var unknownCA x509.UnknownAuthorityError
+		var wrongHost x509.HostnameError
+		var badTLS tls.RecordHeaderError
+		network := errors.As(e, &dial) || errors.As(e, &dns) || errors.Is(e, context.DeadlineExceeded)
+		tlsFailure := errors.As(e, &invalidCert) || errors.As(e, &unknownCA) || errors.As(e, &wrongHost) || errors.As(e, &badTLS)
+		if errors.As(e, &refusal) || !network || tlsFailure || activating || operation != "verify" || cache.Offline == "" {
+			return e
+		}
+		claims, e := localVerify(cache.Offline, "offline_grace", cache.ActivationID, cache)
+		if e != nil {
+			return e
+		}
+		cache.Highwater = time.Now().Unix()
+		if e = save("cache.json", cache); e != nil {
+			return e
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"valid": true, "offline": true, "grace_until": claims.ExpiresAt.Unix()})
+	}
+	if result.Released {
+		if e = discardTokens(); e != nil {
+			return e
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"released": true})
+	}
+	if _, e = localVerify(result.JWT, "license", result.ActivationID, Cache{}); e != nil {
+		return e
+	}
+	result.Highwater = time.Now().Unix()
+	if result.ServerTime.Unix() > result.Highwater {
+		result.Highwater = result.ServerTime.Unix()
+	}
+	if e = save("cache.json", result); e != nil {
+		return e
+	}
+	return json.NewEncoder(os.Stdout).Encode(map[string]any{"valid": true, "license_id": result.LicenseID, "activation_id": result.ActivationID, "remaining_units": result.Remaining})
+}
+func main() {
+	if e := run(); e != nil {
+		fmt.Fprintln(os.Stderr, e)
+		os.Exit(1)
+	}
+}

@@ -113,14 +113,14 @@ def main():
                 root = http.api(base, "/admin/login", {"username": "admin", "password": password})["access_token"]
                 http.api(base, "/admin/users", {"username": "developer", "password": password, "role": "developer", "display_name": "小王开发者"}, root)
                 developer = http.api(base, "/developer/login", {"username": "developer", "password": password})["access_token"]
-                product = http.api(base, "/developer/products", {"name": "Ebox 企业网站", "code": "EBOX", "bind_mode": "domain"}, developer)
-                customer = http.api(base, "/admin/customers", {"username": "customer", "password": password, "display_name": "正版应用用户"}, root)
-                customer_token = http.api(base, "/user/login", {"username": customer["username"], "password": password})["access_token"]
-                batch = http.api(base, "/admin/card-batches", {"product_id": product["id"], "name": "主题验收", "quantity": 1, "duration_days": 30}, root)
-                http.api(base, "/user/activate", {"application_code": "EBOX", "card_code": batch["codes"][0], "bind_value": "ebox.example.com"}, customer_token)
-                agent = http.api(base, "/admin/agents", {"name": "企业应用代理"}, root)
-                http.api(base, "/admin/agents/" + agent["id"] + "/users", {"username": "owner", "password": password}, root)
-                agent_token = http.api(base, "/agent/login", {"login_code": agent["login_code"], "username": "owner", "password": password})["access_token"]
+                created=http.api(base,"/v2/console/applications",{"name":"Ebox 企业网站","allowed_models":["subscription"],"allowed_bindings":["installation"]},developer);app=created["app_id"]
+                plan=http.api(base,f"/v2/console/applications/{app}/plans",{"name":"主题验收套餐","terms":{"model":"subscription","duration_days":30,"binding_types":["installation"]}},developer)
+                customer=http.api(base,"/admin/customers",{"username":"customer","password":password,"display_name":"正版应用用户"},root)
+                customer_token=http.api(base,"/user/login",{"username":customer["username"],"password":password})["access_token"]
+                http.api(base,f"/v2/console/applications/{app}/orders",{"plan_id":plan["id"],"quantity":1,"owner_user_id":customer["id"],"confirmed":True,"reason":"主题验收人工签发"},root)
+                opened=http.api(base,"/admin/agent-accounts",{"username":"owner","password":password,"name":"企业应用代理"},root);agent=opened["agent"]
+                http.api(base,f"/v2/console/applications/{app}/agent-grants",{"agent_id":agent["id"],"plan_id":plan["id"],"enabled":True,"max_batch_quantity":10},root)
+                agent_token=http.api(base,"/agent/login",{"username":"owner","password":password})["access_token"]
                 tokens = {"yn.admin_token": root, "yn.agent_token": agent_token, "yn.user_token": customer_token, "yn.developer_token": developer}
                 page.goto(base + "/")
                 page.evaluate("tokens => { for (const [k,v] of Object.entries(tokens)) sessionStorage.setItem(k,v); }", tokens)
@@ -133,7 +133,7 @@ def main():
                         if name in ["admin", "agent"]:
                             page.locator(".console .workspace").wait_for()
                         if name == "user":
-                            page.get_by_text("Ebox 企业网站", exact=False).first.wait_for()
+                            page.get_by_role("heading",name="Ebox 企业网站",exact=True).wait_for()
                         for mode, label in [("light", "浅色"), ("dark", "深色")]:
                             select_theme(page, label)
                             theme_is(page, mode)
@@ -155,27 +155,21 @@ def main():
                 page.goto(base + "/admin#recovery")
                 page.get_by_role("heading", name="账号密码恢复", exact=True).wait_for()
                 verify_layout(page, "mobile-account-recovery")
-                page.get_by_role("link", name="套餐与结算", exact=True).click()
-                page.get_by_role("tab", name="代理运营", exact=True).click()
-                page.get_by_role("heading", name="代理授权与资金", exact=True).wait_for()
-                verify_layout(page, "mobile-commerce")
-                if args.screenshots:
-                    page.screenshot(path=str(args.artifacts / "admin-mobile-commerce-dark.png"), full_page=True, animations="disabled")
-                for width in [390, 320]:
-                    page.set_viewport_size({"width": width, "height": 844})
-                    for label in ["产品", "产品升级", "代理", "套餐与结算", "用户", "账号恢复", "卡密", "授权", "风控", "盗版处置", "联调工具", "离线授权", "审计", "系统"]:
-                        page.get_by_role("link", name=label, exact=True).click()
-                        verify_layout(page, f"admin-{label}-{width}")
-                page.get_by_role("link", name="盗版处置", exact=True).click()
-                history = page.locator(".paged-records").first
-                history.get_by_label("开始时间", exact=True).fill("2026-01-01T00:00")
-                history.get_by_label("结束时间（不含）", exact=True).fill("2027-01-01T00:00")
-                with page.expect_response(lambda r: "/admin/history/cases?" in r.url and "from=" in r.url) as filtered:
-                    history.get_by_role("button", name="查询历史记录", exact=True).click()
-                assert filtered.value.status == 200
-                verify_layout(page, "admin-security-filled-dates-320")
-                if args.screenshots:
-                    page.screenshot(path=str(args.artifacts / "admin-security-small-mobile-date-filters.png"), full_page=True, animations="disabled")
+                page.get_by_role("link", name="等级与结算", exact=True).click()
+                page.get_by_role("heading",name="代理资金与等级",exact=True).wait_for()
+                verify_layout(page,"mobile-commerce")
+                if args.screenshots:page.screenshot(path=str(args.artifacts/"admin-mobile-commerce-dark.png"),full_page=True,animations="disabled")
+                for width in [390,320]:
+                    page.set_viewport_size({"width":width,"height":844})
+                    for label in ["应用授权中心","历史授权档案","代理","等级与结算","用户","账号恢复","审计","系统","运行与容量"]:
+                        page.get_by_role("link",name=label,exact=True).click();verify_layout(page,f"admin-{label}-{width}")
+                page.get_by_role("link",name="审计",exact=True).click()
+                page.get_by_label("开始时间",exact=True).fill("2026-01-01T00:00")
+                page.get_by_label("结束时间",exact=True).fill("2027-01-01T00:00")
+                with page.expect_response(lambda r:"/admin/operation-logs?" in r.url and "from=" in r.url) as filtered:
+                    page.get_by_role("button",name="查询操作日志",exact=True).click()
+                assert filtered.value.status==200;verify_layout(page,"admin-audit-filled-dates-320")
+                if args.screenshots:page.screenshot(path=str(args.artifacts/"admin-audit-small-mobile-date-filters.png"),full_page=True,animations="disabled")
                 report["checks"].append("Native date/time filters fit 320px phones with populated dates and submit successfully")
                 report["checks"].append("Seven entry pages adapt to desktop, 390px and 320px phones; mobile navigation and forms remain usable")
                 guest = browser.new_context(viewport={"width": 390, "height": 844}, color_scheme="dark", locale="zh-CN")

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import AuthorizationArchive from "./AuthorizationArchive.vue";
+import ApplicationOverview from "./ApplicationOverview.vue";
+import AgentSettlement from "./AgentSettlement.vue";
+import ApplicationWorkspace from "../shared/components/ApplicationWorkspace.vue";
 import { bindingNames } from "../shared/authorization";
 import InstallationManager from "../shared/components/InstallationManager.vue";
 import AppearanceMenu from "../shared/components/AppearanceMenu.vue";
@@ -370,52 +374,13 @@ const quickActions = [
   },
 ];
 const navGroups = [
-  {
-    label: "产品",
-    items: [
-      { id: "products", label: "产品", icon: Boxes },
-      { id: "releases", label: "产品升级", icon: PackageCheck },
-    ],
-  },
-  {
-    label: "代理",
-    items: [
-      { id: "agents", label: "代理", icon: UserRoundCog },
-      { id: "commerce", label: "套餐与结算", icon: TicketCheck },
-    ],
-  },
-  {
-    label: "发卡",
-    items: [
-      { id: "cards", label: "卡密", icon: TicketCheck },
-      { id: "licenses", label: "授权", icon: BadgeCheck },
-      { id: "offline", label: "离线授权", icon: FileKey2 },
-    ],
-  },
-  {
-    label: "客户",
-    items: [
-      { id: "customers", label: "用户", icon: UserRoundCog },
-      { id: "recovery", label: "账号恢复", icon: KeyRound },
-    ],
-  },
-  {
-    label: "安全",
-    items: [
-      { id: "risk", label: "风控", icon: ShieldAlert },
-      { id: "security", label: "盗版处置", icon: ShieldAlert },
-    ],
-  },
-  {
-    label: "平台",
-    items: [
-      { id: "tools", label: "联调工具", icon: Terminal },
-      { id: "audit", label: "审计", icon: ScrollText },
-      { id: "admins", label: "系统", icon: Settings2 },
-      { id: "operations", label: "运行与容量", icon: Activity },
-    ],
-  },
+ {label:"产品",items:[{id:"applications",label:"应用授权中心",icon:Boxes},{id:"archive",label:"历史授权档案",icon:History}]},
+ {label:"代理",items:[{id:"agents",label:"代理",icon:UserRoundCog},{id:"commerce",label:"等级与结算",icon:Wallet}]},
+ {label:"客户",items:[{id:"customers",label:"用户",icon:UserRoundCog},{id:"recovery",label:"账号恢复",icon:KeyRound}]},
+ {label:"平台",items:[{id:"audit",label:"审计",icon:ScrollText},{id:"admins",label:"系统",icon:Settings2},{id:"operations",label:"运行与容量",icon:Activity}]},
 ];
+const retiredPages = ["products","releases","cards","licenses","offline","tools","risk","security"];
+if(retiredPages.includes(page.value))page.value="applications";
 const visibleGroups = computed(() =>
   navGroups
     .map((g) => ({
@@ -458,6 +423,7 @@ const canOperate = computed(() =>
   ["super_admin", "admin", "operator"].includes(a.profile.value?.role),
 );
 function go(id: string) {
+  if(retiredPages.includes(id)) id="applications";
   page.value = id;
   location.hash = id;
   action.value = "";
@@ -1214,7 +1180,7 @@ onMounted(async () => {
   );
   addEventListener(
     "hashchange",
-    () => (page.value = location.hash.slice(1) || "overview"),
+    () => { const next=location.hash.slice(1)||"overview"; page.value=retiredPages.includes(next)?"applications":next },
   );
   if (a.token.value) {
     try {
@@ -1421,7 +1387,10 @@ onMounted(async () => {
         </div>
       </header>
       <div class="workspace">
-        <template v-if="page === 'overview'"
+        <ApplicationWorkspace v-if="page === 'applications'" :api="a.api" :can-write="a.isManager.value" />
+        <ApplicationOverview v-if="page === 'overview'" :api="a.api" />
+        <AuthorizationArchive v-if="page === 'archive'" :api="a.api" />
+        <template v-if="false"
           ><div class="page-head">
             <h2>仪表盘</h2>
             <p>系统概览与统计数据</p>
@@ -1870,7 +1839,7 @@ onMounted(async () => {
           :products="a.data.products"
           :can-write="a.isManager.value"
         />
-        <CommercePanel
+        <AgentSettlement
           :token="a.token.value"
           v-if="page === 'commerce'"
           :api="a.api"
@@ -2252,7 +2221,7 @@ onMounted(async () => {
                   v-if="a.isManager.value && a.selected.agent"
                   class="row-actions"
                 >
-                  <button class="btn secondary small" @click="openAgentBatch">
+                  <button class="btn secondary small" @click="go('applications')">
                     批量发卡
                   </button>
                   <button class="btn secondary small" @click="openAgentEmail">
@@ -2305,7 +2274,7 @@ onMounted(async () => {
                   <button
                     v-if="a.isManager.value"
                     class="btn secondary small"
-                    @click="action = 'quota'"
+                    @click="go('applications')"
                   >
                     发放张数额度
                   </button>
@@ -2327,7 +2296,7 @@ onMounted(async () => {
               </p>
             </aside>
           </div>
-          <CommercePanel
+          <AgentSettlement
             v-if="a.selected.agent"
             :key="a.selected.agent"
             :agent-id="a.selected.agent"

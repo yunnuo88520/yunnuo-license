@@ -43,6 +43,7 @@ var (
 )
 
 type API struct {
+	authorizationV2Only  bool
 	adminPath            string
 	installReady         atomic.Bool
 	service              *service.Service
@@ -117,6 +118,7 @@ func (api *API) WithSetupToken(token string) *API { api.setupToken = token; retu
 
 func (api *API) Handler() http.Handler {
 	mux := http.NewServeMux()
+	api.registerLicensingV2(mux)
 	api.registerReleaseRoutes(mux)
 	api.registerApplicationCredentialRoutes(mux)
 	api.registerAgentIdentityRoutes(mux)
@@ -219,7 +221,7 @@ func (api *API) Handler() http.Handler {
 	mux.HandleFunc("GET /admin-console", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	mux.HandleFunc("GET /admin-console/", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	mux.HandleFunc("GET /", api.publicApp)
-	return requestID(api.observeRequests(api.productionSecurity(api.operationAudit(api.installationGate(mux), mux))))
+	return requestID(api.observeRequests(api.productionSecurity(api.operationAudit(api.installationGate(api.authorizationCutover(mux)), mux))))
 }
 
 func (api *API) publicApp(w http.ResponseWriter, r *http.Request) {
@@ -1278,6 +1280,9 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status = appErr.HTTPStatus
 		code = appErr.Code
 		message = appErr.Message
+	}
+	if v2Status, v2Code, v2Message, ok := licensingHTTPError(err); ok {
+		status, code, message = v2Status, v2Code, v2Message
 	}
 	writeJSON(w, status, map[string]any{
 		"success":    false,

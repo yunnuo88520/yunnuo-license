@@ -65,6 +65,18 @@ func Current() Info {
 		Capabilities:   UpgradeCapabilities{},
 		Releases: []Release{
 			{
+				Version: "0.4.0",
+				Date:    "2026-10-28",
+				Title:   "应用隔离授权核心与标准接入协议",
+				Highlights: []string{
+					"按应用强制隔离数据、签名密钥与审计，停用旧授权运行接口",
+					"支持永久、订阅、浮动、按量授权及多形态同包激活",
+					"页面生成五种语言标准 HTTP、RS256 JWT 与 JWKS 接入项目",
+					"独立更新权益、签名升级、续费退款及代理成本闭环",
+					"提供安装引导、Compose 与 Nginx/Go 传统部署包",
+				},
+			},
+			{
 				Version: "0.3.0",
 				Date:    "2026-10-25",
 				Title:   "控制台导航与表单体验重构",

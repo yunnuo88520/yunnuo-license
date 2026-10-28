@@ -69,11 +69,13 @@ func main() {
 	if err := svc.EnsureAgentLoginCodes(ctx); err != nil {
 		log.Fatal(err)
 	}
-	svc.StartExpiryReminderScheduler()
+	// Legacy license reminders must not present archived entitlements as active.
+	// V2 entitlement status is evaluated by the scoped licensing service.
 	svc.StartNotificationWorker()
 	server := &http.Server{
 		Addr: cfg.Addr,
 		Handler: httpapi.New(svc, cfg.PublicStaticDir, cfg.AdminStaticDir, cfg.AgentStaticDir).
+			WithAuthorizationV2Only().
 			WithFrontendServing(cfg.ServeFrontend).
 			WithTrustedProxyHeaders(cfg.TrustProxyHeaders).
 			WithTrustedProxyNetworks(cfg.TrustedProxyNetworks).

@@ -24,7 +24,7 @@ jobs:
       - run: go test ./...
       - run: go vet ./...
       - name: Race-check authorization, storage and backup transactions
-        run: python3 ../.github/scripts/check-command.py --log "$RUNNER_TEMP/yunnuo-backend/race.log" "Backend race acceptance" go test -race ./internal/service ./internal/httpapi ./internal/store ./internal/maintenance
+        run: python3 ../.github/scripts/check-command.py --log "$RUNNER_TEMP/yunnuo-backend/race.log" "Backend race acceptance" go test -race ./internal/service ./internal/httpapi ./internal/store ./internal/maintenance ./internal/licensing
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -88,14 +88,15 @@ jobs:
         run: npm ci && npm run build
       - name: Test independent website upgrade, expiry and rollback
         run: |
-          python3 examples/update-demo/test_e2e.py --license-server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-update-demo/subscription"
-          python3 examples/update-demo/test_e2e.py --license-mode perpetual --license-server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-update-demo/perpetual"
+          python3 examples/update-demo/test_v2.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-update-demo/v2"
           python3 examples/platform-e2e/test_install.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/install"
-          python3 examples/platform-e2e/test_recovery_history.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/recovery-history"
-          python3 examples/platform-e2e/test_stage1.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/stage1"
-          python3 examples/platform-e2e/test_stage2.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/stage2"
-          python3 examples/platform-e2e/test_stage3.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/stage3"
-          python3 examples/platform-e2e/test_stage4.py --server /tmp/yunnuo-demo-server --artifacts "$RUNNER_TEMP/yunnuo-platform/stage4"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v2-update-and-install-evidence
+          path: |
+            ${{ runner.temp }}/yunnuo-update-demo
+            ${{ runner.temp }}/yunnuo-platform
 
   sdk:
     runs-on: ubuntu-latest
@@ -103,8 +104,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.22.x'
-          cache-dependency-path: sdk/go/go.mod
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
       - name: Test Go SDK
         working-directory: sdk/go
         run: test -z "$(gofmt -l .)" && go test ./...
@@ -122,6 +123,33 @@ jobs:
       - name: Test Java SDK
         working-directory: sdk/java
         run: mvn -B test
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Prepare Rust for generated language-neutral client examples
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/yunnuo-rust-target
+          key: ${{ runner.os }}-v2-rust-${{ hashFiles('backend/internal/licensing/templates/Cargo.toml') }}
+      - name: Compile and run the exact Go, Java, Python, Rust and TypeScript page projects
+        timeout-minutes: 20
+        env:
+          YN_RUN_GENERATED_CLIENTS: '1'
+          YN_V2_CLIENT_REPORT: ${{ runner.temp }}/yunnuo-generated-clients/report.json
+          CARGO_TARGET_DIR: ${{ runner.temp }}/yunnuo-rust-target
+        run: |
+          mkdir -p "$RUNNER_TEMP/yunnuo-generated-clients"
+          python .github/scripts/check-command.py --timeout 1140 --log "$RUNNER_TEMP/yunnuo-generated-clients/clients.log" "Five generated client acceptance" go -C backend test ./internal/httpapi -run '^TestGeneratedStandardClients$' -count=1 -timeout=19m -v
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: generated-five-language-client-evidence
+          path: ${{ runner.temp }}/yunnuo-generated-clients
 
   frontend:
     # Keep the browser/font environment stable while ubuntu-latest migrates.
@@ -185,35 +213,18 @@ jobs:
         timeout-minutes: 3
         run: |
           python .github/scripts/check-command.py "Appearance browser acceptance" python examples/platform-e2e/test_appearance.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-appearance"
-      - name: Compile and run the projects downloaded from the integration guide
-        timeout-minutes: 8
-        run: python .github/scripts/check-command.py "Developer integration acceptance" python examples/platform-e2e/test_integration.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-integration"
-      - name: Verify standard-product licensing and native GUI upgrades
+      - name: Verify current application, sales, user, agent, integration and audit pages
         timeout-minutes: 6
-        run: |
-          go -C examples/universal-client build -buildvcs=false -o /tmp/yunnuo-product-client .
-          python .github/scripts/check-command.py "Licensing scenario browser acceptance" python examples/platform-e2e/test_scenarios.py --server /tmp/yunnuo-appearance-server --client /tmp/yunnuo-product-client --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-scenarios/browser"
-          /usr/bin/python3 examples/platform-e2e/test_scenarios.py --server /tmp/yunnuo-appearance-server --client /tmp/yunnuo-product-client --gui --artifacts "$RUNNER_TEMP/yunnuo-scenarios/native"
+        run: python .github/scripts/check-command.py "V2 browser acceptance" python examples/platform-e2e/test_authorization_v2.py --server /tmp/yunnuo-appearance-server --chromium bundled --artifacts "$RUNNER_TEMP/yunnuo-v2-browser"
+      - name: Run the downloaded native desktop window and retain screenshot evidence
+        timeout-minutes: 4
+        run: YN_TEST_PIP_PYTHON="$(command -v python)" /usr/bin/python3 examples/platform-e2e/test_v2_gui.py --server /tmp/yunnuo-appearance-server --artifacts "$RUNNER_TEMP/yunnuo-v2-gui"
       - name: Verify ordinary login, image CAPTCHA and opt-in two-factor login
         timeout-minutes: 4
         run: python .github/scripts/check-command.py "Login flow acceptance" python examples/platform-e2e/test_login.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-login"
       - name: Verify password confirmation and correct session handling in all consoles
         timeout-minutes: 4
         run: python .github/scripts/check-command.py "Password change acceptance" python examples/platform-e2e/test_password.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-password"
-      - name: Verify card detection and agent application selection in a real browser
-        timeout-minutes: 4
-        run: |
-          python .github/scripts/check-command.py "Card application detection acceptance" python examples/platform-e2e/test_stage1.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-application-identity/user"
-          python .github/scripts/check-command.py "Agent application selection acceptance" python examples/platform-e2e/test_stage3.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-application-identity/agent"
-      - name: Verify unified agent accounts and one-step onboarding
-        timeout-minutes: 4
-        run: python .github/scripts/check-command.py "Unified agent account acceptance" python examples/platform-e2e/test_agent_accounts.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-agent-accounts"
-      - name: Verify default agent tiers and administrator cost ratios
-        timeout-minutes: 4
-        run: python .github/scripts/check-command.py "Agent tier pricing acceptance" python examples/platform-e2e/test_agent_tiers.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-agent-tiers"
-      - name: Verify authorization concurrency, operations and MFA in a real browser
-        timeout-minutes: 4
-        run: python .github/scripts/check-command.py "Commercial readiness acceptance" python examples/platform-e2e/test_production.py --server /tmp/yunnuo-appearance-server --chromium bundled --screenshots --artifacts "$RUNNER_TEMP/yunnuo-production"
       - name: Extract native archives and run Nginx plus API-only Go deployment
         timeout-minutes: 8
         run: |
@@ -228,18 +239,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: integration-browser-evidence
+          name: authorization-browser-and-deployment-evidence
           path: |
-            ${{ runner.temp }}/yunnuo-integration
-            ${{ runner.temp }}/yunnuo-application-identity
-            ${{ runner.temp }}/yunnuo-agent-accounts
-            ${{ runner.temp }}/yunnuo-agent-tiers
-            ${{ runner.temp }}/yunnuo-production
+            ${{ runner.temp }}/yunnuo-v2-browser
+            ${{ runner.temp }}/yunnuo-v2-gui
             ${{ runner.temp }}/yunnuo-native-deployment
             ${{ runner.temp }}/yunnuo-ci-setup
             ${{ runner.temp }}/yunnuo-login
             ${{ runner.temp }}/yunnuo-password
-            ${{ runner.temp }}/yunnuo-scenarios
 
   docker:
     runs-on: ubuntu-latest
@@ -256,8 +263,7 @@ jobs:
         timeout-minutes: 6
         run: |
           go -C backend build -o /tmp/yunnuo-scenario-server ./cmd/server
-          CGO_ENABLED=0 go -C examples/universal-client build -buildvcs=false -o /tmp/yunnuo-product-client .
-          python3 .github/scripts/check-command.py "Docker product update acceptance" python3 examples/platform-e2e/test_scenarios.py --server /tmp/yunnuo-scenario-server --client /tmp/yunnuo-product-client --docker --artifacts "$RUNNER_TEMP/yunnuo-docker-scenarios"
+          python3 .github/scripts/check-command.py "Docker product update acceptance" python3 examples/platform-e2e/test_v2_docker.py --server /tmp/yunnuo-scenario-server --artifacts "$RUNNER_TEMP/yunnuo-docker-scenarios"
       - name: Build and test all-in-one image
         run: python3 .github/scripts/check-command.py "Docker image acceptance" ./docker/test-image.sh yunnuo-license:test
         env:
@@ -290,3 +296,34 @@ jobs:
             ${{ runner.temp }}/yunnuo-mysql
             ${{ runner.temp }}/yunnuo-compose-deployment
             ${{ runner.temp }}/yunnuo-docker-scenarios
+
+  licensing-mysql:
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: v2-isolated-ci-password
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin --protocol=tcp -h127.0.0.1 -uroot -pv2-isolated-ci-password ping --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: backend/go.sum
+      - name: Run complete scoped licensing and concurrency scenarios in real MySQL
+        env:
+          YN_V2_MYSQL_DSN: 'root:v2-isolated-ci-password@tcp(127.0.0.1:3306)/?charset=utf8mb4&multiStatements=true&parseTime=false'
+        run: python3 .github/scripts/check-command.py --log "$RUNNER_TEMP/yunnuo-v2-mysql/scenarios.log" "V2 MySQL acceptance" go -C backend test ./internal/licensing -count=1 -timeout=12m -v
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v2-mysql-scenario-evidence
+          path: ${{ runner.temp }}/yunnuo-v2-mysql

@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+from v2_product import Product
 
 REPO=pathlib.Path(__file__).resolve().parents[2]
 def load(name,path):
@@ -39,7 +40,7 @@ def main():
             private=subprocess.check_output([*command,'exec','-T','license','cat','/var/lib/mysql/.yunnuo/database.json.install-token'],text=True).strip();assert len(private)>=32
             assert http.http(base,'/v1/setup/initialize',{},expected=403)['error']['code']=='SETUP_TOKEN_REQUIRED'
             password=secrets.token_hex(24);http.http(base,'/v1/setup/initialize',{'database_driver':'mysql','database_host':'127.0.0.1','database_port':3306,'database_name':values['MYSQL_DATABASE'],'database_user':values['MYSQL_USER'],'database_password':values['MYSQL_PASSWORD'],'admin_username':'admin','admin_password':password},extra_headers={'X-Setup-Token':private})
-            token=http.api(base,'/admin/login',{'username':'admin','password':password})['access_token'];product=http.api(base,'/admin/products',{'name':'Compose authorization','bind_mode':'domain'},token);batch=http.api(base,'/admin/card-batches',{'product_id':product['id'],'name':'Compose persistence','quantity':1,'duration_days':30},token);binding={'app_key':product['id'],'bind_mode':'domain','bind_value':'compose.example.com'};license=http.api(base,'/v1/licenses/activate',{**binding,'card_code':batch['codes'][0]});binding['license_no']=license['license_no']
+            token=http.api(base,'/admin/login',{'username':'admin','password':password})['access_token'];product=Product(base,token,pathlib.Path(temporary)/'product',form='container');license=product.license();product.publish();product.download()
             report['checks'].append('Compose starts embedded MySQL without publishing database ports; first-run token installation, admin login and actual license activation work')
             subprocess.run([*command,'restart','license'],check=True,capture_output=True,text=True)
             for _ in range(120):
@@ -48,7 +49,7 @@ def main():
                 except (OSError,AssertionError):pass
                 time.sleep(1)
             else:raise AssertionError('Compose restart did not become ready')
-            assert http.api(base,'/admin/profile',token=token)['username']=='admin';assert http.api(base,'/v1/licenses/verify',binding)['expired_at']==license['expired_at'];assert http.api(base,'/v1/setup/status')['initialized']
+            assert http.api(base,'/admin/profile',token=token)['username']=='admin';assert product.verify()['valid'];assert product.license()['updates_until']==license['updates_until'];product.download();assert http.api(base,'/v1/setup/status')['initialized']
             report['checks'].append('Compose restart preserves database, encryption keys, administrator session, issued license and original deadline')
             report.update(result='passed',database='mysql',published_database_ports=False)
         finally:

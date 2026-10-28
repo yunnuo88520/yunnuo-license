@@ -1,3 +1,5 @@
+> 历史 V1 资料，供存档参考。当前生产授权接口已切换 V2，请使用后台“应用授权中心 → 接入文档”和 [当前接入指南](../developer-integration.md)，不要使用本文旧接口或 SDK 接入新应用。
+
 # Phase 1 API Quickstart
 
 先在 `frontend` 执行 `npm ci && npm run build`，再启动后端：

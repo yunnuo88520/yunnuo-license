@@ -25,6 +25,7 @@ import { branding, loadBranding, logoSource } from "../shared/branding";
 
 const mode = ref("license");
 const query = ref("");
+const applications=ref<any[]>([]),applicationID=ref("");
 const queryType = ref("auto");
 const loading = ref(false);
 const error = ref("");
@@ -33,22 +34,9 @@ const needCaptcha = ref(false);
 const captchaCode = ref("");
 const helpOpen = ref(false);
 const captchaField = ref<any>(null);
-const queryTypes = [
-  { value: "auto", label: "智能识别", icon: Crosshair },
-  { value: "domain", label: "域名", icon: Globe2 },
-  { value: "ip", label: "IP", icon: Network },
-  { value: "account", label: "账号", icon: CircleUserRound },
-  { value: "license", label: "许可证", icon: KeyRound },
-  { value: "card", label: "卡密", icon: TicketCheck },
-];
-const placeholders: Record<string, string> = {
-  auto: "输入域名、IP、账号或授权凭证",
-  domain: "例如 example.com",
-  ip: "例如 203.0.113.42",
-  account: "输入 QQ、手机号或业务账号",
-  license: "输入 lic_ 开头的授权编号",
-  card: "输入完整卡密",
-};
+const queryTypes = [{value:"auto",label:"智能识别",icon:Crosshair},{value:"domain",label:"域名",icon:Globe2},{value:"ip",label:"IP",icon:Network},{value:"card",label:"卡密",icon:TicketCheck}];
+const placeholders:Record<string,string>={auto:"输入域名、IP 或卡密",domain:"例如 example.com",ip:"例如 203.0.113.42",card:"输入完整激活卡密"};
+const publicStatus=(r:any)=>r.authorized?"已授权":({suspended:"授权已暂停",revoked:"授权已吊销",expired:"授权已到期",policy_denied:"当前来源未获准",not_found:"未查询到授权"} as any)[r.status]||"未获有效授权";
 const displayResults = computed(() =>
   result.value?.results?.length
     ? result.value.results
@@ -58,6 +46,7 @@ const displayResults = computed(() =>
 );
 onMounted(async () => {
   await loadBranding("授权查询").catch(() => undefined);
+ applications.value=await request<any[]>("/v2/public/applications").catch(()=>[]);applicationID.value=applications.value[0]?.app_id||"";
 });
 async function submit() {
   const value = query.value.trim();
@@ -66,18 +55,11 @@ async function submit() {
   error.value = "";
   result.value = null;
   try {
-    const payload: Record<string, string> = {
-      query: value,
-      query_type: queryType.value,
-    };
-    if (needCaptcha.value) {
-      payload.captcha_id = captchaField.value?.captchaId || "";
-      payload.captcha_code = captchaCode.value;
-    }
-    result.value = await request("/v1/licenses/query", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    let kind=queryType.value;if(kind==="auto")kind=value.toUpperCase().startsWith("YN2-")?"card":/^[0-9.]+$/.test(value)||value.includes(":")&&!value.includes("://")?"ip":"domain";
+    const payload:any={app_id:applicationID.value,binding:{type:kind==="card"?"domain":kind,value:kind==="card"?"":value}};
+    if(kind==="card")payload.card_code=value;
+    if(needCaptcha.value){payload.captcha_id=captchaField.value?.captchaId||"";payload.captcha_code=captchaCode.value;}
+    result.value=await request("/v2/public/query",{method:"POST",body:JSON.stringify(payload)});
   } catch (e: any) {
     if (
       e instanceof ApiError &&
@@ -166,7 +148,7 @@ function selectQueryType(value: string) {
         </div>
         <AgentVerify v-if="mode === 'agent'" />
         <form v-else class="query-form" @submit.prevent="submit">
-          <label for="license-query">授权查询</label>
+          <label class="field">选择应用<select v-model="applicationID" aria-label="查询应用" required><option value="" disabled>请选择公开应用</option><option v-for="a in applications" :key="a.app_id" :value="a.app_id">{{a.name}}</option></select></label><p v-if="!applications.length">暂无公开应用，请联系产品开发者或登录用户中心查询。</p><label for="license-query">授权查询</label>
           <div class="query-types" role="group" aria-label="查询类型">
             <button
               v-for="type in queryTypes"
@@ -182,12 +164,13 @@ function selectQueryType(value: string) {
           <div class="query-input">
             <Search :size="22" /><input
               id="license-query"
+              :type="queryType==='card'||query.toUpperCase().startsWith('YN2-')?'password':'text'"
               v-model="query"
               required
               autocomplete="off"
               :placeholder="placeholders[queryType]"
               autofocus
-            /><button :disabled="loading || !query.trim()" aria-label="查询">
+            /><button :disabled="loading || !query.trim()||!applicationID" aria-label="查询">
               <RotateCcw v-if="loading" class="spin" :size="20" /><ArrowRight
                 v-else
                 :size="22"
@@ -210,106 +193,8 @@ function selectQueryType(value: string) {
     </section>
     <Transition name="result">
       <section v-if="result && mode === 'license'" class="query-result">
-        <div class="result-title">
-          <div>
-            <span class="eyebrow"
-              ><CheckCircle2 :size="15" /> QUERY COMPLETE</span
-            >
-            <h2>
-              {{
-                result.results?.length
-                  ? `找到 ${result.match_count} 项授权`
-                  : result.product_name
-              }}
-            </h2>
-            <code>{{ result.query_masked || result.product_id }}</code>
-          </div>
-          <span
-            v-if="!result.results?.length"
-            class="status"
-            :class="result.license_status || result.card_status"
-            >{{
-              statusLabel(result.license_status || result.card_status)
-            }}</span
-          >
-        </div>
-        <div class="result-list">
-          <article
-            v-for="(item, index) in displayResults"
-            :key="item.license_no || index"
-          >
-            <header v-if="result.results?.length">
-              <div>
-                <strong>{{ item.product_name }}</strong
-                ><code>{{ item.product_id }}</code>
-              </div>
-              <span class="status" :class="item.license_status">{{
-                statusLabel(item.license_status)
-              }}</span>
-            </header>
-            <dl>
-              <div v-if="item.license_no">
-                <dt>授权编号</dt>
-                <dd class="mono">{{ item.license_no }}</dd>
-              </div>
-              <div v-if="item.card_status">
-                <dt>卡密状态</dt>
-                <dd>{{ statusLabel(item.card_status) }}</dd>
-              </div>
-              <div>
-                <dt>授权状态</dt>
-                <dd>
-                  {{ statusLabel(item.license_status || item.card_status) }}
-                </dd>
-              </div>
-              <div>
-                <dt>授权时长</dt>
-                <dd>
-                  {{
-                    item.is_permanent
-                      ? "永久"
-                      : item.duration_days
-                        ? `${item.duration_days} 天`
-                        : "按到期时间"
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>激活时间</dt>
-                <dd>{{ formatTime(item.activated_at) }}</dd>
-              </div>
-              <div>
-                <dt>到期时间</dt>
-                <dd>
-                  {{
-                    item.is_permanent ? "永久使用" : formatTime(item.expired_at)
-                  }}
-                </dd>
-              </div>
-              <div v-if="item.license_no">
-                <dt>更新服务到期</dt>
-                <dd>
-                  {{
-                    item.updates_expired_at
-                      ? formatTime(item.updates_expired_at)
-                      : "永久更新"
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>最近验证</dt>
-                <dd>{{ formatTime(item.last_verify_at) }}</dd>
-              </div>
-              <div v-if="!result.results?.length">
-                <dt>服务器时间</dt>
-                <dd>{{ formatTime(result.server_time) }}</dd>
-              </div>
-            </dl>
-          </article>
-        </div>
-        <p v-if="result.results?.length" class="result-time">
-          查询时间 {{ formatTime(result.server_time) }}
-        </p>
+        <div class="result-title"><div><span class="eyebrow"><CheckCircle2 :size="15" /> QUERY COMPLETE</span><h2>{{result.application.name}}</h2><code>{{result.application.app_id}}</code></div><span class="status" :class="result.authorized?'active':result.status">{{publicStatus(result)}}</span></div>
+        <div class="result-list"><article><dl><div><dt>授权状态</dt><dd>{{publicStatus(result)}}</dd></div><div v-if="result.model"><dt>授权模型</dt><dd>{{({perpetual:'永久',subscription:'订阅',floating:'浮动席位',metered:'按量'} as any)[result.model]}}</dd></div><div v-if="result.model"><dt>使用期限</dt><dd>{{result.perpetual?'永久使用':result.awaiting_activation?'首次激活后起算':formatTime(result.usage_expires_at)}}</dd></div><div v-if="result.model"><dt>更新服务</dt><dd>{{result.updates_allowed?'当前可在线更新':'当前无在线更新资格'}}</dd></div><div v-if="result.updates_until"><dt>更新截止</dt><dd>{{formatTime(result.updates_until)}}</dd></div><div><dt>查询时间</dt><dd>{{formatTime(result.server_time)}}</dd></div></dl></article></div><p class="result-time">公开结果仅用于验真，不会签发运行凭证。账号、租户或设备授权请登录用户中心查看。</p>
         <button class="btn secondary" @click="clear">
           <KeyRound :size="16" />查询其他授权
         </button>

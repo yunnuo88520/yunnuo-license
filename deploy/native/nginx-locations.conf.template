@@ -7,11 +7,16 @@ location ^~ /assets/ {
     try_files $uri =404;
     expires 1h;
 }
-location ~ ^/(v1|admin|agent|user|developer)/.+ {
+location ~ ^/(v1|v2|admin|agent|user|developer)/.+ {
     proxy_pass http://__UPSTREAM__;
     include __PROXY_HEADERS__;
     proxy_read_timeout 900s;
     proxy_send_timeout 120s;
+    proxy_intercept_errors off;
+}
+location = /.well-known/jwks.json {
+    proxy_pass http://__UPSTREAM__;
+    include __PROXY_HEADERS__;
     proxy_intercept_errors off;
 }
 location = /healthz {

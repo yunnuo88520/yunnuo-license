@@ -11,8 +11,8 @@ docker exec "$container" yunnuo-ops backup --recipient "$recipient" --output /tm
 printf '%s\n' 'yunnuo:docker-test-db-password@tcp(127.0.0.1:3306)/yunnuo_restore?charset=utf8mb4&multiStatements=true&parseTime=false' | docker exec -i "$container" sh -c 'umask 077; cat > /tmp/restore-dsn'
 docker exec "$container" yunnuo-ops restore --input /tmp/full-backup.age --identity /tmp/restore-test-identity --destination /tmp/restored-instance --mysql-dsn-file /tmp/restore-dsn
 # Verify fresh database parity before booting its own application process.
-docker exec "$container" sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -uyunnuo -N -e "SELECT COUNT(*) FROM yunnuo_restore.licenses; SELECT COUNT(*) FROM yunnuo_restore.agent_money_ledgers; SELECT COUNT(*) FROM yunnuo_restore.schema_migrations;"' > /tmp/yunnuo-restore-counts-$$
-docker exec "$container" sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -uyunnuo -N -e "SELECT COUNT(*) FROM yunnuo_license.licenses; SELECT COUNT(*) FROM yunnuo_license.agent_money_ledgers; SELECT COUNT(*) FROM yunnuo_license.schema_migrations;"' > /tmp/yunnuo-source-counts-$$
+docker exec "$container" sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -uyunnuo -N -e "SELECT COUNT(*) FROM yunnuo_restore.application_licenses; SELECT COUNT(*) FROM yunnuo_restore.agent_money_ledgers; SELECT COUNT(*) FROM yunnuo_restore.schema_migrations;"' > /tmp/yunnuo-restore-counts-$$
+docker exec "$container" sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -uyunnuo -N -e "SELECT COUNT(*) FROM yunnuo_license.application_licenses; SELECT COUNT(*) FROM yunnuo_license.agent_money_ledgers; SELECT COUNT(*) FROM yunnuo_license.schema_migrations;"' > /tmp/yunnuo-source-counts-$$
 cmp /tmp/yunnuo-restore-counts-$$ /tmp/yunnuo-source-counts-$$
 rm /tmp/yunnuo-restore-counts-$$ /tmp/yunnuo-source-counts-$$
 docker exec -d -e YN_ADDR=:8081 -e YN_DB_CONFIG_FILE=/tmp/restored-instance/config.json -e YN_RELEASE_DIR=/tmp/restored-instance/releases "$container" sh -c 'cd /opt/yunnuo/backend; exec yunnuo-server > /tmp/restored-instance/server.log 2>&1'
@@ -22,7 +22,7 @@ for attempt in $(seq 1 60); do
   if [[ "$attempt" == 60 ]]; then docker exec "$container" cat /tmp/restored-instance/server.log; exit 1; fi
   sleep 1
 done
-YN_TEST_ADMIN_PASSWORD=docker-test-admin-password python3 ./docker/test-product-updates.py verify "http://127.0.0.1:$port" "$state"
+YN_TEST_ADMIN_PASSWORD=docker-test-admin-password python3 examples/platform-e2e/test_v2_image.py verify --base-url "http://127.0.0.1:$port" --state "$state" --artifacts "${YN_DOCKER_ARTIFACTS:-/tmp/yunnuo-v2-restore-evidence}/v2-restored"
 # Source and restored instances retain identical cryptographic material and
 # records; the independent HTTP probe runs inside the container's network.
 echo 'MySQL encrypted full backup restored into a fresh DB and separate application process'

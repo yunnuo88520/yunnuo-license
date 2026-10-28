@@ -60,6 +60,17 @@ func (s *Service) PublicAgentQuery(ctx context.Context, in PublicAgentInput) (Pu
 		seen[p.ID] = true
 		v.Applications = append(v.Applications, PublicAgentProduct{ID: p.ID, Name: p.Name, Code: p.Code})
 	}
+	scopedApps, err := s.Licensing().PublicAgentApplications(ctx, a.ID)
+	if err != nil {
+		return v, err
+	}
+	for _, p := range scopedApps {
+		if seen[p.AppID] || in.ApplicationID != "" && in.ApplicationID != p.AppID || in.ApplicationCode != "" {
+			continue
+		}
+		seen[p.AppID] = true
+		v.Applications = append(v.Applications, PublicAgentProduct{ID: p.AppID, Name: p.Name})
+	}
 	v.IsAuthorized = len(v.Applications) > 0
 	return v, nil
 }

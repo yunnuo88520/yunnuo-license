@@ -35,7 +35,7 @@ func (api *API) installationGate(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/install", http.StatusTemporaryRedirect)
 			return
 		}
-		for _, prefix := range []string{"/admin/", "/agent/", "/user/", "/developer/", "/v1/"} {
+		for _, prefix := range []string{"/admin/", "/agent/", "/user/", "/developer/", "/v1/", "/v2/", "/.well-known/"} {
 			if strings.HasPrefix(path, prefix) {
 				writeError(w, r, service.AppError{Code: "INSTALL_REQUIRED", Message: "complete installation at /install", HTTPStatus: 503})
 				return

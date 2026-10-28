@@ -17,8 +17,8 @@
 ```bash
 sha256sum --ignore-missing -c SHA256SUMS
 umask 022
-tar --no-same-owner -xzf yunnuo-license-v0.3.0-linux-amd64.tar.gz
-cd yunnuo-license-v0.3.0-linux-amd64
+tar --no-same-owner -xzf yunnuo-license-v0.4.0-linux-amd64.tar.gz
+cd yunnuo-license-v0.4.0-linux-amd64
 ```
 
 版本号以实际下载文件为准。若从 Actions 下载的是外层 ZIP，先解压 ZIP 再解压其中的 tar.gz。
@@ -34,6 +34,8 @@ cd yunnuo-license-v0.3.0-linux-amd64
 ## 单机 Nginx + Go
 
 要求 Linux、Nginx、Python 3.8+（只用于生成配置）。SQLite 已内置；外部 MySQL 使用 8.x，验收采用 8.4，5.7 不受支持。需要用 MySQL 做备份/恢复时还应安装对应版本的 `mysqldump` 和 `mysql` 客户端。
+
+MySQL 应用账号需要本库建表、索引、外键和 `TRIGGER` 权限，以建立不可更新/删除的应用审计触发器。若开启二进制日志，数据库管理员需在安装前设置 `log_bin_trust_function_creators=ON`（MySQL 8 可执行 `SET PERSIST log_bin_trust_function_creators=ON;`；宝塔也可在 `[mysqld]` 配置中添加后重启数据库）。不需要把全局 SUPER 权限授予应用账号。托管数据库通过参数组设置；无法满足时选择 SQLite 或由 DBA 预先完成迁移。Docker 内置数据库已设置该选项。
 
 普通 Linux 可先由管理员创建服务用户；宝塔通常已有 `www` 用户：
 

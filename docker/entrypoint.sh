@@ -23,7 +23,7 @@ shutdown() {
 }
 trap shutdown TERM INT EXIT
 
-docker-entrypoint.sh mysqld --bind-address=127.0.0.1 --mysqlx=OFF &
+docker-entrypoint.sh mysqld --bind-address=127.0.0.1 --mysqlx=OFF --log-bin-trust-function-creators=ON &
 mysql_pid=$!
 
 for attempt in $(seq 1 120); do
